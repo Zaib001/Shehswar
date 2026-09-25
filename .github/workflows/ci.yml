@@ -1,0 +1,68 @@
+name: SHEHSWAR ONE360 CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate:
+    name: Lint, Typecheck & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: shehswar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Validate Formatting
+        run: npm run format:check
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+        env:
+          DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/shehswar_test?schema=public"
+
+      - name: Type Check & Build Packages
+        run: npm run build
+
+      - name: Run Test Suite
+        run: npm run test
+        env:
+          DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/shehswar_test?schema=public"
+          JWT_ACCESS_SECRET: "ci_pipeline_jwt_access_super_secret_key_2026_test"
+          JWT_REFRESH_SECRET: "ci_pipeline_jwt_refresh_super_secret_key_2026_test"

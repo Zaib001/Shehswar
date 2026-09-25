@@ -1,0 +1,34 @@
+{
+  "name": "shehswar-one360",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shehswar ONE360 - Enterprise ERP & CRM Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
+    "db:generate": "npm run generate --workspace=@shehswar/database",
+    "db:migrate": "npm run migrate --workspace=@shehswar/database",
+    "db:seed": "npm run seed --workspace=@shehswar/database"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.2",
+    "typescript": "^5.6.2"
+  },
+  "packageManager": "npm@11.9.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "author": "Shehswar Architecture Team",
+  "license": "UNLICENSED"
+}
