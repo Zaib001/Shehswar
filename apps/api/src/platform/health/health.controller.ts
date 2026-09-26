@@ -1,7 +1,13 @@
 /**
- * SHEHSWAR ONE360 - Health & Liveness Probes
+ * SHEHSWAR ONE360 - Health & Readiness Probes
+ *
+ * /health/live: Process liveness (is process responsive?)
+ * /health/ready: Operational readiness (can service fulfill business requests?)
+ *
+ * Security: No database URLs, passwords, or internal infrastructure secrets are ever leaked.
  */
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Res, HttpStatus } from '@nestjs/common';
+import { Response } from 'express';
 import { Public } from '../../core/decorators/public.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -9,6 +15,9 @@ import { PrismaService } from '../../core/database/prisma.service';
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Liveness Probe: Returns HTTP 200 if the Node.js event loop and HTTP server are responsive.
+   */
   @Public()
   @Get('live')
   live() {
@@ -19,12 +28,15 @@ export class HealthController {
     };
   }
 
+  /**
+   * Readiness Probe: Verifies mandatory dependencies (PostgreSQL database).
+   * Returns HTTP 200 when ready to accept user traffic; returns HTTP 503 if mandatory database is unavailable.
+   */
   @Public()
   @Get('ready')
-  async ready() {
+  async ready(@Res({ passthrough: true }) res: Response) {
     let dbStatus = 'UP';
     try {
-      // Light probe
       await this.prisma.$queryRaw`SELECT 1`;
     } catch {
       dbStatus = 'DOWN';
@@ -32,8 +44,12 @@ export class HealthController {
 
     const isHealthy = dbStatus === 'UP';
 
+    if (!isHealthy) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
     return {
-      status: isHealthy ? 'UP' : 'DEGRADED',
+      status: isHealthy ? 'UP' : 'UNAVAILABLE',
       timestamp: new Date().toISOString(),
       checks: {
         database: dbStatus,

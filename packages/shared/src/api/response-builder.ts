@@ -4,6 +4,7 @@
 import {
   ApiResponse,
   PaginatedResponse,
+  CursorPaginatedResponse,
   ResponseMeta,
   ApiErrorPayload,
   ApiErrorDetail,
@@ -50,6 +51,30 @@ export class ResponseBuilder {
           totalPages,
           hasNextPage: params.page < totalPages,
           hasPrevPage: params.page > 1,
+        },
+      },
+    };
+  }
+
+  static cursorPaginated<T>(params: {
+    items: T[];
+    nextCursor: string | null;
+    prevCursor?: string | null;
+    limit: number;
+    correlationId: string;
+    durationMs?: number;
+  }): CursorPaginatedResponse<T> {
+    return {
+      success: true,
+      data: params.items,
+      meta: {
+        ...this.buildMeta(params.correlationId, params.durationMs),
+        pagination: {
+          limit: params.limit,
+          nextCursor: params.nextCursor,
+          prevCursor: params.prevCursor ?? null,
+          hasNextPage: params.nextCursor !== null,
+          hasPrevPage: Boolean(params.prevCursor),
         },
       },
     };

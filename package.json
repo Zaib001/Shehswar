@@ -17,7 +17,10 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
     "db:generate": "npm run generate --workspace=@shehswar/database",
     "db:migrate": "npm run migrate --workspace=@shehswar/database",
-    "db:seed": "npm run seed --workspace=@shehswar/database"
+    "db:seed": "npm run seed --workspace=@shehswar/database",
+    "db:seed:system": "npm run seed:system --workspace=@shehswar/database",
+    "db:seed:client": "npm run seed:client --workspace=@shehswar/database",
+    "db:seed:dev": "npm run seed:dev --workspace=@shehswar/database"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

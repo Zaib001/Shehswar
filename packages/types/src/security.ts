@@ -40,6 +40,7 @@ export interface AuthUser {
   isSuperAdmin: boolean;
   organizationId: string;
   companyId: string;
+  sessionId?: string;
   roles: string[];
   permissions: string[]; // Formatted as "resource:action" e.g., "sales_order:create"
   context: SecurityContext;

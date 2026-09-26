@@ -11,9 +11,11 @@ import { CorrelationMiddleware } from './logger/correlation.middleware';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RbacGuard } from './guards/rbac.guard';
 import { DataScopeGuard } from './guards/data-scope.guard';
+import { IdempotencyModule } from './idempotency/idempotency.module';
+import { IdempotentInterceptor } from './idempotency/idempotent.interceptor';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, IdempotencyModule],
   providers: [
     {
       provide: APP_FILTER,
@@ -22,6 +24,10 @@ import { DataScopeGuard } from './guards/data-scope.guard';
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: IdempotentInterceptor,
     },
     {
       provide: APP_INTERCEPTOR,

@@ -1,7 +1,10 @@
 /**
  * SHEHSWAR ONE360 - Database Client Instance
+ *
+ * Configured with RFC 9562 UUIDv7 support for high-performance sequential B-tree indexing.
  */
 import { PrismaClient } from '@prisma/client';
+import { uuidv7, isUuidv7 } from '@shehswar/shared';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -28,4 +31,5 @@ if (process.env.NODE_ENV !== 'production') {
   global.__prisma = prisma;
 }
 
+export { uuidv7, isUuidv7 };
 export * from '@prisma/client';

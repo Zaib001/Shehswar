@@ -7,6 +7,25 @@ SHEHSWAR ONE360 is designed from day one with a two-tier tenancy model:
 1. **SaaS Multi-Tenancy (Platform Level)**: Allows separate enterprise customers (e.g. Shehswar Group, Future Customer B) to operate on the same software platform without cross-tenant data exposure.
 2. **Multi-Company Operations (Organization Level)**: Allows Shehswar Group to operate multiple legal entities (Parent Manufacturing Company and multiple Child Distribution Companies) within a single organization, enabling intercompany transfers and consolidated group financials.
 
+### Definitive Tenancy Boundary Definitions & Responsibilities
+
+| Hierarchy Level | Entity Concept         | Responsibility & Scope                                                                        | In Shehswar Context                                                       | Security Boundary Role                                                                                          |
+| :-------------- | :--------------------- | :-------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------- |
+| **Level 1**     | **`PlatformTenant`**   | Commercial SaaS billing and subscription customer account.                                    | Customer subscription: `TENANT-SHEHSWAR`.                                 | Controls billing, license tiers, module entitlements.                                                           |
+| **Level 2**     | **`Organization`**     | Top-level operational enterprise group and shared master directory.                           | Enterprise group: `ORG-SHEHSWAR-GRP` ("Shehswar Group of Companies").     | **TOP-LEVEL SECURITY ISOLATION BOUNDARY**. Appears as `organization_id` on all operational and business tables. |
+| **Level 3**     | **`Company`**          | Individual legal operating entities with their own NTN/STRN tax ID, balance sheet, and books. | `COMP-PARENT` (Manufacturing) & `COMP-CHILD-DIST` (Trading/Distribution). | Intra-organization data isolation. Enforces costing, formula, and margin privacy between sister/child units.    |
+| **Level 4**     | **`Plant` / `Branch`** | Physical operating factories, mills, or regional commercial sales offices.                    | `PLANT-MAIN` (Central Feed & Chemical Plant), Lahore Regional Branch.     | Physical inventory, machine-hour tracking, and local dispatch scoping.                                          |
+| **Level 5**     | **`Warehouse`**        | Storage locations (Raw Material silos, Finished Goods warehouses).                            | `WH-PARENT-RM`, `WH-PARENT-FG`.                                           | Stock balance ledger and bin/lot location control.                                                              |
+
+#### Answers to Architectural Tenancy Questions:
+
+1. **What is a PlatformTenant?** The paying SaaS customer account.
+2. **What is an Organization?** The operational enterprise boundary containing companies, users, roles, settings, and business transactions.
+3. **Can one tenant own multiple organizations?** Yes. A large conglomerate can operate multiple separate Organizations if business divisions require fully independent user directories and document numbering.
+4. **Is Shehswar Group the tenant or organization?** Shehswar Group is the `Organization` (`ORG-SHEHSWAR-GRP`), provisioned under its initial `PlatformTenant`.
+5. **Which ID is the top-level security isolation boundary?** `organization_id`.
+6. **Which ID appears on tenant-owned tables?** `organization_id` is the primary foreign key on all tenant-owned tables (`users`, `roles`, `audit_logs`, `domain_event_outbox`, `idempotency_records`, `document_sequences`, `sales_orders`, etc.). Query scoping strictly enforces `where: { organizationId }`.
+
 ---
 
 ## 2. Multi-Tenancy Strategy Comparison

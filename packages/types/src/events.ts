@@ -17,6 +17,7 @@ export interface DomainEvent<T = Record<string, unknown>> {
 export interface OutboxRecord {
   id: string;
   eventName: string;
+  eventVersion: number;
   aggregateType: string;
   aggregateId: string;
   payload: Record<string, unknown>;
@@ -24,8 +25,11 @@ export interface OutboxRecord {
   organizationId: string;
   companyId?: string;
   actorId?: string;
-  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'FAILED';
   retryCount: number;
+  nextRetryAt?: Date | null;
+  lockedAt?: Date | null;
+  lockedBy?: string | null;
   lastError?: string;
   createdAt: Date;
   processedAt?: Date;

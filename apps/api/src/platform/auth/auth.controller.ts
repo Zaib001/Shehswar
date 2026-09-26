@@ -5,6 +5,7 @@ import { Controller, Post, Body, Req, Get, HttpCode, HttpStatus } from '@nestjs/
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../../core/decorators/public.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { AuthUser } from '@shehswar/types';
@@ -22,10 +23,17 @@ export class AuthController {
     return this.authService.login(dto, { ipAddress, userAgent });
   }
 
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(dto.refreshToken);
+  }
+
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(@CurrentUser() user: AuthUser) {
-    // Session ID is tracked in JWT payload / token context
+    await this.authService.logout(user.sessionId);
     return { message: 'Logged out successfully', userId: user.id };
   }
 

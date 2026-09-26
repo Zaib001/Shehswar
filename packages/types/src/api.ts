@@ -55,3 +55,28 @@ export interface PaginatedResponse<T> {
   meta: PaginatedMeta;
   error?: never;
 }
+
+export interface CursorPaginationParams {
+  limit?: number;
+  cursor?: string;
+  direction?: 'forward' | 'backward';
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface CursorPaginatedMeta extends ResponseMeta {
+  pagination: {
+    limit: number;
+    nextCursor: string | null;
+    prevCursor?: string | null;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
+}
+
+export interface CursorPaginatedResponse<T> {
+  success: boolean;
+  data: T[];
+  meta: CursorPaginatedMeta;
+  error?: never;
+}

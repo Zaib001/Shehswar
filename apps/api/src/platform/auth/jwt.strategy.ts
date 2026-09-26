@@ -73,6 +73,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       isSuperAdmin: user.isSuperAdmin,
       organizationId: user.organizationId,
       companyId: user.companyId,
+      sessionId: payload.sessionId,
       roles,
       permissions: Array.from(permissionsSet),
       context: {

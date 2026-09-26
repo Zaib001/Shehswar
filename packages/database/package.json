@@ -10,11 +10,15 @@
     "generate": "prisma generate",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
-    "seed": "tsx src/seed.ts"
+    "seed": "tsx src/seed.ts",
+    "seed:system": "tsx src/seeds/system.seed.ts",
+    "seed:client": "tsx src/seeds/client.seed.ts",
+    "seed:dev": "tsx src/seeds/dev.seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
     "@shehswar/config": "*",
+    "@shehswar/shared": "*",
     "@shehswar/types": "*",
     "bcryptjs": "^2.4.3"
   },

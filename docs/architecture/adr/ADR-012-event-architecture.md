@@ -41,5 +41,6 @@ Requires an outbox table and a background relay loop.
 
 ## Consequences
 
-- Guaranteed zero lost domain events.
+- Guarantees At-Least-Once domain event delivery without dual-write inconsistency.
+- Idempotent consumers prevent duplicate business executions upon event replay.
 - Auditability of all system events directly in PostgreSQL.

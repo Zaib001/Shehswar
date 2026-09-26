@@ -177,9 +177,136 @@ export class AuthService {
     };
   }
 
-  async logout(sessionId: string): Promise<void> {
+  async logout(sessionId?: string): Promise<void> {
+    if (!sessionId) return;
     await this.prisma.userSession.updateMany({
       where: { id: sessionId },
+      data: { isRevoked: true },
+    });
+  }
+
+  /**
+   * Refreshes access token with token rotation and reuse detection
+   */
+  async refreshToken(rawRefreshToken: string): Promise<TokenPair> {
+    let payload: { sub: string; sessionId: string };
+    try {
+      payload = this.jwtService.verify(rawRefreshToken, {
+        secret: this.config.JWT_REFRESH_SECRET,
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token.');
+    }
+
+    const { sub: userId, sessionId } = payload;
+
+    // Fetch user and session
+    const [user, session] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          userRoles: {
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.userSession.findUnique({
+        where: { id: sessionId },
+      }),
+    ]);
+
+    if (!user || !user.isActive) {
+      throw new ForbiddenException('User account has been deactivated.');
+    }
+
+    if (!session || session.isRevoked || session.expiresAt < new Date()) {
+      throw new UnauthorizedException('Session is invalid, revoked, or expired.');
+    }
+
+    // Token Reuse Detection: verify stored bcrypt hash against incoming token
+    const isTokenMatch = await bcrypt.compare(rawRefreshToken, session.tokenHash);
+    if (!isTokenMatch) {
+      // Security Incident: Old or stolen token presented after rotation!
+      // Invalidate the session immediately to protect user.
+      await this.prisma.userSession.update({
+        where: { id: session.id },
+        data: { isRevoked: true },
+      });
+      throw new UnauthorizedException(
+        'Token reuse detected. Session has been revoked for security.',
+      );
+    }
+
+    // Extract updated roles & permissions
+    const roles: string[] = [];
+    const permissionsSet = new Set<string>();
+    for (const ur of user.userRoles) {
+      roles.push(ur.role.code);
+      for (const rp of ur.role.rolePermissions) {
+        permissionsSet.add(rp.permission.code);
+      }
+    }
+    const permissions = Array.from(permissionsSet);
+
+    // Sign new access token
+    const newAccessPayload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      organizationId: user.organizationId,
+      companyId: user.companyId,
+      sessionId: session.id,
+      roles,
+      permissions,
+    };
+
+    const newAccessToken = this.jwtService.sign(newAccessPayload, {
+      secret: this.config.JWT_ACCESS_SECRET,
+      expiresIn: this.config.JWT_ACCESS_EXPIRATION,
+    });
+
+    // Token Rotation: issue a new refresh token
+    const newRefreshToken = this.jwtService.sign(
+      { sub: user.id, sessionId: session.id },
+      {
+        secret: this.config.JWT_REFRESH_SECRET,
+        expiresIn: this.config.JWT_REFRESH_EXPIRATION,
+      },
+    );
+
+    // Update session with new hashed token
+    const newTokenHash = await bcrypt.hash(newRefreshToken, 8);
+    await this.prisma.userSession.update({
+      where: { id: session.id },
+      data: {
+        tokenHash: newTokenHash,
+        lastActiveAt: new Date(),
+      },
+    });
+
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresIn: 900,
+      tokenType: 'Bearer',
+    };
+  }
+
+  /**
+   * Revokes all active sessions for a user (e.g. upon password reset or admin lock)
+   */
+  async revokeAllUserSessions(userId: string): Promise<void> {
+    await this.prisma.userSession.updateMany({
+      where: { userId, isRevoked: false },
       data: { isRevoked: true },
     });
   }

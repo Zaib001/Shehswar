@@ -30,18 +30,18 @@ Rather than prematurely building ungrounded business screens, Phase 1 focused st
 
 ## 2. Architecture Created
 
-| Architecture Layer    | Core Pattern Selected         | Architectural Benefit                                                                          |
-| :-------------------- | :---------------------------- | :--------------------------------------------------------------------------------------------- |
-| **Monorepo**          | Turborepo + npm workspaces    | Type-safe shared contracts across apps; cached incremental builds.                             |
-| **Backend Core**      | Modular Monolith (NestJS 10)  | Single deployable artifact with strict DDD domain boundaries; local ACID transactions.         |
-| **Data Persistence**  | PostgreSQL 16 + Prisma ORM    | Relational integrity, declarative migrations, UUIDv7 primary keys, and exact `DECIMAL(18, 4)`. |
-| **Data Isolation**    | Hierarchical Row Scoping      | Strong SaaS tenant isolation + context-aware multi-company partitioning.                       |
-| **Access Control**    | Contextual RBAC (`can()`)     | Granular `resource:action` permissions, sensitive permission gates, and ABAC record checks.    |
-| **Asynchronous Jobs** | BullMQ + Redis 7              | Dedicated queues for notifications, imports, reports, and outbox relay with backoff retries.   |
-| **Domain Events**     | Transactional Outbox Pattern  | Eliminates dual-write anomalies; guarantees zero lost business events.                         |
-| **Object Storage**    | S3-Compatible Driver Pattern  | Provider-agnostic file handling (S3, MinIO, R2, Local Disk) with expiring signed URLs.         |
-| **Configuration**     | Cascading Hierarchy           | Platform Default -> Org Override -> Company Override -> Branch Override.                       |
-| **Observability**     | Pino JSON + AsyncLocalStorage | Zero-overhead correlation ID injection across async call stacks and health probes.             |
+| Architecture Layer    | Core Pattern Selected         | Architectural Benefit                                                                                  |
+| :-------------------- | :---------------------------- | :----------------------------------------------------------------------------------------------------- |
+| **Monorepo**          | Turborepo + npm workspaces    | Type-safe shared contracts across apps; cached incremental builds.                                     |
+| **Backend Core**      | Modular Monolith (NestJS 10)  | Single deployable artifact with strict DDD domain boundaries; local ACID transactions.                 |
+| **Data Persistence**  | PostgreSQL 16 + Prisma ORM    | Relational integrity, declarative migrations, UUIDv7 primary keys, and 7 explicit precision standards. |
+| **Data Isolation**    | Hierarchical Row Scoping      | Strong SaaS tenant isolation + context-aware multi-company partitioning.                               |
+| **Access Control**    | Contextual RBAC (`can()`)     | Granular `resource:action` permissions, sensitive permission gates, and ABAC record checks.            |
+| **Asynchronous Jobs** | BullMQ + Redis 7              | Dedicated queues for notifications, imports, reports, and outbox relay with backoff retries.           |
+| **Domain Events**     | Transactional Outbox Pattern  | Eliminates dual-write anomalies; guarantees at-least-once delivery with idempotent consumers.          |
+| **Object Storage**    | S3-Compatible Driver Pattern  | Provider-agnostic file handling (S3, MinIO, R2, Local Disk) with expiring signed URLs.                 |
+| **Configuration**     | Cascading Hierarchy           | Platform Default -> Org Override -> Company Override -> Branch Override.                               |
+| **Observability**     | Pino JSON + AsyncLocalStorage | Zero-overhead correlation ID injection across async call stacks and health probes.                     |
 
 ---
 

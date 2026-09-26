@@ -37,9 +37,17 @@ sequenceDiagram
         Relay->>Bus: Dispatch event to handlers
         Bus->>Subscriber: Execute event handler
         Subscriber-->>Bus: Handler complete
-        Relay->>Outbox: UPDATE domain_event_outbox SET status = 'PUBLISHED', processed_at = now()
     end
 ```
+
+### 2.1 Reliability & Delivery Semantics
+
+- **Delivery Semantic**: **At-Least-Once Delivery**. In distributed asynchronous architectures, network partitions or worker crashes during event acknowledgment can cause an event to be re-dispatched.
+- **Safe Worker Claiming**: Concurrent workers claim batches of pending events atomically (`claimPendingEvents(workerId)`). Stale locks (> 5 minutes old) from crashed workers are reclaimed automatically.
+- **Exponential Backoff & Retries**: Failed handler executions trigger exponential backoff ($2^{\text{retryCount}} \times 1000\text{ms}$).
+- **Dead-Letter Queueing**: If an event fails after 5 retries, it is automatically transitioned to `status: FAILED` (Dead-Letter) and generates a high-priority system administrator alert.
+- **Idempotent Consumers**: Because delivery is At-Least-Once, all event subscribers MUST use `IdempotentConsumerService` to record consumed event IDs and ensure duplicate event deliveries do not duplicate business side-effects (e.g. double debiting inventory or double issuing invoices).
+- **Event Versioning**: The `eventVersion` column tracks schema evolution across aggregate domain events.
 
 ---
 

@@ -48,12 +48,20 @@ export class AuthorizationService {
       action === Action.VIEW_COST ||
       action === Action.VIEW_MARGIN ||
       action === Action.EDIT_FORMULA ||
-      action === Action.APPROVE_FORMULA;
+      action === Action.APPROVE_FORMULA ||
+      resource === Resource.COSTING ||
+      resource === Resource.FORMULA_BOM;
 
     if (isSensitiveCostingAction) {
-      // Must have the explicit permission grant (already checked above)
-      // AND must not belong to an unauthorized child company context without elevated privileges
+      // Child company user can NEVER view or target parent manufacturing cost or formula records
       if (context?.companyId && context.companyId !== user.companyId) {
+        return false;
+      }
+      if (
+        targetRecord &&
+        targetRecord['companyId'] &&
+        targetRecord['companyId'] !== user.companyId
+      ) {
         return false;
       }
     }

@@ -28,16 +28,21 @@ What database engine, data access tool, identifier scheme, and numeric represent
 
 1. **Database Engine**: PostgreSQL 16.
 2. **ORM / Data Access**: Prisma ORM with `@shehswar/database`.
-3. **Primary Key Strategy**: UUID / UUIDv7 strings for internal database primary keys. Human-readable document identifiers (e.g. `SH-PO-2026-000123`) are maintained separately through `DocumentSequence`.
-4. **Numeric Precision Standard**:
-   - All financial amounts (unit costs, overhead, selling prices, tax, discounts, ledger totals): `DECIMAL(18, 4)`.
-   - All physical inventory/production quantities (KG, Ton, Bags, Liters): `DECIMAL(18, 4)`.
-   - In application memory: manipulated exclusively through `Money` and `Quantity` value objects backed by `Decimal.js`.
+3. **Primary Key Strategy**: **UUIDv7 (RFC 9562)** time-ordered 128-bit UUIDs across all tables. Generated via `uuidv7()` from `@shehswar/shared` to maintain sequential B-tree index locality. Database columns use native PostgreSQL `UUID`. Human-readable document identifiers (e.g. `SH-PO-2026-000123`) are maintained separately through `DocumentSequence` and are never used as relational foreign keys.
+4. **Numeric Precision Standards**:
+   - **Money**: `DECIMAL(18, 2)` — Financial transactions, invoices, ledger entries (e.g. `1,500,000.50 PKR`).
+   - **Quantity**: `DECIMAL(18, 4)` — Physical inventory weights and batch movements (e.g. `24,500.2500 KG`).
+   - **Unit Cost / Rate**: `DECIMAL(18, 6)` — High-precision purchase rates, chemical ingredient costs per gram/KG (e.g. `142.345678 PKR/KG`).
+   - **Percentage**: `DECIMAL(8, 4)` — Markup, yield, scrap, wastage, tax percentages (e.g. `17.5000%`).
+   - **Conversion Factor**: `DECIMAL(14, 6)` — Complex UOM conversion ratios (e.g. `1000.000000 KG/Ton`, `0.020000 Bag/KG`).
+   - **Composition %**: `DECIMAL(8, 4)` — BOM recipe ingredient percentages, premix micro-nutrients (e.g. `0.0250%`).
+   - **Allocation Factor**: `DECIMAL(10, 6)` — Cost center, machine-hour, and overhead absorption ratios (e.g. `0.004128`).
+   - Across API boundaries, decimals are serialized as strings (`serializeDecimal()`) to prevent IEEE-754 precision loss in JavaScript floating-point runtimes. In memory, arithmetic uses `Decimal.js`.
 5. **Timestamp Standard**: All technical timestamps stored in UTC (`DateTime @db.Timestamptz(6)`).
 
 ## Reasoning
 
-Guarantees zero floating-point accumulation errors in inventory stock valuation, formula ingredient batching, and general ledgers.
+Guarantees sequential B-tree index performance without fragmentation, eliminates floating-point accumulation errors in costing and formulations, and provides exact financial auditability.
 
 ## Trade-offs
 

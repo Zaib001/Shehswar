@@ -22,23 +22,35 @@ All schema definitions and migrations are managed through **Prisma ORM** located
 
 ## 3. Entity Identifier Strategy
 
-- **Internal Relational Primary Keys**: UUID / UUIDv7 strings (`@default(uuid()) @db.Uuid`).
-  - _Rationale_: Collision-free across distributed nodes, offline mobile generation ready, prevents sequential enumeration attacks.
+- **Internal Relational Primary Keys**: **UUIDv7 (RFC 9562)** time-ordered 128-bit UUIDs across all tables.
+  - _Generation_: Generated in application layer via `uuidv7()` (`@shehswar/shared`).
+  - _Storage_: Native PostgreSQL `UUID` (`@id @default(uuid()) @db.Uuid`).
+  - _Rationale_: Combines the distributed collision-free benefits of 128-bit UUIDs with 48-bit timestamp sequential ordering, preventing B-tree index fragmentation under heavy write workloads.
 - **Human-Readable Document Numbers**: Separate business codes (e.g. `SH-PO-2026-000123`).
-  - _Rationale_: Relational foreign keys must never couple to business document codes.
+  - _Rationale_: Relational foreign keys must never couple to business document codes. Managed atomically by `DocumentSequence`.
 
 ---
 
 ## 4. Numeric & Precision Standards (Zero Floating-Point Inaccuracy)
 
-IEEE-754 floating-point data types (`FLOAT`, `DOUBLE`, `REAL`) are **strictly prohibited** in all tables representing financial or quantitative data.
+IEEE-754 floating-point data types (`FLOAT`, `DOUBLE`, `REAL`, JavaScript `number`) are **strictly prohibited** in all tables representing financial or quantitative data.
 
-| Data Domain                      | PostgreSQL Data Type | Application Value Object        | Purpose                                                                  |
-| :------------------------------- | :------------------- | :------------------------------ | :----------------------------------------------------------------------- |
-| **Monetary Amounts**             | `DECIMAL(18, 4)`     | `Money` (`@shehswar/shared`)    | Prevents financial drift in unit pricing, discounts, taxes, and ledgers. |
-| **Inventory & Batch Quantities** | `DECIMAL(18, 4)`     | `Quantity` (`@shehswar/shared`) | Exact precision for formulas (e.g. 0.025 KG of micro-ingredients).       |
-| **Percentages & Rates**          | `DECIMAL(8, 4)`      | `Decimal` (`decimal.js`)        | Accurate markup percentages and tax withholding rates (e.g. 17.5000%).   |
-| **Conversion Factors**           | `DECIMAL(12, 6)`     | `Decimal` (`decimal.js`)        | Exact UOM conversions (e.g. 1 Bag = 50.000000 KG).                       |
+| Numeric Business Concept | PostgreSQL Data Type | Precision / Scale     | Application Representation      | Business Domain Examples                                                                               |
+| :----------------------- | :------------------- | :-------------------- | :------------------------------ | :----------------------------------------------------------------------------------------------------- |
+| **Money**                | `DECIMAL(18, 2)`     | 18 digits, 2 decimals | `Money` (`@shehswar/shared`)    | Financial transactions, invoice totals, receivables, general ledger entries (e.g. `1,500,000.50 PKR`). |
+| **Quantity**             | `DECIMAL(18, 4)`     | 18 digits, 4 decimals | `Quantity` (`@shehswar/shared`) | Physical inventory weights, silo stock, dispatch quantities (KG, Bags, Tons) (e.g. `24,500.2500 KG`).  |
+| **Unit Cost / Rate**     | `DECIMAL(18, 6)`     | 18 digits, 6 decimals | `Decimal` (`decimal.js`)        | Exact procurement rates, chemical ingredient costs per gram/KG (e.g. `142.345678 PKR/KG`).             |
+| **Percentage**           | `DECIMAL(8, 4)`      | 8 digits, 4 decimals  | `Decimal` (`decimal.js`)        | Markup percentage, yield percentage, scrap/wastage percentage, tax withholding (e.g. `17.5000%`).      |
+| **Conversion Factor**    | `DECIMAL(14, 6)`     | 14 digits, 6 decimals | `Decimal` (`decimal.js`)        | Complex UOM conversion ratios (e.g. `1000.000000 KG/Ton`, `0.020000 Bag/KG`).                          |
+| **Composition %**        | `DECIMAL(8, 4)`      | 8 digits, 4 decimals  | `Decimal` (`decimal.js`)        | BOM recipe raw-material percentages, micro-nutrients, premix vitamins (e.g. `0.0250%`).                |
+| **Allocation Factor**    | `DECIMAL(10, 6)`     | 10 digits, 6 decimals | `Decimal` (`decimal.js`)        | Cost center, machine-hour, electricity, and factory overhead absorption ratios (e.g. `0.004128`).      |
+
+### API Decimal Serialization Protocol
+
+High-precision database decimals must not silently become unsafe JavaScript floating-point numbers when transmitted across JSON API boundaries.
+
+- **Rule**: All Decimal fields are serialized as strings via `serializeDecimal(value, scale)`.
+- **Frontend Contract**: The frontend displays formatted strings via `formatMoney()`, `formatQuantity()`, and `formatDecimal()`. Authoritative calculations are performed solely on the backend.
 
 ---
 

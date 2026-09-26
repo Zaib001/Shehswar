@@ -307,6 +307,7 @@ model UserRole {
   plant     Plant?   @relation(fields: [plantId], references: [id], onDelete: SetNull)
   branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
+  @@unique([userId, roleId])
   @@index([userId])
   @@index([roleId])
   @@index([companyId])
@@ -383,20 +384,43 @@ model DomainEventOutbox {
   companyId      String?   @db.Uuid
   actorId        String?   @db.Uuid
   eventName      String    @db.VarChar(150)
+  eventVersion   Int       @default(1)
   aggregateType  String    @db.VarChar(100)
   aggregateId    String    @db.VarChar(100)
   payload        Json
   correlationId  String    @db.VarChar(100)
-  status         String    @default("PENDING") @db.VarChar(50) // PENDING, PUBLISHED, FAILED
+  status         String    @default("PENDING") @db.VarChar(50) // PENDING, PROCESSING, PUBLISHED, FAILED
   retryCount     Int       @default(0)
+  nextRetryAt    DateTime? @db.Timestamptz(6)
+  lockedAt       DateTime? @db.Timestamptz(6)
+  lockedBy       String?   @db.VarChar(100)
   lastError      String?   @db.Text
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   processedAt    DateTime? @db.Timestamptz(6)
 
-  @@index([status, createdAt])
+  @@index([status, nextRetryAt, createdAt])
   @@index([organizationId])
   @@index([correlationId])
   @@map("domain_event_outbox")
+}
+
+model IdempotencyRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  key            String    @db.VarChar(255)
+  organizationId String    @db.Uuid
+  userId         String?   @db.Uuid
+  endpoint       String    @db.VarChar(255)
+  requestHash    String    @db.VarChar(64) // SHA-256 hash of the request body
+  status         String    @default("PENDING") @db.VarChar(50) // PENDING, COMPLETED, FAILED
+  responseStatus Int?      // HTTP status code (e.g. 200, 201)
+  responseBody   Json?     // Stored replay response
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+  expiresAt      DateTime  @db.Timestamptz(6)
+
+  @@unique([organizationId, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
 }
 
 // ==========================================
@@ -512,8 +536,8 @@ model ApprovalRule {
   organizationId String       @db.Uuid
   companyId      String?      @db.Uuid
   documentType   String       @db.VarChar(50) // PO, SO, PROD_ORDER, FORMULA
-  minAmount      Decimal?     @db.Decimal(18, 4)
-  maxAmount      Decimal?     @db.Decimal(18, 4)
+  minAmount      Decimal?     @db.Decimal(18, 2)
+  maxAmount      Decimal?     @db.Decimal(18, 2)
   ruleConfig     Json         // Levels, roles, conditions
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now()) @db.Timestamptz(6)
