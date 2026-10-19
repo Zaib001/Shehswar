@@ -1,0 +1,830 @@
+{
+  "total": 111,
+  "passed": 111,
+  "failed": 0,
+  "passRate": "100.0",
+  "verdict": "100% PRODUCTION READY — APPROVED FOR PHASE 5",
+  "results": [
+    {
+      "phase": "Phase1",
+      "module": "Health Probe",
+      "test": "Liveness probe responds HTTP 200 (UP)",
+      "passed": true,
+      "detail": "HTTP 200 | Status: UP"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Health Probe",
+      "test": "Readiness probe reports Database UP",
+      "passed": true,
+      "detail": "DB: UP"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Admin login returns HTTP 200 with JWT",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "JWT accessToken present",
+      "passed": true,
+      "detail": "Token Present"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "User profile returned with email",
+      "passed": true,
+      "detail": "admin@shehswar.com"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Organization resolved in token context",
+      "passed": true,
+      "detail": "Org: 635eb469-9c5e-4e79-8d17-6f4e00645196"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Company resolved in token context",
+      "passed": true,
+      "detail": "Company: e0369ab3-0b53-4c4b-9a63-2152cd96e3b2"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Invalid credentials rejected (401 Unauthorized)",
+      "passed": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Security",
+      "test": "Unauthenticated request rejected (401)",
+      "passed": true,
+      "detail": "HTTP 401"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "/me returns authenticated user details",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase1",
+      "module": "RBAC",
+      "test": "Admin roles loaded in /me",
+      "passed": true,
+      "detail": "Roles: ROLE_SUPER_ADMIN"
+    },
+    {
+      "phase": "Phase1",
+      "module": "RBAC",
+      "test": "Admin permissions loaded (>10)",
+      "passed": true,
+      "detail": "326 permissions"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Procurement Manager can authenticate",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase1",
+      "module": "Auth",
+      "test": "Finance Manager can authenticate",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase2",
+      "module": "API Contract",
+      "test": "Standard response envelope contains \"success\"",
+      "passed": true,
+      "detail": "true"
+    },
+    {
+      "phase": "Phase2",
+      "module": "API Contract",
+      "test": "Standard response envelope contains \"data\"",
+      "passed": true,
+      "detail": "true"
+    },
+    {
+      "phase": "Phase2",
+      "module": "API Contract",
+      "test": "Standard response envelope contains \"meta\"",
+      "passed": true,
+      "detail": "true"
+    },
+    {
+      "phase": "Phase2",
+      "module": "API Contract",
+      "test": "Envelope meta.version present",
+      "passed": true,
+      "detail": "Version: v1"
+    },
+    {
+      "phase": "Phase2",
+      "module": "API Contract",
+      "test": "Envelope meta.correlationId present",
+      "passed": true,
+      "detail": "UUID: 8725f2c7-8088-4f0e-8bb8-26a1fa368efb"
+    },
+    {
+      "phase": "Phase2",
+      "module": "Design Standard",
+      "test": "OpenAPI / Swagger documentation endpoint accessible",
+      "passed": true,
+      "detail": "Available at /api/docs"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Organization",
+      "test": "Create Organization",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e49b-70ea-8678-fa03d76397f2"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Create Parent Manufacturing Company (Shehswar)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e4b5-72d8-b458-d314511190bf"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Create Child Company: conscept AG",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e4ca-724d-afb0-820595348685"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Create Child Company: Nectar Pakistan",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e4e1-70d1-b9d9-000cf2d45d79"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Create Child Company: Agriventure Pakistan",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e4f6-7316-9d10-e84b392f741b"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Create Child Company: Excelium Seed",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e50b-7377-bcd3-2961fab28b83"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Company",
+      "test": "Parent-Child relationship query verified",
+      "passed": true,
+      "detail": "4 children linked to parent"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Plant",
+      "test": "Create Manufacturing Plant",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e545-71b2-bdc6-981c07c28b9e"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Branch",
+      "test": "Create Branch",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e55c-7016-ad52-10aef9a70aac"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Department",
+      "test": "Create Department: Production",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e574-7257-b662-aabd1874f814"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Department",
+      "test": "Create Department: Procurement",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e58c-702e-a1e4-36a2fbf284ff"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Department",
+      "test": "Create Department: Warehouse",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e5a4-70ba-9e33-05b387afbb3c"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Department",
+      "test": "Create Department: Finance",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e5b9-7136-9ee5-e877f5f6547c"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Department",
+      "test": "Create Department: Quality Assurance",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e5cf-73a4-b957-41aa280bb49e"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Warehouse",
+      "test": "Create Warehouse: RAW_MATERIAL",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e5e6-706a-b3ef-9dab5055eb59"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Warehouse",
+      "test": "Create Warehouse: PACKING_MATERIAL",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e5fe-7259-aa31-5c4e67a84ce9"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Warehouse",
+      "test": "Create Warehouse: FINISHED_GOODS",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e613-728c-8489-7db3c185d883"
+    },
+    {
+      "phase": "Phase3",
+      "module": "UOM",
+      "test": "Create Base UOM (KG - WEIGHT)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e626-703a-a318-fc125bfb050a"
+    },
+    {
+      "phase": "Phase3",
+      "module": "UOM",
+      "test": "Create Packaging UOM (BAG - COUNT)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e637-7127-a18f-bf27a9d3de16"
+    },
+    {
+      "phase": "Phase3",
+      "module": "UOM Conversion",
+      "test": "Create UOM Conversion (1 BAG = 50 KG)",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Material Category",
+      "test": "Create Raw Material Category",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e65e-73fc-8e38-56be8768575e"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Raw Material",
+      "test": "Create Raw Material 1 (Urea 46%)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e671-7325-9f82-86ad9c7d77e9"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Raw Material",
+      "test": "Create Raw Material 2 (DAP)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e68d-733e-8582-47b80ee06208"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Packing Material",
+      "test": "Create Packing Material (50KG HDPE Bag)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e6a0-732a-8c7c-9cd4d6d8d5dd"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Product Category",
+      "test": "Create Product Category",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e6b5-7219-a3c9-e68a08c7bc5a"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Pack Size",
+      "test": "Create Pack Size (50 KG)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e6c6-72f9-8e7d-4157bbcb27e1"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Finished Product",
+      "test": "Create Finished Product (Shehswar Urea 46%)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e6db-7277-aeba-19b9ba9751a3"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Production Line",
+      "test": "Create Production Line (1000 KG/hr)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e6f9-7299-b2bf-e5ca64dd5a79"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Shift",
+      "test": "Create Shift Master (Morning 06:00-14:00)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e71a-70f2-855e-d7817eba4bec"
+    },
+    {
+      "phase": "Phase3",
+      "module": "QC Specification",
+      "test": "Create Finished Product QC Spec with 3 parameters",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e72f-7282-985d-1675dfa40917"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Formula/BOM",
+      "test": "Create Formula/BOM with 3 components (Raw + Packing)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e74d-72f4-9f85-25c66def1fa8"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Payment Terms",
+      "test": "Create Payment Terms (30 Days Net)",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Tax Category",
+      "test": "Create Tax Category (GST 17%)",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Reason Code",
+      "test": "Create Reason Code",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Intercompany Pricing",
+      "test": "Create Intercompany Pricing Rule (Parent → Child, Cost+20%)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e7a6-7265-964a-d906006338aa"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Organizations",
+      "passed": true,
+      "detail": "HTTP 200 | 4 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Companies",
+      "passed": true,
+      "detail": "HTTP 200 | 1 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Plants",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Branches",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Departments",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Warehouses",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET UOMs",
+      "passed": true,
+      "detail": "HTTP 200 | 1 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET UOM Conversions",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Material Categories",
+      "passed": true,
+      "detail": "HTTP 200 | 1 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Raw Materials",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Packing Materials",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Product Categories",
+      "passed": true,
+      "detail": "HTTP 200 | 3 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Pack Sizes",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Finished Products",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Production Lines",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Shifts",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET QC Specifications",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Formula BOMs",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Payment Terms",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Tax Categories",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Reason Codes",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Intercompany Pricing Rules",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase3",
+      "module": "Master Data GET",
+      "test": "GET Warehouse Locations",
+      "passed": true,
+      "detail": "HTTP 200 | 0 records"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Vendor",
+      "test": "Create Vendor record (Agrifert)",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-e94f-7056-aa9c-ebf0a5c61b98"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Vendor",
+      "test": "Approve Vendor lifecycle (DRAFT -> APPROVED)",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Requisition",
+      "test": "Create PR with auto-numbering (SH-PR-2026-000001)",
+      "passed": true,
+      "detail": "HTTP 201 | PR: SH-PR-2026-000001"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Requisition",
+      "test": "Submit PR for managerial review",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Requisition",
+      "test": "Approve PR via Approval Engine",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "RFQ",
+      "test": "Create RFQ linked to PR (SH-RFQ-2026-000001)",
+      "passed": true,
+      "detail": "HTTP 201 | RFQ: SH-RFQ-2026-000001"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Quotation",
+      "test": "Submit Vendor Commercial Quotation",
+      "passed": true,
+      "detail": "HTTP 201 | ID: 01a0f13a-ea18-7054-80f7-c1066d375756"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Quotation Comparison",
+      "test": "Retrieve Comparative Bidding Matrix",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Quotation Comparison",
+      "test": "Select Winning Quotation",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Order",
+      "test": "Create PO with atomic sequence (SH-PO-2026-000001)",
+      "passed": true,
+      "detail": "HTTP 201 | PO: SH-PO-2026-000001"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Order",
+      "test": "Submit PO for Financial Approval",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Order",
+      "test": "Approve PO via Multi-Tier Approval",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Purchase Order",
+      "test": "Send PO to Vendor (status: SENT_TO_VENDOR)",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Goods Receipt",
+      "test": "Create GRN (SH-GRN-2026-000001) with partial receipt (49,800/50,000 KG)",
+      "passed": true,
+      "detail": "HTTP 201 | GRN: SH-GRN-2026-000001"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Vendor Performance",
+      "test": "Recalculate Vendor Performance Scorecard",
+      "passed": true,
+      "detail": "HTTP 201"
+    },
+    {
+      "phase": "Phase4",
+      "module": "Vendor Performance",
+      "test": "List Vendor Performance Scorecards",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Intercompany Flow",
+      "test": "Intercompany Pricing Rules retrievable",
+      "passed": true,
+      "detail": "1 rules found"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Intercompany Flow",
+      "test": "Source Company matches Parent Manufacturing",
+      "passed": true,
+      "detail": "Source: Shehswar Parent Manufacturing Ltd"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Intercompany Flow",
+      "test": "Target Company matches Child Company",
+      "passed": true,
+      "detail": "Target: Nectar Pakistan"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Intercompany Flow",
+      "test": "Markup percentage established (Cost + 20%)",
+      "passed": true,
+      "detail": "Markup: 20%"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Intercompany Flow",
+      "test": "Pricing Method is COST_PLUS_PERCENTAGE",
+      "passed": true,
+      "detail": "COST_PLUS_PERCENTAGE"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Child Tenant Security",
+      "test": "Child Sales Rep (nectar.rep) authenticated",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Child Tenant Security",
+      "test": "Child user is strictly assigned to Child Company",
+      "passed": true,
+      "detail": "Child Co: e0369ab3-0b53-4c4b-9a63-2152cd96e3b2"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Child Tenant Security",
+      "test": "Child user has assigned role (ROLE_CHILD_SALES)",
+      "passed": true,
+      "detail": "Roles: ROLE_CHILD_SALES"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Child Tenant Security",
+      "test": "Child user has operational permissions (>10)",
+      "passed": true,
+      "detail": "17 permissions"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Sensitive Costing RBAC",
+      "test": "Child representative blocked from viewing parent pricing/margins (403 Forbidden)",
+      "passed": true,
+      "detail": "HTTP 403"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Manufacturing Hierarchy",
+      "test": "Finished Product owned by Parent Manufacturing",
+      "passed": true,
+      "detail": "Parent Company: 01a0f13a-e4b5-72d8-b458-d314511190bf"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Manufacturing Hierarchy",
+      "test": "Finished Product has linked Formula/BOM and QC Spec",
+      "passed": true,
+      "detail": "BOMs: 1, QC: 1"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Connected ERP Chain",
+      "test": "PR created & approved",
+      "passed": true,
+      "detail": "01a0f13a-e9a8-7132-ab07-cf50089c079d"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Connected ERP Chain",
+      "test": "RFQ linked to PR & Vendor invited",
+      "passed": true,
+      "detail": "01a0f13a-e9fd-7151-8bd4-9696c88526bf"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Connected ERP Chain",
+      "test": "Vendor Quotation submitted against RFQ",
+      "passed": true,
+      "detail": "01a0f13a-ea18-7054-80f7-c1066d375756"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Connected ERP Chain",
+      "test": "PO generated, approved & dispatched",
+      "passed": true,
+      "detail": "01a0f13a-ea69-712a-828f-00b26a7821d5"
+    },
+    {
+      "phase": "Phase4.5",
+      "module": "Connected ERP Chain",
+      "test": "GRN recorded against PO at Raw Material Warehouse",
+      "passed": true,
+      "detail": "01a0f13a-ead7-72b1-b504-ea569588fddb"
+    }
+  ],
+  "createdIds": {
+    "org": "01a0f13a-e49b-70ea-8678-fa03d76397f2",
+    "parentCompany": "01a0f13a-e4b5-72d8-b458-d314511190bf",
+    "childCompanies": [
+      "01a0f13a-e4ca-724d-afb0-820595348685",
+      "01a0f13a-e4e1-70d1-b9d9-000cf2d45d79",
+      "01a0f13a-e4f6-7316-9d10-e84b392f741b",
+      "01a0f13a-e50b-7377-bcd3-2961fab28b83"
+    ],
+    "plant": "01a0f13a-e545-71b2-bdc6-981c07c28b9e",
+    "branch": "01a0f13a-e55c-7016-ad52-10aef9a70aac",
+    "departments": [
+      "01a0f13a-e574-7257-b662-aabd1874f814",
+      "01a0f13a-e58c-702e-a1e4-36a2fbf284ff",
+      "01a0f13a-e5a4-70ba-9e33-05b387afbb3c",
+      "01a0f13a-e5b9-7136-9ee5-e877f5f6547c",
+      "01a0f13a-e5cf-73a4-b957-41aa280bb49e"
+    ],
+    "warehouses": [
+      "01a0f13a-e5e6-706a-b3ef-9dab5055eb59",
+      "01a0f13a-e5fe-7259-aa31-5c4e67a84ce9",
+      "01a0f13a-e613-728c-8489-7db3c185d883"
+    ],
+    "uomKg": "01a0f13a-e626-703a-a318-fc125bfb050a",
+    "uomBag": "01a0f13a-e637-7127-a18f-bf27a9d3de16",
+    "materialCategory": "01a0f13a-e65e-73fc-8e38-56be8768575e",
+    "rawMaterial1": "01a0f13a-e671-7325-9f82-86ad9c7d77e9",
+    "rawMaterial2": "01a0f13a-e68d-733e-8582-47b80ee06208",
+    "packingMaterial": "01a0f13a-e6a0-732a-8c7c-9cd4d6d8d5dd",
+    "productCategory": "01a0f13a-e6b5-7219-a3c9-e68a08c7bc5a",
+    "packSize": "01a0f13a-e6c6-72f9-8e7d-4157bbcb27e1",
+    "finishedProduct": "01a0f13a-e6db-7277-aeba-19b9ba9751a3",
+    "productionLine": "01a0f13a-e6f9-7299-b2bf-e5ca64dd5a79",
+    "shift": "01a0f13a-e71a-70f2-855e-d7817eba4bec",
+    "qcSpec": "01a0f13a-e72f-7282-985d-1675dfa40917",
+    "formulaBom": "01a0f13a-e74d-72f4-9f85-25c66def1fa8",
+    "icPricing": "01a0f13a-e7a6-7265-964a-d906006338aa",
+    "vendor": "01a0f13a-e94f-7056-aa9c-ebf0a5c61b98",
+    "pr": "01a0f13a-e9a8-7132-ab07-cf50089c079d",
+    "rfq": "01a0f13a-e9fd-7151-8bd4-9696c88526bf",
+    "quotation": "01a0f13a-ea18-7054-80f7-c1066d375756",
+    "po": "01a0f13a-ea69-712a-828f-00b26a7821d5",
+    "grn": "01a0f13a-ead7-72b1-b504-ea569588fddb"
+  }
+}

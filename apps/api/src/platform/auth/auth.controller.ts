@@ -39,6 +39,12 @@ export class AuthController {
 
   @Get('me')
   async getMe(@CurrentUser() user: AuthUser) {
-    return user;
+    return this.authService.getUserContext(user.id);
+  }
+
+  @Get('user-context')
+  async getUserContext(@CurrentUser() user: AuthUser) {
+    return this.authService.getUserContext(user.id);
   }
 }
+

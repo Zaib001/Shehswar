@@ -11,9 +11,22 @@ import { Response } from 'express';
 import { Public } from '../../core/decorators/public.decorator';
 import { PrismaService } from '../../core/database/prisma.service';
 
-@Controller('health')
+@Controller(['health', 'api/v1/health'])
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Root Health Probe
+   */
+  @Public()
+  @Get()
+  ping() {
+    return {
+      status: 'UP',
+      service: 'shehswar-one360-api',
+      timestamp: new Date().toISOString(),
+    };
+  }
 
   /**
    * Liveness Probe: Returns HTTP 200 if the Node.js event loop and HTTP server are responsive.

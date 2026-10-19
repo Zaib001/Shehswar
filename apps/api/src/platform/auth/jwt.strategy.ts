@@ -45,6 +45,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     // 2. Verify session is not revoked
+    if (!payload.sessionId) {
+      throw new UnauthorizedException('Session has expired or was revoked.');
+    }
+
     const session = await this.prisma.userSession.findUnique({
       where: { id: payload.sessionId },
     });

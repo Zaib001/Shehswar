@@ -3,9 +3,11 @@
  */
 import { Global, Module } from '@nestjs/common';
 import { DocumentNumberingService } from './document-numbering.service';
+import { DocumentNumberingController } from './document-numbering.controller';
 
 @Global()
 @Module({
+  controllers: [DocumentNumberingController],
   providers: [DocumentNumberingService],
   exports: [DocumentNumberingService],
 })

@@ -17,10 +17,16 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
     "db:generate": "npm run generate --workspace=@shehswar/database",
     "db:migrate": "npm run migrate --workspace=@shehswar/database",
+    "db:push": "prisma db push --skip-generate --schema=packages/database/prisma/schema.prisma",
     "db:seed": "npm run seed --workspace=@shehswar/database",
+    "db:seed:admin": "npm run seed:admin --workspace=@shehswar/database",
     "db:seed:system": "npm run seed:system --workspace=@shehswar/database",
     "db:seed:client": "npm run seed:client --workspace=@shehswar/database",
-    "db:seed:dev": "npm run seed:dev --workspace=@shehswar/database"
+    "db:seed:dev": "npm run seed:dev --workspace=@shehswar/database",
+    "render:build:api": "npm run db:generate && turbo run build --filter=@shehswar/api...",
+    "render:start:api": "npm run db:push && npm run db:seed:admin && npm run start:prod --workspace=@shehswar/api",
+    "render:build:web": "turbo run build --filter=@shehswar/web...",
+    "render:start:web": "npm run start --workspace=@shehswar/web"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

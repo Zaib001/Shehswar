@@ -119,4 +119,90 @@ export class ApprovalEngineService {
 
     return { newStatus };
   }
+
+  // ==========================================
+  // APPROVAL RULE MANAGEMENT
+  // ==========================================
+
+  async getRules(organizationId: string, companyId?: string) {
+    const where: any = { organizationId };
+    if (companyId) {
+      where.OR = [{ companyId }, { companyId: null }];
+    }
+
+    return this.prisma.approvalRule.findMany({
+      where,
+      orderBy: [{ documentType: 'asc' }, { minAmount: 'asc' }],
+    });
+  }
+
+  async createRule(params: {
+    organizationId: string;
+    companyId?: string;
+    documentType: string;
+    minAmount?: number;
+    maxAmount?: number;
+    ruleConfig: Record<string, unknown>;
+  }) {
+    return this.prisma.approvalRule.create({
+      data: {
+        organizationId: params.organizationId,
+        companyId: params.companyId,
+        documentType: params.documentType,
+        minAmount: params.minAmount !== undefined ? params.minAmount : null,
+        maxAmount: params.maxAmount !== undefined ? params.maxAmount : null,
+        ruleConfig: params.ruleConfig as any,
+      },
+    });
+  }
+
+  async updateRule(
+    id: string,
+    params: {
+      minAmount?: number;
+      maxAmount?: number;
+      ruleConfig?: Record<string, unknown>;
+      isActive?: boolean;
+    },
+  ) {
+    return this.prisma.approvalRule.update({
+      where: { id },
+      data: {
+        ...(params.minAmount !== undefined ? { minAmount: params.minAmount } : {}),
+        ...(params.maxAmount !== undefined ? { maxAmount: params.maxAmount } : {}),
+        ...(params.ruleConfig ? { ruleConfig: params.ruleConfig as any } : {}),
+        ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
+      },
+    });
+  }
+
+  async deleteRule(id: string) {
+    return this.prisma.approvalRule.delete({
+      where: { id },
+    });
+  }
+
+  async getRequests(organizationId: string, companyId?: string, status?: string) {
+    const where: any = { organizationId };
+    if (companyId) where.companyId = companyId;
+    if (status) where.status = status;
+
+    return this.prisma.approvalRequest.findMany({
+      where,
+      include: {
+        history: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getRequestHistory(requestId: string) {
+    return this.prisma.approvalHistory.findMany({
+      where: { requestId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
 }
+

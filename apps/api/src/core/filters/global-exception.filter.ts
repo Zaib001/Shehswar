@@ -82,6 +82,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
       logger.error({ err: exception, correlationId }, `Prisma Error [${exception.code}]`);
     } else if (exception instanceof Error) {
+      message = exception.message;
       logger.error(
         { err: exception, correlationId },
         `Unhandled Unexpected Exception: ${exception.message}`,

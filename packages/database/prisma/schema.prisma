@@ -33,6 +33,18 @@ model Organization {
   tenantId         String          @db.Uuid
   code             String          @unique @db.VarChar(50)
   name             String          @db.VarChar(200) // e.g. "Shehswar Group"
+  legalName        String?         @db.VarChar(200)
+  taxId            String?         @db.VarChar(50) // NTN / Corporate Tax Registration
+  strnId           String?         @db.VarChar(50) // Sales Tax Registration Number
+  logoUrl          String?         @db.VarChar(500)
+  industry         String?         @db.VarChar(100)
+  country          String          @default("Pakistan") @db.VarChar(100)
+  currency         String          @default("PKR") @db.VarChar(10)
+  timezone         String          @default("Asia/Karachi") @db.VarChar(50)
+  email            String?         @db.VarChar(255)
+  phone            String?         @db.VarChar(50)
+  address          String?         @db.Text
+  createdBy        String?         @db.VarChar(100)
   isActive         Boolean         @default(true)
   createdAt        DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
@@ -40,11 +52,53 @@ model Organization {
 
   tenant           PlatformTenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   companies        Company[]
+  employees        Employee[]
   users            User[]
   roles            Role[]
   settings         SystemSetting[]
   documentSequences DocumentSequence[]
   approvalRules    ApprovalRule[]
+  userMarketAssignments UserMarketAssignment[]
+  vendors          Vendor[]
+  purchaseRequisitions PurchaseRequisition[]
+  rfqs             RequestForQuotation[]
+  vendorQuotations VendorQuotation[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  rawMaterials     RawMaterial[]
+  packingMaterials PackingMaterial[]
+  finishedProducts FinishedProduct[]
+  materialCategories MaterialCategory[]
+  dealers          Dealer[]
+  purchases        PurchaseInvoice[]
+  purchaseReturns  PurchaseReturn[]
+  salesOrders      SalesOrder[]
+  salesInvoices    SalesInvoice[]
+  salesReturns     SalesReturn[]
+  dealerPayments   DealerPaymentReceipt[]
+  vendorPayments   VendorPayment[]
+  warehouseStocks  WarehouseStock[]
+  stockLedgerEntries StockLedgerEntry[]
+  dealerLedgerEntries DealerLedgerEntry[]
+  vendorLedgerEntries VendorLedgerEntry[]
+  gatePasses       GatePass[]
+  documentExtractions DocumentExtractionRecord[]
+  productRateLists ProductRateList[]
+  pricingAuthorityLimits PricingAuthorityLimit[]
+  rateLists        RateList[]
+  pricingSchemes   PricingScheme[]
+  accounts         Account[]
+  journalEntries   JournalEntry[]
+  expenseEntries   ExpenseEntry[]
+  creditLimits     CreditLimit[]
+  creditOverrideRequests CreditOverrideRequest[]
+  salesTargets     SalesTarget[]
+  vehicles         Vehicle[]
+  vehicleAssignments VehicleAssignment[]
+  vehicleExpenses  VehicleExpense[]
+  salaryPayments   EmployeeSalaryPayment[]
+  financialTransactions FinancialTransaction[]
+  provisionalReceipts ProvisionalReceipt[]
 
   @@index([tenantId])
   @@map("organizations")
@@ -53,29 +107,91 @@ model Organization {
 model Company {
   id               String          @id @default(uuid()) @db.Uuid
   organizationId   String          @db.Uuid
+  parentCompanyId  String?         @db.Uuid // Self-referential FK for parent/child hierarchy
   code             String          @db.VarChar(50)
-  name             String          @db.VarChar(200) // e.g. "Shehswar Parent Co", "Shehswar Child Co 1"
+  name             String          @db.VarChar(200)
+  legalName        String?         @db.VarChar(200)
+  // PARENT_MANUFACTURING | CHILD_COMPANY | TRADING | DISTRIBUTION
+  companyType      String          @default("PARENT_MANUFACTURING") @db.VarChar(50)
   isParent         Boolean         @default(false)
-  taxId            String?         @db.VarChar(50) // NTN / STRN
+  taxId            String?         @db.VarChar(50) // NTN / STRN — only if confirmed
+  strnId           String?         @db.VarChar(50) // STRN — only if confirmed
   currencyCode     String          @default("PKR") @db.VarChar(10)
+  financialYear    String?         @db.VarChar(10) // e.g. "2026"
+  email            String?         @db.VarChar(255)
+  phone            String?         @db.VarChar(50)
+  address          String?         @db.Text
+  managerName      String?         @db.VarChar(100)
   isActive         Boolean         @default(true)
+  status           String          @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, ARCHIVED
   createdAt        DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
   deletedAt        DateTime?       @db.Timestamptz(6)
 
   organization     Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parentCompany    Company?        @relation("CompanyHierarchy", fields: [parentCompanyId], references: [id], onDelete: Restrict)
+  childCompanies   Company[]       @relation("CompanyHierarchy")
   plants           Plant[]
   branches         Branch[]
   departments      Department[]
   warehouses       Warehouse[]
+  employees        Employee[]
   regions          Region[]
   users            User[]
   userRoles        UserRole[]
+  userMarketAssignments UserMarketAssignment[]
   documentSequences DocumentSequence[]
   settings         SystemSetting[]
+  vendors          Vendor[]
+  purchaseRequisitions PurchaseRequisition[]
+  rfqs             RequestForQuotation[]
+  vendorQuotations VendorQuotation[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  vendorPerformances VendorPerformance[]
+  rawMaterials     RawMaterial[]
+  packingMaterials PackingMaterial[]
+  finishedProducts FinishedProduct[]
+  taxCategories    TaxCategory[]
+  paymentTerms     PaymentTerm[]
+  productionLines  ProductionLine[]
+  shifts           Shift[]
+  icPricingRulesSource IntercompanyPricingRule[] @relation("IcSourceCompany")
+  icPricingRulesTarget IntercompanyPricingRule[] @relation("IcTargetCompany")
+  dealers          Dealer[]
+  purchases        PurchaseInvoice[]
+  purchaseReturns  PurchaseReturn[]
+  salesOrders      SalesOrder[]
+  salesInvoices    SalesInvoice[]
+  salesReturns     SalesReturn[]
+  dealerPayments   DealerPaymentReceipt[]
+  vendorPayments   VendorPayment[]
+  warehouseStocks  WarehouseStock[]
+  stockLedgerEntries StockLedgerEntry[]
+  dealerLedgerEntries DealerLedgerEntry[]
+  vendorLedgerEntries VendorLedgerEntry[]
+  gatePasses       GatePass[]
+  documentExtractions DocumentExtractionRecord[]
+  productRateLists ProductRateList[]
+  pricingAuthorityLimits PricingAuthorityLimit[]
+  rateLists        RateList[]
+  pricingSchemes   PricingScheme[]
+  accounts         Account[]
+  journalEntries   JournalEntry[]
+  expenseEntries   ExpenseEntry[]
+  creditLimits     CreditLimit[]
+  creditOverrideRequests CreditOverrideRequest[]
+  salesTargets     SalesTarget[]
+  vehicles         Vehicle[]
+  vehicleAssignments VehicleAssignment[]
+  vehicleExpenses  VehicleExpense[]
+  salaryPayments   EmployeeSalaryPayment[]
+  financialTransactions FinancialTransaction[]
+  provisionalReceipts ProvisionalReceipt[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
+  @@index([parentCompanyId])
   @@map("companies")
 }
 
@@ -85,13 +201,18 @@ model Plant {
   code        String      @db.VarChar(50)
   name        String      @db.VarChar(200) // e.g. "Main Manufacturing Plant"
   location    String?     @db.VarChar(255)
+  address     String?     @db.Text
+  managerName String?     @db.VarChar(100)
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
 
   company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   warehouses  Warehouse[]
+  employees   Employee[]
   userRoles   UserRole[]
+  productionLines ProductionLine[]
+  shifts      Shift[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -105,12 +226,15 @@ model Branch {
   name        String      @db.VarChar(200) // e.g. "Lahore Regional Office"
   address     String?     @db.VarChar(255)
   city        String?     @db.VarChar(100)
+  regionName  String?     @db.VarChar(100)
+  managerName String?     @db.VarChar(100)
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
 
   company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   warehouses  Warehouse[]
+  employees   Employee[]
   userRoles   UserRole[]
 
   @@unique([companyId, code])
@@ -123,11 +247,15 @@ model Department {
   companyId   String      @db.Uuid
   code        String      @db.VarChar(50)
   name        String      @db.VarChar(100) // e.g. "Procurement", "Quality Assurance", "Finance"
+  managerName String?     @db.VarChar(100)
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
 
   company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees   Employee[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders PurchaseOrder[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -141,7 +269,10 @@ model Warehouse {
   branchId    String?     @db.Uuid
   code        String      @db.VarChar(50)
   name        String      @db.VarChar(200) // e.g. "Raw Materials Warehouse", "Finished Goods Central"
-  type        String      @default("GENERAL") @db.VarChar(50) // RAW_MATERIAL, FINISHED_GOODS, TRANSIT, QUARANTINE
+  type        String      @default("GENERAL") @db.VarChar(50) // RAW_MATERIAL, FINISHED_GOODS, TRANSIT, QUARANTINE, PACKING_MATERIAL, RETURNS
+  location    String?     @db.VarChar(255)
+  address     String?     @db.Text
+  managerName String?     @db.VarChar(100)
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
@@ -149,6 +280,16 @@ model Warehouse {
   company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
   plant       Plant?      @relation(fields: [plantId], references: [id], onDelete: Restrict)
   branch      Branch?     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  purchaseOrders PurchaseOrder[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  warehouseLocations WarehouseLocation[]
+  purchases          PurchaseInvoice[]
+  purchaseReturns    PurchaseReturn[]
+  salesOrders        SalesOrder[]
+  salesInvoices      SalesInvoice[]
+  salesReturns       SalesReturn[]
+  warehouseStocks    WarehouseStock[]
+  stockLedgerEntries StockLedgerEntry[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -158,53 +299,122 @@ model Warehouse {
 }
 
 model Region {
-  id          String      @id @default(uuid()) @db.Uuid
-  companyId   String      @db.Uuid
-  code        String      @db.VarChar(50)
-  name        String      @db.VarChar(100) // e.g. "Punjab Region"
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+  id              String         @id @default(uuid()) @db.Uuid
+  companyId       String         @db.Uuid
+  code            String         @db.VarChar(50)
+  name            String         @db.VarChar(100) // e.g. "Punjab Region"
+  managerId       String?        @db.Uuid // Business Manager (BM)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(6)
 
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  zones       Zone[]
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  businessManager User?          @relation("RegionBusinessManager", fields: [managerId], references: [id], onDelete: SetNull)
+  zones           Zone[]
+  salesInvoices   SalesInvoice[]
+  salesOrders     SalesOrder[]
+  userMarketAssignments UserMarketAssignment[]
+  provisionalReceipts ProvisionalReceipt[]
 
   @@unique([companyId, code])
   @@index([companyId])
+  @@index([managerId])
   @@map("regions")
 }
 
 model Zone {
-  id          String      @id @default(uuid()) @db.Uuid
-  regionId    String      @db.Uuid
-  code        String      @db.VarChar(50)
-  name        String      @db.VarChar(100) // e.g. "North Punjab Zone"
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+  id            String         @id @default(uuid()) @db.Uuid
+  regionId      String         @db.Uuid
+  code          String         @db.VarChar(50)
+  name          String         @db.VarChar(100) // e.g. "North Punjab Zone"
+  managerId     String?        @db.Uuid // Area Manager (AM)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(6)
 
-  region      Region      @relation(fields: [regionId], references: [id], onDelete: Restrict)
-  territories Territory[]
+  region        Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  areaManager   User?          @relation("ZoneAreaManager", fields: [managerId], references: [id], onDelete: SetNull)
+  territories   Territory[]
+  salesInvoices SalesInvoice[]
+  salesOrders   SalesOrder[]
+  userMarketAssignments UserMarketAssignment[]
 
   @@unique([regionId, code])
   @@index([regionId])
+  @@index([managerId])
   @@map("zones")
 }
 
 model Territory {
-  id          String      @id @default(uuid()) @db.Uuid
-  zoneId      String      @db.Uuid
-  code        String      @db.VarChar(50)
-  name        String      @db.VarChar(100) // e.g. "Gujranwala City Territory"
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime    @updatedAt @db.Timestamptz(6)
+  id            String         @id @default(uuid()) @db.Uuid
+  zoneId        String         @db.Uuid
+  code          String         @db.VarChar(50)
+  name          String         @db.VarChar(100) // e.g. "Gujranwala City Territory"
+  managerId     String?        @db.Uuid // Primary Sales Officer (SO)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(6)
 
-  zone        Zone        @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  zone          Zone           @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  salesOfficer  User?          @relation("TerritorySalesOfficer", fields: [managerId], references: [id], onDelete: SetNull)
+  dealers       Dealer[]
+  salesInvoices SalesInvoice[]
+  salesOrders   SalesOrder[]
+  userMarketAssignments UserMarketAssignment[]
+  dealerAssignmentHistories DealerAssignmentHistory[]
+  provisionalReceipts ProvisionalReceipt[]
 
   @@unique([zoneId, code])
   @@index([zoneId])
+  @@index([managerId])
   @@map("territories")
+}
+
+model Employee {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  companyId      String       @db.Uuid
+  departmentId   String?      @db.Uuid
+  plantId        String?      @db.Uuid
+  branchId       String?      @db.Uuid
+  employeeCode   String       @db.VarChar(50)
+  firstName      String       @db.VarChar(100)
+  lastName       String       @db.VarChar(100)
+  fatherName     String?      @db.VarChar(100)
+  cnic           String?      @db.VarChar(50)
+  licenseNumber  String?      @db.VarChar(100)
+  address        String?      @db.Text
+  agencyType     String?      @db.VarChar(100) // PERMANENT, CONTRACT, THIRD_PARTY, FIELD_STAFF
+  salary         Decimal?     @default(0) @db.Decimal(18, 2)
+  phone          String?      @db.VarChar(50)
+  email          String?      @db.VarChar(255)
+  position       String       @db.VarChar(100)
+  joiningDate    DateTime     @default(now()) @db.Timestamptz(6)
+  resignationDate DateTime?   @db.Timestamptz(6)
+  terminationDate DateTime?   @db.Timestamptz(6)
+  status         String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, RESIGNED, TERMINATED, INACTIVE
+  managerId      String?      @db.Uuid
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department     Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  plant          Plant?       @relation(fields: [plantId], references: [id], onDelete: SetNull)
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  manager        Employee?    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  subordinates   Employee[]   @relation("EmployeeManager")
+  users          User[]
+  marketAssignments UserMarketAssignment[]
+  currentVehicles Vehicle[]    @relation("CurrentVehicleCustodian")
+  vehicleAssignments VehicleAssignment[] @relation("EmployeeVehicleAssignments")
+  vehicleExpenses VehicleExpense[] @relation("EmployeeVehicleExpenses")
+  salaryPayments EmployeeSalaryPayment[] @relation("EmployeeSalaryPayments")
+
+  @@unique([companyId, employeeCode])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("employees")
 }
 
 // ==========================================
@@ -215,11 +425,13 @@ model User {
   id                  String               @id @default(uuid()) @db.Uuid
   organizationId      String               @db.Uuid
   companyId           String               @db.Uuid
+  employeeId          String?              @db.Uuid
   email               String               @unique @db.VarChar(255)
   passwordHash        String               @db.VarChar(255)
   firstName           String               @db.VarChar(100)
   lastName            String               @db.VarChar(100)
   phone               String?              @db.VarChar(50)
+  status              String               @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, SUSPENDED, LOCKED
   isSuperAdmin        Boolean              @default(false)
   isActive            Boolean              @default(true)
   failedLoginAttempts Int                  @default(0)
@@ -232,10 +444,25 @@ model User {
 
   organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   company             Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee            Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   userRoles           UserRole[]
   sessions            UserSession[]
   passwordResets      PasswordResetToken[]
   notifications       UserNotification[]
+  salesOfficerAssignments SalesOfficerDealerAssignment[]
+  assignedSalesOrders SalesOrder[]
+  dealerPayments      DealerPaymentReceipt[]
+  managedRegions      Region[]             @relation("RegionBusinessManager")
+  managedZones        Zone[]               @relation("ZoneAreaManager")
+  managedTerritories  Territory[]          @relation("TerritorySalesOfficer")
+  assignedDealers     Dealer[]             @relation("DealerAssignedOfficer")
+  salesOfficerInvoices SalesInvoice[]      @relation("SalesInvoiceOfficer")
+  areaManagerInvoices SalesInvoice[]       @relation("SalesInvoiceAreaManager")
+  businessManagerInvoices SalesInvoice[]   @relation("SalesInvoiceBusinessManager")
+  marketAssignments   UserMarketAssignment[]
+  dealerAssignmentHistories DealerAssignmentHistory[]
+  areaManagerOrders   SalesOrder[]         @relation("SalesOrderAreaManager")
+  businessManagerOrders SalesOrder[]       @relation("SalesOrderBusinessManager")
 
   @@index([organizationId])
   @@index([companyId])
@@ -628,6 +855,8 @@ model UserNotification {
   title     String    @db.VarChar(255)
   body      String    @db.Text
   linkUrl   String?   @db.VarChar(500)
+  category  String    @default("SYSTEM") @db.VarChar(50) // APPROVAL, SYSTEM, SECURITY, WARNING
+  priority  String    @default("NORMAL") @db.VarChar(50) // LOW, NORMAL, HIGH, URGENT
   isRead    Boolean   @default(false)
   readAt    DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)
@@ -637,3 +866,2464 @@ model UserNotification {
   @@index([userId, isRead, createdAt])
   @@map("user_notifications")
 }
+
+// ==========================================
+// 9. PROCUREMENT & VENDOR MANAGEMENT
+// ==========================================
+
+model Vendor {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @db.Uuid
+  companyId        String            @db.Uuid
+  code             String            @db.VarChar(50)
+  name             String            @db.VarChar(200)
+  legalName        String?           @db.VarChar(200)
+  vendorType       String            @default("RAW_MATERIAL") @db.VarChar(50) // RAW_MATERIAL, PACKING_MATERIAL, SERVICE, TRANSPORT, MACHINERY
+  category         String            @default("GENERAL") @db.VarChar(100)
+  status           String            @default("DRAFT") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, APPROVED, BLOCKED, INACTIVE
+
+  // Registration Information
+  ntn              String?           @db.VarChar(50)
+  strn             String?           @db.VarChar(50)
+  registrationNo   String?           @db.VarChar(100)
+  country          String            @default("Pakistan") @db.VarChar(100)
+  city             String?           @db.VarChar(100)
+  address          String?           @db.Text
+
+  // Contact Information
+  contactPerson    String?           @db.VarChar(100)
+  phone            String?           @db.VarChar(50)
+  email            String?           @db.VarChar(255)
+  website          String?           @db.VarChar(255)
+
+  // Commercial Information
+  currency         String            @default("PKR") @db.VarChar(10)
+  paymentTerms     String            @default("30_DAYS_CREDIT") @db.VarChar(100) // ADVANCE_PAYMENT, 30_DAYS_CREDIT, 60_DAYS_CREDIT, CUSTOM_TERMS
+  creditLimit      Decimal           @default(0) @db.Decimal(18, 2)
+  bankDetails      Json?
+
+  // Rating & Metadata
+  rating           Decimal           @default(5.0) @db.Decimal(3, 2)
+  notes            String?           @db.Text
+  createdBy        String?           @db.VarChar(100)
+  updatedBy        String?           @db.VarChar(100)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+  deletedAt        DateTime?         @db.Timestamptz(6)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  documents        VendorDocument[]
+  rfqVendors       RfqVendor[]
+  quotations       VendorQuotation[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  performances     VendorPerformance[]
+  purchases          PurchaseInvoice[]
+  purchaseReturns    PurchaseReturn[]
+  vendorPayments     VendorPayment[]
+  vendorLedgerEntries VendorLedgerEntry[]
+  gatePasses         GatePass[]
+
+  @@unique([companyId, code])
+  @@index([organizationId, status])
+  @@index([companyId, vendorType])
+  @@map("vendors")
+}
+
+model VendorDocument {
+  id               String            @id @default(uuid()) @db.Uuid
+  vendorId         String            @db.Uuid
+  documentType     String            @db.VarChar(50) // CONTRACT, AGREEMENT, TAX_DOC, CERTIFICATE, LICENSE
+  title            String            @db.VarChar(200)
+  fileName         String            @db.VarChar(255)
+  fileUrl          String            @db.VarChar(500)
+  fileSize         BigInt?
+  expiryDate       DateTime?         @db.Date
+  notes            String?           @db.Text
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+
+  vendor           Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@map("vendor_documents")
+}
+
+model PurchaseRequisition {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organizationId       String                      @db.Uuid
+  companyId            String                      @db.Uuid
+  departmentId         String?                     @db.Uuid
+  prNumber             String                      @db.VarChar(50) // e.g. SH-PR-2026-000001
+  requestedById        String                      @db.Uuid
+  requestedByName      String?                     @db.VarChar(150)
+  requiredDate         DateTime                    @db.Date
+  priority             String                      @default("NORMAL") @db.VarChar(50) // LOW, NORMAL, HIGH, URGENT
+  purpose              String                      @db.VarChar(500)
+  notes                String?                     @db.Text
+  status               String                      @default("DRAFT") @db.VarChar(50) // DRAFT, SUBMITTED, PENDING_APPROVAL, APPROVED, REJECTED, CANCELLED
+  totalEstimatedAmount Decimal                     @default(0) @db.Decimal(18, 2)
+  approvedAt           DateTime?                   @db.Timestamptz(6)
+  approvedById         String?                     @db.Uuid
+  rejectionReason      String?                     @db.Text
+  createdAt            DateTime                    @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime                    @updatedAt @db.Timestamptz(6)
+  deletedAt            DateTime?                   @db.Timestamptz(6)
+
+  organization         Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company              Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department           Department?                 @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  items                PurchaseRequisitionItem[]
+  rfqs                 RequestForQuotation[]
+  purchaseOrders       PurchaseOrder[]
+
+  @@unique([companyId, prNumber])
+  @@index([organizationId, status])
+  @@index([companyId, requiredDate])
+  @@map("purchase_requisitions")
+}
+
+model PurchaseRequisitionItem {
+  id                       String               @id @default(uuid()) @db.Uuid
+  prId                     String               @db.Uuid
+  // Material Master linkage (Phase 4.5 retrofit — nullable for backward compat)
+  materialId               String?              @db.Uuid // References RawMaterial or PackingMaterial id
+  materialType             String?              @db.VarChar(50) // RAW_MATERIAL | PACKING_MATERIAL | SERVICE | SPARE_PART | OTHER
+  uomId                    String?              @db.Uuid // References UnitOfMeasure
+  // Snapshot fields — captured at save time for historical integrity
+  materialCodeSnapshot     String?              @db.VarChar(100)
+  materialNameSnapshot     String?              @db.VarChar(255)
+  uomCodeSnapshot          String?              @db.VarChar(50)
+  // Legacy / free-text (kept for backward compat)
+  itemName                 String               @db.VarChar(200)
+  category                 String               @default("RAW_MATERIAL") @db.VarChar(100)
+  quantity                 Decimal              @db.Decimal(18, 4)
+  unit                     String               @default("KG") @db.VarChar(50)
+  requiredDate             DateTime             @db.Date
+  specification            String?              @db.Text
+  estimatedRate            Decimal              @default(0) @db.Decimal(18, 2)
+  estimatedAmount          Decimal              @default(0) @db.Decimal(18, 2)
+  notes                    String?              @db.Text
+  createdAt                DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime             @updatedAt @db.Timestamptz(6)
+
+  requisition              PurchaseRequisition  @relation(fields: [prId], references: [id], onDelete: Cascade)
+
+  @@index([prId])
+  @@index([materialId])
+  @@map("purchase_requisition_items")
+}
+
+model RequestForQuotation {
+  id                  String               @id @default(uuid()) @db.Uuid
+  organizationId      String               @db.Uuid
+  companyId           String               @db.Uuid
+  rfqNumber           String               @db.VarChar(50) // e.g. SH-RFQ-2026-000001
+  prId                String?              @db.Uuid
+  title               String               @db.VarChar(200)
+  issueDate           DateTime             @default(now()) @db.Date
+  deadline            DateTime             @db.Date
+  status              String               @default("DRAFT") @db.VarChar(50) // DRAFT, SENT, QUOTATIONS_RECEIVED, COMPARISON_COMPLETED, CLOSED
+  notes               String?              @db.Text
+  createdById         String?              @db.Uuid
+  createdAt           DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(6)
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requisition         PurchaseRequisition? @relation(fields: [prId], references: [id], onDelete: SetNull)
+  vendors             RfqVendor[]
+  quotations          VendorQuotation[]
+  purchaseOrders      PurchaseOrder[]
+
+  @@unique([companyId, rfqNumber])
+  @@index([organizationId, status])
+  @@map("request_for_quotations")
+}
+
+model RfqVendor {
+  id              String               @id @default(uuid()) @db.Uuid
+  rfqId           String               @db.Uuid
+  vendorId        String               @db.Uuid
+  invitedAt       DateTime             @default(now()) @db.Timestamptz(6)
+  status          String               @default("INVITED") @db.VarChar(50) // INVITED, SUBMITTED, DECLINED
+  notes           String?              @db.Text
+
+  rfq             RequestForQuotation  @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendor          Vendor               @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  @@unique([rfqId, vendorId])
+  @@index([vendorId])
+  @@map("rfq_vendors")
+}
+
+model VendorQuotation {
+  id                     String                @id @default(uuid()) @db.Uuid
+  organizationId         String                @db.Uuid
+  companyId              String                @db.Uuid
+  rfqId                  String                @db.Uuid
+  vendorId               String                @db.Uuid
+  quotationNumber        String                @db.VarChar(100) // Vendor reference #
+  currency               String                @default("PKR") @db.VarChar(10)
+  subtotal               Decimal               @default(0) @db.Decimal(18, 2)
+  taxAmount              Decimal               @default(0) @db.Decimal(18, 2)
+  discountAmount         Decimal               @default(0) @db.Decimal(18, 2)
+  netAmount              Decimal               @default(0) @db.Decimal(18, 2)
+  deliveryLeadDays       Int                   @default(7)
+  paymentTerms           String                @default("30_DAYS_CREDIT") @db.VarChar(100)
+  validityDate           DateTime              @db.Date
+  warranty               String?               @db.VarChar(200)
+  notes                  String?               @db.Text
+  status                 String                @default("RECEIVED") @db.VarChar(50) // RECEIVED, UNDER_REVIEW, SELECTED, REJECTED
+  isSelected             Boolean               @default(false)
+  selectionJustification String?               @db.Text
+  selectedAt             DateTime?             @db.Timestamptz(6)
+  selectedById           String?               @db.Uuid
+  createdAt              DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime              @updatedAt @db.Timestamptz(6)
+
+  organization           Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq                    RequestForQuotation   @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendor                 Vendor                @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  items                  VendorQuotationItem[]
+
+  @@unique([rfqId, vendorId, quotationNumber])
+  @@index([organizationId, status])
+  @@index([vendorId])
+  @@map("vendor_quotations")
+}
+
+model VendorQuotationItem {
+  id             String          @id @default(uuid()) @db.Uuid
+  quotationId    String          @db.Uuid
+  itemName       String          @db.VarChar(200)
+  quantity       Decimal         @db.Decimal(18, 4)
+  unit           String          @default("KG") @db.VarChar(50)
+  unitPrice      Decimal         @db.Decimal(18, 2)
+  taxRate        Decimal         @default(0) @db.Decimal(5, 2)
+  discountRate   Decimal         @default(0) @db.Decimal(5, 2)
+  lineTotal      Decimal         @db.Decimal(18, 2)
+  notes          String?         @db.Text
+
+  quotation      VendorQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+  @@map("vendor_quotation_items")
+}
+
+model PurchaseOrder {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  organizationId       String                 @db.Uuid
+  companyId            String                 @db.Uuid
+  departmentId         String?                @db.Uuid
+  vendorId             String                 @db.Uuid
+  warehouseId          String?                @db.Uuid
+  prId                 String?                @db.Uuid
+  rfqId                String?                @db.Uuid
+  poNumber             String                 @db.VarChar(50) // e.g. SH-PO-2026-000001
+  currency             String                 @default("PKR") @db.VarChar(10)
+  paymentTerms         String                 @default("30_DAYS_CREDIT") @db.VarChar(100)
+  deliveryLocation     String?                @db.VarChar(255)
+  expectedDeliveryDate DateTime?              @db.Date
+  subtotal             Decimal                @default(0) @db.Decimal(18, 2)
+  taxAmount            Decimal                @default(0) @db.Decimal(18, 2)
+  discountAmount       Decimal                @default(0) @db.Decimal(18, 2)
+  totalAmount          Decimal                @default(0) @db.Decimal(18, 2)
+  status               String                 @default("DRAFT") @db.VarChar(50) // DRAFT, SUBMITTED, APPROVED, SENT_TO_VENDOR, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
+  createdById          String?                @db.Uuid
+  approvedAt           DateTime?              @db.Timestamptz(6)
+  approvedById         String?                @db.Uuid
+  cancellationReason   String?                @db.Text
+  notes                String?                @db.Text
+  createdAt            DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime               @updatedAt @db.Timestamptz(6)
+  deletedAt            DateTime?              @db.Timestamptz(6)
+
+  organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company              Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department           Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  vendor               Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  warehouse            Warehouse?             @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  requisition          PurchaseRequisition?   @relation(fields: [prId], references: [id], onDelete: SetNull)
+  rfq                  RequestForQuotation?   @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  items                PurchaseOrderItem[]
+  goodsReceiptNotes    GoodsReceiptNote[]
+
+  @@unique([companyId, poNumber])
+  @@index([organizationId, status])
+  @@index([vendorId])
+  @@index([companyId, createdAt])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  poId                     String                 @db.Uuid
+  // Material Master linkage (Phase 4.5 retrofit — nullable for backward compat)
+  materialId               String?                @db.Uuid
+  materialType             String?                @db.VarChar(50) // RAW_MATERIAL | PACKING_MATERIAL | SERVICE | SPARE_PART | OTHER
+  uomId                    String?                @db.Uuid
+  taxCategoryId            String?                @db.Uuid // References TaxCategory
+  // Snapshot fields for historical document integrity
+  materialCodeSnapshot     String?                @db.VarChar(100)
+  materialNameSnapshot     String?                @db.VarChar(255)
+  uomCodeSnapshot          String?                @db.VarChar(50)
+  taxRateSnapshot          Decimal?               @db.Decimal(5, 2) // Captured at PO creation
+  specificationSnapshot    String?                @db.Text
+  // Legacy / working fields
+  itemName                 String                 @db.VarChar(200)
+  category                 String                 @default("RAW_MATERIAL") @db.VarChar(100)
+  quantity                 Decimal                @db.Decimal(18, 4)
+  unit                     String                 @default("KG") @db.VarChar(50)
+  unitRate                 Decimal                @db.Decimal(18, 2)
+  taxRate                  Decimal                @default(0) @db.Decimal(5, 2)
+  taxAmount                Decimal                @default(0) @db.Decimal(18, 2)
+  discountRate             Decimal                @default(0) @db.Decimal(5, 2)
+  discountAmount           Decimal                @default(0) @db.Decimal(18, 2)
+  lineTotal                Decimal                @db.Decimal(18, 2)
+  receivedQuantity         Decimal                @default(0) @db.Decimal(18, 4)
+  notes                    String?                @db.Text
+  createdAt                DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime               @updatedAt @db.Timestamptz(6)
+
+  order                    PurchaseOrder          @relation(fields: [poId], references: [id], onDelete: Cascade)
+  grnItems                 GoodsReceiptNoteItem[]
+
+  @@index([poId])
+  @@index([materialId])
+  @@map("purchase_order_items")
+}
+
+model GoodsReceiptNote {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  organizationId     String                 @db.Uuid
+  companyId          String                 @db.Uuid
+  poId               String                 @db.Uuid
+  vendorId           String                 @db.Uuid
+  warehouseId        String                 @db.Uuid
+  grnNumber          String                 @db.VarChar(50) // e.g. SH-GRN-2026-000001
+  receivedDate       DateTime               @default(now()) @db.Date
+  receivedById       String                 @db.Uuid
+  receivedByName     String?                @db.VarChar(150)
+  carrierName        String?                @db.VarChar(100)
+  vehicleNumber      String?                @db.VarChar(50)
+  deliveryNoteNumber String?                @db.VarChar(100)
+  status             String                 @default("DRAFT") @db.VarChar(50) // DRAFT, RECEIVED, QUALITY_PENDING, ACCEPTED, REJECTED
+  qcStatus           String                 @default("PENDING") @db.VarChar(50) // PENDING, PASSED, REJECTED, WAIVED
+  qcNotes            String?                @db.Text
+  notes              String?                @db.Text
+  createdAt          DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(6)
+  deletedAt          DateTime?              @db.Timestamptz(6)
+
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseOrder      PurchaseOrder          @relation(fields: [poId], references: [id], onDelete: Restrict)
+  vendor             Vendor                 @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse              @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items              GoodsReceiptNoteItem[]
+
+  @@unique([companyId, grnNumber])
+  @@index([organizationId, status])
+  @@index([poId])
+  @@index([vendorId])
+  @@map("goods_receipt_notes")
+}
+
+model GoodsReceiptNoteItem {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  grnId                    String                 @db.Uuid
+  poItemId                 String?                @db.Uuid
+  // Material Master linkage (Phase 4.5 retrofit — nullable for backward compat)
+  materialId               String?                @db.Uuid
+  materialType             String?                @db.VarChar(50)
+  uomId                    String?                @db.Uuid
+  // Snapshot fields
+  materialCodeSnapshot     String?                @db.VarChar(100)
+  materialNameSnapshot     String?                @db.VarChar(255)
+  uomCodeSnapshot          String?                @db.VarChar(50)
+  // Working fields
+  itemName                 String                 @db.VarChar(200)
+  orderedQuantity          Decimal                @default(0) @db.Decimal(18, 4)
+  receivedQuantity         Decimal                @db.Decimal(18, 4)
+  acceptedQuantity         Decimal                @default(0) @db.Decimal(18, 4)
+  rejectedQuantity         Decimal                @default(0) @db.Decimal(18, 4)
+  unit                     String                 @default("KG") @db.VarChar(50)
+  packageCondition         String                 @default("INTACT") @db.VarChar(50)
+  batchNumber              String?                @db.VarChar(100)
+  expiryDate               DateTime?              @db.Date
+  notes                    String?                @db.Text
+  createdAt                DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime               @updatedAt @db.Timestamptz(6)
+
+  goodsReceiptNote         GoodsReceiptNote       @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poItem                   PurchaseOrderItem?     @relation(fields: [poItemId], references: [id], onDelete: SetNull)
+
+  @@index([grnId])
+  @@index([materialId])
+  @@map("goods_receipt_note_items")
+}
+
+model VendorPerformance {
+  id                  String                @id @default(uuid()) @db.Uuid
+  vendorId            String                @db.Uuid
+  companyId           String                @db.Uuid
+  totalOrders         Int                   @default(0)
+  completedOrders     Int                   @default(0)
+  onTimeDeliveryRate  Decimal               @default(100.0) @db.Decimal(5, 2)
+  rejectionRate       Decimal               @default(0.0) @db.Decimal(5, 2)
+  averageLeadDays     Decimal               @default(0.0) @db.Decimal(5, 1)
+  overallRating       Decimal               @default(5.0) @db.Decimal(3, 2) // 1.0 to 5.0
+  lastEvaluatedAt     DateTime              @default(now()) @db.Timestamptz(6)
+  evaluationNotes     String?               @db.Text
+  createdAt           DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(6)
+
+  vendor              Vendor                @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  company             Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([vendorId, companyId])
+  @@index([companyId, overallRating])
+  @@map("vendor_performances")
+}
+
+// ==========================================
+// PHASE 4.5 — MASTER DATA EXPANSION
+// Inventory & Item Masters
+// Manufacturing Masters
+// Commercial Configuration
+// Intercompany Foundation
+// ==========================================
+
+// ==========================================
+// UOM MASTER
+// ==========================================
+
+model UnitOfMeasure {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  code            String    @db.VarChar(50)   // KG, TON, BAG, LITER, PIECE, PACK
+  name            String    @db.VarChar(100)
+  category        String    @db.VarChar(50)   // WEIGHT, VOLUME, COUNT, LENGTH
+  symbol          String?   @db.VarChar(20)
+  decimalPlaces   Int       @default(3)       // Precision for this UOM
+  isBaseUnit      Boolean   @default(false)   // True for base units like KG, LITER
+  status          String    @default("ACTIVE") @db.VarChar(50)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
+
+  fromConversions UomConversion[] @relation("FromUom")
+  toConversions   UomConversion[] @relation("ToUom")
+  rawMaterialsBase    RawMaterial[]    @relation("RawMatBaseUom")
+  rawMaterialsPurchase RawMaterial[]   @relation("RawMatPurchaseUom")
+  packingMaterialsBase PackingMaterial[] @relation("PackMatBaseUom")
+  packingMaterialsPurchase PackingMaterial[] @relation("PackMatPurchaseUom")
+  finishedProductsBase FinishedProduct[] @relation("FpBaseUom")
+  finishedProductsSales FinishedProduct[] @relation("FpSalesUom")
+  packSizes       PackSize[]
+  productionLines ProductionLine[]
+  formulaBoms     FormulaBom[]
+  formulaComponents FormulaBomComponent[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("units_of_measure")
+}
+
+model UomConversion {
+  id               String         @id @default(uuid()) @db.Uuid
+  organizationId   String         @db.Uuid
+  fromUomId        String         @db.Uuid
+  toUomId          String         @db.Uuid
+  conversionFactor Decimal        @db.Decimal(18, 8) // e.g. 1000 for TON->KG
+  // Context: if set, conversion is specific to this material/product
+  rawMaterialId    String?        @db.Uuid
+  packingMaterialId String?       @db.Uuid
+  finishedProductId String?       @db.Uuid
+  effectiveFrom    DateTime?      @db.Date
+  effectiveTo      DateTime?      @db.Date
+  status           String         @default("ACTIVE") @db.VarChar(50)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @db.Timestamptz(6)
+
+  fromUom          UnitOfMeasure  @relation("FromUom", fields: [fromUomId], references: [id], onDelete: Restrict)
+  toUom            UnitOfMeasure  @relation("ToUom", fields: [toUomId], references: [id], onDelete: Restrict)
+
+  @@index([fromUomId, toUomId])
+  @@index([organizationId])
+  @@map("uom_conversions")
+}
+
+// ==========================================
+// MATERIAL CATEGORY MASTER
+// ==========================================
+
+model MaterialCategory {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  code           String    @db.VarChar(50)
+  name           String    @db.VarChar(100)
+  description    String?   @db.Text
+  categoryType   String    @default("RAW_MATERIAL") @db.VarChar(50) // RAW_MATERIAL, PACKING_MATERIAL, BOTH
+  status         String    @default("ACTIVE") @db.VarChar(50)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  rawMaterials   RawMaterial[]
+  packingMaterials PackingMaterial[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("material_categories")
+}
+
+// ==========================================
+// RAW MATERIAL MASTER
+// ==========================================
+
+model RawMaterial {
+  id                      String            @id @default(uuid()) @db.Uuid
+  organizationId          String            @db.Uuid
+  companyId               String            @db.Uuid
+  categoryId              String?           @db.Uuid
+  baseUomId               String?           @db.Uuid
+  purchaseUomId           String?           @db.Uuid
+  materialCode            String            @db.VarChar(100)
+  materialName            String            @db.VarChar(255)
+  description             String?           @db.Text
+  purchaseConversionFactor Decimal?         @db.Decimal(18, 8) // e.g. 1000 for TON->KG
+  batchControlled         Boolean           @default(false)
+  expiryControlled        Boolean           @default(false)
+  shelfLifeDays           Int?
+  qcRequired              Boolean           @default(false)
+  minimumStock            Decimal?          @db.Decimal(18, 4)
+  maximumStock            Decimal?          @db.Decimal(18, 4)
+  reorderLevel            Decimal?          @db.Decimal(18, 4)
+  storageRequirements     String?           @db.VarChar(255)
+  grade                   String?           @db.VarChar(100)
+  specifications          String?           @db.Text
+  isHazardous             Boolean           @default(false)
+  standardCost            Decimal?          @db.Decimal(18, 4)   // Reference only — not authoritative
+  lastPurchaseCost        Decimal?          @db.Decimal(18, 4)
+  averageCost             Decimal?          @db.Decimal(18, 4)
+  hsCode                  String?           @db.VarChar(50)
+  status                  String            @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, BLOCKED, ARCHIVED
+  approvalStatus          String            @default("DRAFT") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, APPROVED
+  createdAt               DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime          @updatedAt @db.Timestamptz(6)
+  deletedAt               DateTime?         @db.Timestamptz(6)
+
+  organization            Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                 Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  category                MaterialCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  baseUom                 UnitOfMeasure?    @relation("RawMatBaseUom", fields: [baseUomId], references: [id], onDelete: Restrict)
+  purchaseUom             UnitOfMeasure?    @relation("RawMatPurchaseUom", fields: [purchaseUomId], references: [id], onDelete: Restrict)
+  formulaComponents       FormulaBomComponent[]
+  qcSpecifications        QcSpecification[]
+  purchaseInvoiceItems    PurchaseInvoiceItem[]
+  purchaseReturnItems     PurchaseReturnItem[]
+  warehouseStocks         WarehouseStock[]
+
+  @@unique([companyId, materialCode])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([categoryId])
+  @@map("raw_materials")
+}
+
+// ==========================================
+// PACKING MATERIAL MASTER
+// ==========================================
+
+model PackingMaterial {
+  id                    String            @id @default(uuid()) @db.Uuid
+  organizationId        String            @db.Uuid
+  companyId             String            @db.Uuid
+  categoryId            String?           @db.Uuid
+  baseUomId             String?           @db.Uuid
+  purchaseUomId         String?           @db.Uuid
+  materialCode          String            @db.VarChar(100)
+  materialName          String            @db.VarChar(255)  // e.g. "Printed 50kg PP Bag"
+  description           String?           @db.Text
+  packCompatibility     String?           @db.VarChar(255)  // Which products this packing fits
+  batchControlled       Boolean           @default(false)
+  minimumStock          Decimal?          @db.Decimal(18, 4)
+  maximumStock          Decimal?          @db.Decimal(18, 4)
+  reorderLevel          Decimal?          @db.Decimal(18, 4)
+  standardCost          Decimal?          @db.Decimal(18, 4)
+  lastPurchaseCost      Decimal?          @db.Decimal(18, 4)
+  status                String            @default("ACTIVE") @db.VarChar(50)
+  approvalStatus        String            @default("DRAFT") @db.VarChar(50)
+  createdAt             DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(6)
+  deletedAt             DateTime?         @db.Timestamptz(6)
+
+  organization          Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company               Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  category              MaterialCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  baseUom               UnitOfMeasure?    @relation("PackMatBaseUom", fields: [baseUomId], references: [id], onDelete: Restrict)
+  purchaseUom           UnitOfMeasure?    @relation("PackMatPurchaseUom", fields: [purchaseUomId], references: [id], onDelete: Restrict)
+  formulaComponents     FormulaBomComponent[]
+  purchaseInvoiceItems  PurchaseInvoiceItem[]
+  purchaseReturnItems   PurchaseReturnItem[]
+  warehouseStocks       WarehouseStock[]
+
+  @@unique([companyId, materialCode])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("packing_materials")
+}
+
+// ==========================================
+// PRODUCT CATEGORY MASTER
+// ==========================================
+
+model ProductCategory {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @db.Uuid
+  code           String            @db.VarChar(50)
+  name           String            @db.VarChar(100)
+  description       String?           @db.Text
+  taxClassification String?           @db.VarChar(100)
+  taxRate           Decimal?          @db.Decimal(5, 2)
+  status            String            @default("ACTIVE") @db.VarChar(50)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(6)
+
+  finishedProducts FinishedProduct[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("product_categories")
+}
+
+// ==========================================
+// PACK SIZE MASTER
+// ==========================================
+
+model PackSize {
+  id        String    @id @default(uuid()) @db.Uuid
+  organizationId String @db.Uuid
+  code      String    @db.VarChar(50)  // 50KG, 25KG, 5L
+  name      String    @db.VarChar(100) // e.g. "50 KG Bag"
+  quantity  Decimal   @db.Decimal(18, 4)
+  uomId     String?   @db.Uuid
+  status    String    @default("ACTIVE") @db.VarChar(50)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+
+  uom             UnitOfMeasure?  @relation(fields: [uomId], references: [id], onDelete: SetNull)
+  finishedProducts FinishedProduct[]
+  rateListItems   RateListItem[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("pack_sizes")
+}
+
+// ==========================================
+// FINISHED PRODUCT MASTER
+// ==========================================
+
+model FinishedProduct {
+  id                   String          @id @default(uuid()) @db.Uuid
+  organizationId       String          @db.Uuid
+  companyId            String          @db.Uuid
+  categoryId           String?         @db.Uuid
+  packSizeId           String?         @db.Uuid
+  baseUomId            String?         @db.Uuid
+  salesUomId           String?         @db.Uuid
+  productCode          String          @db.VarChar(100)
+  sku                  String?         @db.VarChar(100)
+  productName          String          @db.VarChar(255)
+  brand                String?         @db.VarChar(100)
+  grade                String?         @db.VarChar(100)  // A-Grade, Premium, Standard
+  fertilizerType       String?         @db.VarChar(100)  // Urea, DAP, NPK, SOP, etc.
+  productForm          String?         @db.VarChar(50)   // GRANULAR, POWDER, LIQUID, PRILLED
+  bagWeight            Decimal?        @db.Decimal(18, 4)
+  barcode              String?         @db.VarChar(100)
+  batchControlled      Boolean         @default(true)
+  expiryControlled     Boolean         @default(false)
+  shelfLifeDays        Int?
+  minimumStock         Decimal?        @db.Decimal(18, 4)
+  reorderLevel         Decimal?        @db.Decimal(18, 4)
+  standardCost         Decimal?        @db.Decimal(18, 4)   // Reference only
+  defaultSellingPrice  Decimal?        @db.Decimal(18, 4)   // Reference only
+  hsCode               String?         @db.VarChar(50)
+  status               String          @default("ACTIVE") @db.VarChar(50)
+  approvalStatus       String          @default("DRAFT") @db.VarChar(50)
+  createdAt            DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime        @updatedAt @db.Timestamptz(6)
+  deletedAt            DateTime?       @db.Timestamptz(6)
+
+  organization         Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  category             ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  packSize             PackSize?       @relation(fields: [packSizeId], references: [id], onDelete: SetNull)
+  baseUom              UnitOfMeasure?  @relation("FpBaseUom", fields: [baseUomId], references: [id], onDelete: Restrict)
+  salesUom             UnitOfMeasure?  @relation("FpSalesUom", fields: [salesUomId], references: [id], onDelete: Restrict)
+  formulaBoms          FormulaBom[]
+  qcSpecifications     QcSpecification[]
+  icPricingRules       IntercompanyPricingRule[]
+  purchaseInvoiceItems PurchaseInvoiceItem[]
+  purchaseReturnItems  PurchaseReturnItem[]
+  salesOrderItems      SalesOrderItem[]
+  salesInvoiceItems    SalesInvoiceItem[]
+  salesReturnItems     SalesReturnItem[]
+  warehouseStocks      WarehouseStock[]
+  productRateLists     ProductRateList[]
+  rateListItems        RateListItem[]
+  provisionalReceiptProducts ProvisionalReceiptProduct[]
+
+  @@unique([companyId, productCode])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("finished_products")
+}
+
+// ==========================================
+// WAREHOUSE LOCATION HIERARCHY
+// ==========================================
+
+model WarehouseLocation {
+  id                     String              @id @default(uuid()) @db.Uuid
+  warehouseId            String              @db.Uuid
+  parentLocationId       String?             @db.Uuid  // Self-referential for Zone > Rack > Bin
+  locationCode           String              @db.VarChar(50)
+  locationName           String              @db.VarChar(200)
+  locationType           String              @db.VarChar(50)  // ZONE, RACK, BIN, SHELF
+  capacity               Decimal?            @db.Decimal(18, 4)
+  capacityUom            String?             @db.VarChar(20)
+  allowedMaterialCategory String?            @db.VarChar(100) // Optional category restriction
+  status                 String              @default("ACTIVE") @db.VarChar(50)
+  createdAt              DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime            @updatedAt @db.Timestamptz(6)
+
+  warehouse              Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  parentLocation         WarehouseLocation?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id], onDelete: Restrict)
+  childLocations         WarehouseLocation[] @relation("LocationHierarchy")
+
+  @@unique([warehouseId, locationCode])
+  @@index([warehouseId])
+  @@index([parentLocationId])
+  @@map("warehouse_locations")
+}
+
+// ==========================================
+// PRODUCTION LINE MASTER
+// ==========================================
+
+model ProductionLine {
+  id                  String         @id @default(uuid()) @db.Uuid
+  companyId           String         @db.Uuid
+  plantId             String?        @db.Uuid
+  lineCode            String         @db.VarChar(50)
+  lineName            String         @db.VarChar(200)
+  capacity            Decimal?       @db.Decimal(18, 4)
+  capacityUomId       String?        @db.Uuid
+  productCompatibility String?       @db.Text  // JSON or comma-separated product codes
+  status              String         @default("ACTIVE") @db.VarChar(50)
+  createdAt           DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime       @updatedAt @db.Timestamptz(6)
+
+  company             Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  plant               Plant?         @relation(fields: [plantId], references: [id], onDelete: SetNull)
+  capacityUom         UnitOfMeasure? @relation(fields: [capacityUomId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, lineCode])
+  @@index([companyId])
+  @@map("production_lines")
+}
+
+// ==========================================
+// SHIFT MASTER
+// ==========================================
+
+model Shift {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  plantId   String?  @db.Uuid
+  shiftCode String   @db.VarChar(50)
+  shiftName String   @db.VarChar(100)  // Morning, Evening, Night
+  startTime String   @db.VarChar(10)   // HH:MM format
+  endTime   String   @db.VarChar(10)
+  status    String   @default("ACTIVE") @db.VarChar(50)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  plant     Plant?   @relation(fields: [plantId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, shiftCode])
+  @@index([companyId])
+  @@map("shifts")
+}
+
+// ==========================================
+// QC SPECIFICATION FOUNDATION
+// ==========================================
+
+model QcSpecification {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  companyId      String              @db.Uuid
+  code           String              @db.VarChar(100)
+  name           String              @db.VarChar(255)
+  appliesToType  String              @db.VarChar(50)  // RAW_MATERIAL | FINISHED_PRODUCT
+  rawMaterialId  String?             @db.Uuid
+  finishedProductId String?          @db.Uuid
+  version        Int                 @default(1)
+  effectiveFrom  DateTime?           @db.Date
+  effectiveTo    DateTime?           @db.Date
+  status         String              @default("DRAFT") @db.VarChar(50)
+  approvalStatus String              @default("DRAFT") @db.VarChar(50)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(6)
+
+  rawMaterial    RawMaterial?        @relation(fields: [rawMaterialId], references: [id], onDelete: SetNull)
+  finishedProduct FinishedProduct?   @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+  parameters     QcParameter[]
+
+  @@unique([companyId, code, version])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("qc_specifications")
+}
+
+model QcParameter {
+  id               String          @id @default(uuid()) @db.Uuid
+  specificationId  String          @db.Uuid
+  parameterName    String          @db.VarChar(200)
+  minimumValue     Decimal?        @db.Decimal(18, 6)
+  maximumValue     Decimal?        @db.Decimal(18, 6)
+  targetValue      Decimal?        @db.Decimal(18, 6)
+  uom              String?         @db.VarChar(50)  // %, ppm, mg/kg
+  testMethod       String?         @db.VarChar(200)
+  mandatory        Boolean         @default(true)
+  sortOrder        Int             @default(0)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
+
+  specification    QcSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
+
+  @@index([specificationId])
+  @@map("qc_parameters")
+}
+
+// ==========================================
+// FORMULA / BOM MASTER
+// ==========================================
+
+model FormulaBom {
+  id                  String                @id @default(uuid()) @db.Uuid
+  organizationId      String                @db.Uuid
+  companyId           String                @db.Uuid
+  finishedProductId   String                @db.Uuid
+  formulaCode         String                @db.VarChar(100)
+  version             Int                   @default(1)
+  standardBatchSize   Decimal               @db.Decimal(18, 4)
+  batchSizeUomId      String?               @db.Uuid
+  effectiveFrom       DateTime?             @db.Date
+  effectiveTo         DateTime?             @db.Date
+  notes               String?               @db.Text
+  status              String                @default("DRAFT") @db.VarChar(50)
+  // DRAFT | PENDING_APPROVAL | APPROVED | ACTIVE | SUPERSEDED
+  approvalStatus      String                @default("DRAFT") @db.VarChar(50)
+  approvedAt          DateTime?             @db.Timestamptz(6)
+  approvedById        String?               @db.Uuid
+  createdAt           DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @db.Timestamptz(6)
+
+  finishedProduct     FinishedProduct       @relation(fields: [finishedProductId], references: [id], onDelete: Restrict)
+  batchSizeUom        UnitOfMeasure?        @relation(fields: [batchSizeUomId], references: [id], onDelete: SetNull)
+  components          FormulaBomComponent[]
+
+  @@unique([companyId, formulaCode, version])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("formula_boms")
+}
+
+model FormulaBomComponent {
+  id                      String          @id @default(uuid()) @db.Uuid
+  formulaId               String          @db.Uuid
+  // COMPONENT TYPE: RAW_MATERIAL | PACKING_MATERIAL
+  componentType           String          @db.VarChar(50)
+  rawMaterialId           String?         @db.Uuid
+  packingMaterialId       String?         @db.Uuid
+  quantity                Decimal         @db.Decimal(18, 6)
+  uomId                   String?         @db.Uuid
+  expectedWastagePercent  Decimal         @default(0) @db.Decimal(5, 2)
+  notes                   String?         @db.VarChar(255)
+  sortOrder               Int             @default(0)
+  createdAt               DateTime        @default(now()) @db.Timestamptz(6)
+
+  formula                 FormulaBom      @relation(fields: [formulaId], references: [id], onDelete: Cascade)
+  rawMaterial             RawMaterial?    @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
+  packingMaterial         PackingMaterial? @relation(fields: [packingMaterialId], references: [id], onDelete: Restrict)
+  uom                     UnitOfMeasure?  @relation(fields: [uomId], references: [id], onDelete: Restrict)
+
+  @@index([formulaId])
+  @@map("formula_bom_components")
+}
+
+// ==========================================
+// PAYMENT TERM MASTER
+// ==========================================
+
+model PaymentTerm {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @db.Uuid
+  code        String   @db.VarChar(50)   // ADVANCE, CASH, NET_30, NET_60
+  name        String   @db.VarChar(100)
+  days        Int      @default(0)       // Number of credit days (0 for advance/cash)
+  paymentType String   @db.VarChar(50)   // ADVANCE | CASH | CREDIT | CUSTOM
+  description String?  @db.Text
+  status      String   @default("ACTIVE") @db.VarChar(50)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("payment_terms")
+}
+
+// ==========================================
+// TAX CATEGORY MASTER
+// ==========================================
+
+model TaxCategory {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @db.Uuid
+  code          String   @db.VarChar(50)   // GST_18, EXEMPT, ZERO_RATED
+  name          String   @db.VarChar(100)
+  rate          Decimal  @db.Decimal(5, 2) // e.g. 18.00 for 18%
+  effectiveFrom DateTime @db.Date
+  effectiveTo   DateTime? @db.Date
+  description   String?  @db.Text
+  status        String   @default("ACTIVE") @db.VarChar(50)
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, code, effectiveFrom])
+  @@index([companyId])
+  @@map("tax_categories")
+}
+
+// ==========================================
+// INTERCOMPANY PRICING RULE FOUNDATION
+// ==========================================
+
+model IntercompanyPricingRule {
+  id                    String          @id @default(uuid()) @db.Uuid
+  organizationId        String          @db.Uuid
+  sourceCompanyId       String          @db.Uuid   // e.g. Shehswar (parent/manufacturer)
+  targetCompanyId       String          @db.Uuid   // e.g. Nectar, consceptAG
+  finishedProductId     String?         @db.Uuid   // Specific product, or null for category-wide
+  productCategoryId     String?         @db.Uuid   // Applied per product category
+  // PERCENTAGE | FIXED_AMOUNT | MANUAL_APPROVED_PRICE
+  pricingMethod         String          @db.VarChar(50)
+  markupPercent         Decimal?        @db.Decimal(5, 2)
+  fixedMarkupAmount     Decimal?        @db.Decimal(18, 2)
+  manualApprovedPrice   Decimal?        @db.Decimal(18, 4)
+  effectiveFrom         DateTime?       @db.Date
+  effectiveTo           DateTime?       @db.Date
+  approvalStatus        String          @default("DRAFT") @db.VarChar(50) // DRAFT | PENDING_APPROVAL | APPROVED
+  approvedAt            DateTime?       @db.Timestamptz(6)
+  approvedById          String?         @db.Uuid
+  notes                 String?         @db.Text
+  status                String          @default("ACTIVE") @db.VarChar(50)
+  createdAt             DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime        @updatedAt @db.Timestamptz(6)
+
+  sourceCompany         Company         @relation("IcSourceCompany", fields: [sourceCompanyId], references: [id], onDelete: Restrict)
+  targetCompany         Company         @relation("IcTargetCompany", fields: [targetCompanyId], references: [id], onDelete: Restrict)
+  finishedProduct       FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([sourceCompanyId, targetCompanyId])
+  @@map("intercompany_pricing_rules")
+}
+
+// ==========================================
+// REASON CODE MASTER
+// ==========================================
+
+model ReasonCode {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  category       String   @db.VarChar(50)   // RETURN | ADJUSTMENT | WASTAGE | REJECTION | OTHER
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(200)
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([organizationId, category, code])
+  @@index([organizationId, category])
+  @@map("reason_codes")
+}
+
+
+// ==========================================
+// OPERATIONAL ERP MODULES
+// Purchase, Sales, Payments, Inventory & Dealers
+// ==========================================
+
+model Dealer {
+  id                     String            @id @default(uuid()) @db.Uuid
+  organizationId         String            @db.Uuid
+  companyId              String            @db.Uuid
+  territoryId            String?           @db.Uuid
+  assignedFieldOfficerId String?           @db.Uuid
+  code                   String            @db.VarChar(50)
+  name                   String            @db.VarChar(200)
+  businessName           String?           @db.VarChar(200)
+  contactPerson          String?           @db.VarChar(100)
+  phone                  String            @db.VarChar(50)
+  email                  String?           @db.VarChar(255)
+  city                   String?           @db.VarChar(100)
+  address                String?           @db.Text
+  creditLimit            Decimal           @default(0) @db.Decimal(18, 2)
+  currentBalance         Decimal           @default(0) @db.Decimal(18, 2)
+  annualAgreementTarget  Decimal?          @default(0) @db.Decimal(18, 2)
+  monthlySalesTarget     Decimal?          @default(0) @db.Decimal(18, 2)
+  status                 String            @default("ACTIVE") @db.VarChar(50)
+  notes                  String?           @db.Text
+  createdAt              DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime          @updatedAt @db.Timestamptz(6)
+  deletedAt              DateTime?         @db.Timestamptz(6)
+
+  organization           Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  territory              Territory?        @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  assignedOfficer        User?             @relation("DealerAssignedOfficer", fields: [assignedFieldOfficerId], references: [id], onDelete: SetNull)
+  officerAssignments     SalesOfficerDealerAssignment[]
+  assignmentHistory      DealerAssignmentHistory[]
+  salesOrders            SalesOrder[]
+  salesInvoices          SalesInvoice[]
+  salesReturns           SalesReturn[]
+  dealerPayments         DealerPaymentReceipt[]
+  ledgerEntries          DealerLedgerEntry[]
+  gatePasses             GatePass[]
+  provisionalReceipts    ProvisionalReceipt[]
+  provisionalReceiptAllocations ProvisionalReceiptAllocation[]
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([territoryId])
+  @@index([assignedFieldOfficerId])
+  @@map("dealers")
+}
+
+model SalesOfficerDealerAssignment {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  dealerId       String    @db.Uuid
+  assignedAt     DateTime  @default(now()) @db.Timestamptz(6)
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dealer         Dealer    @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dealerId])
+  @@index([userId])
+  @@index([dealerId])
+  @@map("sales_officer_dealer_assignments")
+}
+
+model DealerAssignmentHistory {
+  id             String       @id @default(uuid()) @db.Uuid
+  dealerId       String       @db.Uuid
+  salesOfficerId String?      @db.Uuid
+  territoryId    String?      @db.Uuid
+  effectiveFrom  DateTime     @default(now()) @db.Timestamptz(6)
+  effectiveTo    DateTime?    @db.Timestamptz(6)
+  assignedById   String?      @db.VarChar(100)
+  notes          String?      @db.Text
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+
+  dealer         Dealer       @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  salesOfficer   User?        @relation(fields: [salesOfficerId], references: [id], onDelete: SetNull)
+  territory      Territory?   @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+
+  @@index([dealerId])
+  @@index([salesOfficerId])
+  @@index([territoryId])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("dealer_assignment_history")
+}
+
+model UserMarketAssignment {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  companyId      String       @db.Uuid
+  userId         String       @db.Uuid
+  employeeId     String?      @db.Uuid
+  regionId       String?      @db.Uuid
+  zoneId         String?      @db.Uuid
+  territoryId    String?      @db.Uuid
+  roleScope      String       @default("SALES_OFFICER") @db.VarChar(50) // BUSINESS_MANAGER, AREA_MANAGER, SALES_OFFICER
+  isPrimary      Boolean      @default(true)
+  effectiveFrom  DateTime     @default(now()) @db.Timestamptz(6)
+  effectiveTo    DateTime?    @db.Timestamptz(6)
+  status         String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employee       Employee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  region         Region?      @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  zone           Zone?        @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  territory      Territory?   @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([userId])
+  @@index([employeeId])
+  @@index([regionId])
+  @@index([zoneId])
+  @@index([territoryId])
+  @@index([status, effectiveFrom, effectiveTo])
+  @@map("user_market_assignments")
+}
+
+model PurchaseInvoice {
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @db.Uuid
+  companyId          String            @db.Uuid
+  voucherNumber      String            @db.VarChar(50)
+  date               DateTime          @db.Timestamptz(6)
+  receivedOn         DateTime?         @db.Timestamptz(6)
+  reference          String?           @db.VarChar(100)
+  vendorInvoiceNo    String?           @db.VarChar(100)
+  postingStatus      String            @default("DRAFT") @db.VarChar(50) // DRAFT, REVIEWED, POSTED, CANCELLED
+  isComplete         Boolean           @default(false)
+  isChecked          Boolean           @default(false)
+  vendorId           String            @db.Uuid
+  warehouseId        String            @db.Uuid
+  grossAmount        Decimal           @default(0) @db.Decimal(18, 4)
+  discountRate       Decimal           @default(0) @db.Decimal(5, 2)
+  discountAmount     Decimal           @default(0) @db.Decimal(18, 4)
+  salesTaxPercent    Decimal           @default(0) @db.Decimal(5, 2)
+  taxAmount          Decimal           @default(0) @db.Decimal(18, 4)
+  netAmount          Decimal           @default(0) @db.Decimal(18, 4)
+  notes              String?           @db.Text
+  createdById        String?           @db.VarChar(100)
+  editedById         String?           @db.VarChar(100)
+  postedAt           DateTime?         @db.Timestamptz(6)
+  postedById         String?           @db.VarChar(100)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(6)
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vendor             Vendor            @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items              PurchaseInvoiceItem[]
+  documents          PurchaseDocumentAttachment[]
+  stockLedgerEntries StockLedgerEntry[]
+  vendorLedgerEntries VendorLedgerEntry[]
+  gatePasses         GatePass[]
+  purchaseReturns    PurchaseReturn[]
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId, postingStatus])
+  @@index([vendorId])
+  @@index([warehouseId])
+  @@map("purchase_invoices")
+}
+
+model PurchaseInvoiceItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId  String          @db.Uuid
+  materialType       String          @default("RAW_MATERIAL") @db.VarChar(50) // RAW_MATERIAL, PACKING_MATERIAL, FINISHED_PRODUCT
+  rawMaterialId      String?         @db.Uuid
+  packingMaterialId  String?         @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  itemName           String          @db.VarChar(255)
+  packing            String?         @db.VarChar(100)
+  quantity           Decimal         @db.Decimal(18, 4)
+  rate               Decimal         @db.Decimal(18, 4)
+  grossAmount        Decimal         @db.Decimal(18, 4)
+  discountRate       Decimal         @default(0) @db.Decimal(5, 2)
+  discountAmount     Decimal         @default(0) @db.Decimal(18, 4)
+  taxPercent         Decimal         @default(0) @db.Decimal(5, 2)
+  taxAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  netAmount          Decimal         @db.Decimal(18, 4)
+  phaseCategory      String?         @db.VarChar(100)
+
+  purchaseInvoice    PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+  rawMaterial        RawMaterial?    @relation(fields: [rawMaterialId], references: [id], onDelete: SetNull)
+  packingMaterial    PackingMaterial? @relation(fields: [packingMaterialId], references: [id], onDelete: SetNull)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseInvoiceId])
+  @@index([rawMaterialId])
+  @@index([packingMaterialId])
+  @@index([finishedProductId])
+  @@map("purchase_invoice_items")
+}
+
+model PurchaseDocumentAttachment {
+  id                 String          @id @default(uuid()) @db.Uuid
+  purchaseInvoiceId  String          @db.Uuid
+  documentType       String          @default("VENDOR_INVOICE") @db.VarChar(50) // VENDOR_INVOICE, PURCHASE_INVOICE, GATE_PASS, BANK_RECEIPT, OTHER
+  documentNumber     String?         @db.VarChar(100)
+  fileName           String          @db.VarChar(255)
+  fileUrl            String          @db.VarChar(500)
+  fileSizeBytes      BigInt?
+  mimeType           String?         @db.VarChar(100)
+  extractedData      Json?
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+
+  purchaseInvoice    PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseInvoiceId])
+  @@map("purchase_document_attachments")
+}
+
+model PurchaseReturn {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  voucherNumber      String          @db.VarChar(50)
+  purchaseInvoiceId  String?         @db.Uuid
+  date               DateTime        @db.Timestamptz(6)
+  vendorId           String          @db.Uuid
+  warehouseId        String          @db.Uuid
+  postingStatus      String          @default("DRAFT") @db.VarChar(50) // DRAFT, POSTED
+  grossAmount        Decimal         @default(0) @db.Decimal(18, 4)
+  taxAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  netAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  reason             String?         @db.Text
+  createdById        String?         @db.VarChar(100)
+  postedAt           DateTime?       @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseInvoice    PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  vendor             Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items              PurchaseReturnItem[]
+  stockLedgerEntries StockLedgerEntry[]
+  vendorLedgerEntries VendorLedgerEntry[]
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  purchaseReturnId   String          @db.Uuid
+  materialType       String          @default("RAW_MATERIAL") @db.VarChar(50)
+  rawMaterialId      String?         @db.Uuid
+  packingMaterialId  String?         @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  itemName           String          @db.VarChar(255)
+  quantity           Decimal         @db.Decimal(18, 4)
+  rate               Decimal         @db.Decimal(18, 4)
+  netAmount          Decimal         @db.Decimal(18, 4)
+
+  purchaseReturn     PurchaseReturn  @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  rawMaterial        RawMaterial?    @relation(fields: [rawMaterialId], references: [id], onDelete: SetNull)
+  packingMaterial    PackingMaterial? @relation(fields: [packingMaterialId], references: [id], onDelete: SetNull)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseReturnId])
+  @@map("purchase_return_items")
+}
+
+model SalesOrder {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  orderNumber        String          @db.VarChar(50)
+  dealerId           String          @db.Uuid
+  salesOfficerId     String?         @db.Uuid
+  warehouseId        String?         @db.Uuid
+  rateListId         String?         @db.Uuid
+  rateListVersionId  String?         @db.Uuid
+  schemeId           String?         @db.Uuid
+  paymentTerm        String?         @default("CASH") @db.VarChar(50)
+  orderDate          DateTime        @default(now()) @db.Timestamptz(6)
+  status             String          @default("PENDING") @db.VarChar(50) // PENDING, APPROVED, REJECTED, CONVERTED_TO_SALE
+  rejectionReason    String?         @db.Text
+  totalAmount        Decimal         @default(0) @db.Decimal(18, 2)
+  discountAmount     Decimal?        @default(0) @db.Decimal(18, 2)
+  freeQuantityTotal  Decimal?        @default(0) @db.Decimal(18, 4)
+  pricingPhase       String?         @default("CASH") @db.VarChar(50)
+  appliedSchemeName  String?         @db.VarChar(200)
+  commercialCondition String?        @db.VarChar(255)
+  documentFormat     String          @default("COMMERCIAL_FULL") @db.VarChar(50)
+  notes              String?         @db.Text
+  approvedAt         DateTime?       @db.Timestamptz(6)
+  approvedById       String?         @db.VarChar(100)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  dealer             Dealer          @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  salesOfficer       User?           @relation(fields: [salesOfficerId], references: [id], onDelete: SetNull)
+  warehouse          Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  rateList           RateList?       @relation(fields: [rateListId], references: [id], onDelete: SetNull)
+  rateListVersion    RateListVersion? @relation(fields: [rateListVersionId], references: [id], onDelete: SetNull)
+  scheme             PricingScheme?  @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  territory          Territory?      @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  zone               Zone?           @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  region             Region?         @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  areaManager        User?           @relation("SalesOrderAreaManager", fields: [areaManagerId], references: [id], onDelete: SetNull)
+  businessManager    User?           @relation("SalesOrderBusinessManager", fields: [businessManagerId], references: [id], onDelete: SetNull)
+  items              SalesOrderItem[]
+  salesInvoices      SalesInvoice[]
+  creditOverrideRequests CreditOverrideRequest[]
+
+  // Market hierarchy snapshot for operational traceability
+  territoryId        String?         @db.Uuid
+  zoneId             String?         @db.Uuid
+  regionId           String?         @db.Uuid
+  areaManagerId      String?         @db.Uuid
+  businessManagerId  String?         @db.Uuid
+  createdById        String?         @db.VarChar(100)
+
+  @@unique([companyId, orderNumber])
+  @@index([organizationId])
+  @@index([companyId, status])
+  @@index([dealerId])
+  @@index([salesOfficerId])
+  @@index([territoryId])
+  @@index([zoneId])
+  @@index([regionId])
+  @@index([areaManagerId])
+  @@index([businessManagerId])
+  @@index([rateListId])
+  @@index([schemeId])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  salesOrderId       String          @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  rateListId         String?         @db.Uuid
+  rateListVersionId  String?         @db.Uuid
+  schemeId           String?         @db.Uuid
+  productName        String          @db.VarChar(255)
+  packing            String?         @db.VarChar(100)
+  quantity           Decimal         @db.Decimal(18, 4)
+  baseRate           Decimal?        @db.Decimal(18, 4)
+  unitPrice          Decimal         @db.Decimal(18, 4)
+  discountPercent    Decimal?        @default(0) @db.Decimal(8, 2)
+  discountAmount     Decimal?        @default(0) @db.Decimal(18, 4)
+  freeQuantity       Decimal?        @default(0) @db.Decimal(18, 4)
+  totalPrice         Decimal         @db.Decimal(18, 4)
+  commercialCondition String?        @db.VarChar(255)
+  pricingBreakdown   Json?
+
+  salesOrder         SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+  rateList           RateList?       @relation(fields: [rateListId], references: [id], onDelete: SetNull)
+  rateListVersion    RateListVersion? @relation(fields: [rateListVersionId], references: [id], onDelete: SetNull)
+  scheme             PricingScheme?  @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+
+  @@index([salesOrderId])
+  @@index([finishedProductId])
+  @@index([rateListId])
+  @@index([schemeId])
+  @@map("sales_order_items")
+}
+
+model SalesInvoice {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  invoiceNumber      String          @db.VarChar(50)
+  salesOrderId       String?         @db.Uuid
+  dealerId           String          @db.Uuid
+  warehouseId        String          @db.Uuid
+  invoiceDate        DateTime        @db.Timestamptz(6)
+  postingStatus      String          @default("DRAFT") @db.VarChar(50) // DRAFT, POSTED, CANCELLED
+  grossAmount        Decimal         @default(0) @db.Decimal(18, 4)
+  discountAmount     Decimal         @default(0) @db.Decimal(18, 4)
+  taxAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  netAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  notes              String?         @db.Text
+  createdById        String?         @db.VarChar(100)
+  postedAt           DateTime?       @db.Timestamptz(6)
+
+  // ─────────────────────────────────────────────────────────
+  // IMMUTABLE MARKET ATTRIBUTION SNAPSHOT AT TIME OF POSTING
+  // ─────────────────────────────────────────────────────────
+  salesOfficerId     String?         @db.Uuid // Responsible SO / FO
+  territoryId        String?         @db.Uuid // Territory at posting
+  zoneId             String?         @db.Uuid // Zone at posting
+  areaManagerId      String?         @db.Uuid // Responsible Area Manager
+  regionId           String?         @db.Uuid // Region at posting
+  businessManagerId  String?         @db.Uuid // Responsible Business Manager
+
+  // Presentation Format & Commercial Attributes
+  documentFormat     String          @default("COMMERCIAL_FULL") @db.VarChar(50) // BASIC_DELIVERY | STANDARD_SALES | COMMERCIAL_FULL
+  pricingPhase       String?         @default("CASH") @db.VarChar(50) // CASH | SEASONAL | ADVANCE_BOOKING | VD | NET_RATE
+  commercialCondition String?        @db.VarChar(255)
+  isDeliveryChallan  Boolean         @default(false)
+  batchNumber        String?         @db.VarChar(100)
+  cartons            Int?
+  schemeDescription  String?         @db.VarChar(255)
+
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrder         SalesOrder?     @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  dealer             Dealer          @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  salesOfficer       User?           @relation("SalesInvoiceOfficer", fields: [salesOfficerId], references: [id], onDelete: SetNull)
+  territory          Territory?      @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  zone               Zone?           @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  areaManager        User?           @relation("SalesInvoiceAreaManager", fields: [areaManagerId], references: [id], onDelete: SetNull)
+  region             Region?         @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  businessManager    User?           @relation("SalesInvoiceBusinessManager", fields: [businessManagerId], references: [id], onDelete: SetNull)
+
+  items              SalesInvoiceItem[]
+  stockLedgerEntries StockLedgerEntry[]
+  dealerLedgerEntries DealerLedgerEntry[]
+  salesReturns       SalesReturn[]
+  gatePasses         GatePass[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([organizationId])
+  @@index([companyId, postingStatus])
+  @@index([dealerId])
+  @@index([salesOfficerId])
+  @@index([territoryId])
+  @@index([zoneId])
+  @@index([areaManagerId])
+  @@index([regionId])
+  @@index([businessManagerId])
+  @@index([postingStatus, isDeliveryChallan, invoiceDate])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  salesInvoiceId     String          @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  productName        String          @db.VarChar(255)
+  packing            String?         @db.VarChar(100)
+  quantity           Decimal         @db.Decimal(18, 4)
+  rate               Decimal         @db.Decimal(18, 4)
+  grossAmount        Decimal         @db.Decimal(18, 4)
+  discountAmount     Decimal         @default(0) @db.Decimal(18, 4)
+  taxAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  netAmount          Decimal         @db.Decimal(18, 4)
+
+  salesInvoice       SalesInvoice    @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([salesInvoiceId])
+  @@index([finishedProductId])
+  @@map("sales_invoice_items")
+}
+
+model SalesReturn {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  voucherNumber      String          @db.VarChar(50)
+  salesInvoiceId     String?         @db.Uuid
+  dealerId           String          @db.Uuid
+  warehouseId        String          @db.Uuid
+  returnDate         DateTime        @db.Timestamptz(6)
+  postingStatus      String          @default("DRAFT") @db.VarChar(50) // DRAFT, POSTED
+  netAmount          Decimal         @default(0) @db.Decimal(18, 4)
+  reason             String?         @db.Text
+  postedAt           DateTime?       @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesInvoice       SalesInvoice?   @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  dealer             Dealer          @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items              SalesReturnItem[]
+  stockLedgerEntries StockLedgerEntry[]
+  dealerLedgerEntries DealerLedgerEntry[]
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  salesReturnId      String          @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  productName        String          @db.VarChar(255)
+  quantity           Decimal         @db.Decimal(18, 4)
+  rate               Decimal         @db.Decimal(18, 4)
+  netAmount          Decimal         @db.Decimal(18, 4)
+
+  salesReturn        SalesReturn     @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([salesReturnId])
+  @@map("sales_return_items")
+}
+
+model DealerPaymentReceipt {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  receiptNumber      String          @db.VarChar(50)
+  dealerId           String          @db.Uuid
+  salesOfficerId     String?         @db.Uuid
+  paymentType        String          @default("BANK") @db.VarChar(50) // BANK, CASH
+  amount             Decimal         @db.Decimal(18, 2)
+  paymentDate        DateTime        @db.Timestamptz(6)
+  bankName           String?         @db.VarChar(100)
+  referenceNumber    String?         @db.VarChar(100)
+  receiptImageUrl    String?         @db.VarChar(500)
+  extractedDetails   Json?
+  status             String          @default("CONFIRMED") @db.VarChar(50) // CONFIRMED, REJECTED, PENDING
+  notes              String?         @db.Text
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  dealer             Dealer          @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  salesOfficer       User?           @relation(fields: [salesOfficerId], references: [id], onDelete: SetNull)
+  ledgerEntries      DealerLedgerEntry[]
+
+  @@unique([companyId, receiptNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([dealerId])
+  @@map("dealer_payment_receipts")
+}
+
+model VendorPayment {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  voucherNumber      String          @db.VarChar(50)
+  vendorId           String          @db.Uuid
+  paymentType        String          @default("BANK") @db.VarChar(50) // BANK, CASH
+  amount             Decimal         @db.Decimal(18, 2)
+  paymentDate        DateTime        @db.Timestamptz(6)
+  bankName           String?         @db.VarChar(100)
+  referenceNumber    String?         @db.VarChar(100)
+  status             String          @default("POSTED") @db.VarChar(50)
+  notes              String?         @db.Text
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vendor             Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  ledgerEntries      VendorLedgerEntry[]
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([vendorId])
+  @@map("vendor_payments")
+}
+
+model WarehouseStock {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  warehouseId        String          @db.Uuid
+  itemType           String          @db.VarChar(50) // RAW_MATERIAL, PACKING_MATERIAL, FINISHED_PRODUCT
+  rawMaterialId      String?         @db.Uuid
+  packingMaterialId  String?         @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  quantityOnHand     Decimal         @default(0) @db.Decimal(18, 4)
+  averageCost        Decimal         @default(0) @db.Decimal(18, 4)
+  lastUpdated        DateTime        @default(now()) @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  rawMaterial        RawMaterial?    @relation(fields: [rawMaterialId], references: [id], onDelete: SetNull)
+  packingMaterial    PackingMaterial? @relation(fields: [packingMaterialId], references: [id], onDelete: SetNull)
+  finishedProduct    FinishedProduct? @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@unique([warehouseId, itemType, rawMaterialId, packingMaterialId, finishedProductId])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([warehouseId])
+  @@map("warehouse_stocks")
+}
+
+model StockLedgerEntry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  warehouseId        String          @db.Uuid
+  transactionType    String          @db.VarChar(50) // PURCHASE, PURCHASE_RETURN, SALE, SALES_RETURN, ADJUSTMENT
+  referenceId        String          @db.VarChar(100)
+  referenceNumber    String          @db.VarChar(100)
+  itemType           String          @db.VarChar(50) // RAW_MATERIAL, PACKING_MATERIAL, FINISHED_PRODUCT
+  rawMaterialId      String?         @db.Uuid
+  packingMaterialId  String?         @db.Uuid
+  finishedProductId  String?         @db.Uuid
+  quantityChange     Decimal         @db.Decimal(18, 4)
+  quantityAfter      Decimal         @db.Decimal(18, 4)
+  unitCost           Decimal?        @db.Decimal(18, 4)
+  notes              String?         @db.Text
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse          Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  purchaseInvoice    PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  purchaseInvoiceId  String?         @db.Uuid
+  purchaseReturn     PurchaseReturn? @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
+  purchaseReturnId   String?         @db.Uuid
+  salesInvoice       SalesInvoice?   @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  salesInvoiceId     String?         @db.Uuid
+  salesReturn        SalesReturn?    @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
+  salesReturnId      String?         @db.Uuid
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([warehouseId])
+  @@index([referenceId])
+  @@map("stock_ledger_entries")
+}
+
+model DealerLedgerEntry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  dealerId           String          @db.Uuid
+  entryType          String          @db.VarChar(50) // SALE_INVOICE, PAYMENT_RECEIPT, SALES_RETURN, OPENING_BALANCE
+  referenceId        String          @db.VarChar(100)
+  voucherNumber      String          @db.VarChar(100)
+  description        String?         @db.Text
+  debit              Decimal         @default(0) @db.Decimal(18, 2)
+  credit             Decimal         @default(0) @db.Decimal(18, 2)
+  runningBalance     Decimal         @db.Decimal(18, 2)
+  entryDate          DateTime        @default(now()) @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  dealer             Dealer          @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+  salesInvoice       SalesInvoice?   @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  salesInvoiceId     String?         @db.Uuid
+  dealerPayment      DealerPaymentReceipt? @relation(fields: [dealerPaymentId], references: [id], onDelete: SetNull)
+  dealerPaymentId    String?         @db.Uuid
+  salesReturn        SalesReturn?    @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
+  salesReturnId      String?         @db.Uuid
+  provisionalReceiptAllocationId String? @db.Uuid
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([dealerId])
+  @@map("dealer_ledger_entries")
+}
+
+model VendorLedgerEntry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  vendorId           String          @db.Uuid
+  entryType          String          @db.VarChar(50) // PURCHASE_INVOICE, VENDOR_PAYMENT, PURCHASE_RETURN, OPENING_BALANCE
+  referenceId        String          @db.VarChar(100)
+  voucherNumber      String          @db.VarChar(100)
+  description        String?         @db.Text
+  credit             Decimal         @default(0) @db.Decimal(18, 2)
+  debit              Decimal         @default(0) @db.Decimal(18, 2)
+  runningBalance     Decimal         @db.Decimal(18, 2)
+  entryDate          DateTime        @default(now()) @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vendor             Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  purchaseInvoice    PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  purchaseInvoiceId  String?         @db.Uuid
+  vendorPayment      VendorPayment?  @relation(fields: [vendorPaymentId], references: [id], onDelete: SetNull)
+  vendorPaymentId    String?         @db.Uuid
+  purchaseReturn     PurchaseReturn? @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
+  purchaseReturnId   String?         @db.Uuid
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([vendorId])
+  @@map("vendor_ledger_entries")
+}
+
+model GatePass {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  gatePassNumber     String          @db.VarChar(50)
+  passType           String          @default("INWARD") @db.VarChar(50) // INWARD, OUTWARD
+  vehicleNo          String?         @db.VarChar(50)
+  driverName         String?         @db.VarChar(100)
+  driverPhone        String?         @db.VarChar(50)
+  transporter        String?         @db.VarChar(100)
+  vendorId           String?         @db.Uuid
+  dealerId           String?         @db.Uuid
+  purchaseInvoiceId  String?         @db.Uuid
+  salesInvoiceId     String?         @db.Uuid
+  date               DateTime        @default(now()) @db.Timestamptz(6)
+  status             String          @default("VERIFIED") @db.VarChar(50)
+  notes              String?         @db.Text
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vendor             Vendor?         @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  dealer             Dealer?         @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+  purchaseInvoice    PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull)
+  salesInvoice       SalesInvoice?   @relation(fields: [salesInvoiceId], references: [id], onDelete: SetNull)
+  items              GatePassItem[]
+
+  @@unique([companyId, gatePassNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("gate_passes")
+}
+
+model GatePassItem {
+  id                 String          @id @default(uuid()) @db.Uuid
+  gatePassId         String          @db.Uuid
+  description        String          @db.VarChar(255)
+  quantity           Decimal         @db.Decimal(18, 4)
+  uom                String?         @db.VarChar(50)
+  notes              String?         @db.Text
+
+  gatePass           GatePass        @relation(fields: [gatePassId], references: [id], onDelete: Cascade)
+
+  @@index([gatePassId])
+  @@map("gate_pass_items")
+}
+
+model DocumentExtractionRecord {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @db.Uuid
+  companyId          String          @db.Uuid
+  documentType       String          @db.VarChar(50) // VENDOR_INVOICE, PURCHASE_INVOICE, GATE_PASS, BANK_RECEIPT, CASH_RECEIPT
+  fileName           String          @db.VarChar(255)
+  fileUrl            String          @db.VarChar(500)
+  extractedData      Json
+  matchedEntityId    String?         @db.VarChar(100)
+  status             String          @default("PROCESSED") @db.VarChar(50)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("document_extractions")
+}
+
+// ==========================================
+// 12. PRICING & RATE LIST MANAGEMENT
+// ==========================================
+
+enum PricingPhase {
+  CASH
+  SEASONAL
+  ADVANCE_BOOKING
+  VD
+  NET_RATE
+}
+
+model ProductRateList {
+  id                  String       @id @default(uuid()) @db.Uuid
+  organizationId      String       @db.Uuid
+  companyId           String       @db.Uuid
+  finishedProductId   String       @db.Uuid
+  phase               PricingPhase @default(CASH)
+  baseRate            Decimal      @db.Decimal(18, 4)
+  cashDiscountPercent Decimal      @default(0) @db.Decimal(8, 2)
+  minAllowedRate      Decimal?     @db.Decimal(18, 4)
+  effectiveDate       DateTime     @default(now()) @db.Timestamptz(6)
+  isActive            Boolean      @default(true)
+  createdAt           DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization        Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company             Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  finishedProduct     FinishedProduct @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, finishedProductId, phase])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([finishedProductId])
+  @@map("product_rate_lists")
+}
+
+model PricingAuthorityLimit {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @db.Uuid
+  companyId             String    @db.Uuid
+  roleCode              String    @db.VarChar(50) // SALES_OFFICER, AREA_MANAGER, BUSINESS_MANAGER, ADMIN
+  maxDiscountPct        Decimal   @db.Decimal(8, 2)
+  canSetNetRate         Boolean   @default(false)
+  canApplySpecialRate   Boolean   @default(false)
+  canApproveOwnOverride Boolean   @default(false)
+  requiresApproval      Boolean   @default(true)
+  companyScope          String?   @default("COMPANY") @db.VarChar(100)
+  effectiveDate         DateTime? @default(now()) @db.Timestamptz(6)
+  status                String    @default("ACTIVE") @db.VarChar(50)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(6)
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company               Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, roleCode])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("pricing_authority_limits")
+}
+
+model RateList {
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @db.Uuid
+  companyId          String            @db.Uuid
+  code               String            @db.VarChar(50)
+  name               String            @db.VarChar(200)
+  description        String?           @db.Text
+  category           String            @default("SEASONAL") @db.VarChar(100) // SEASONAL, CASH, ADVANCE_BOOKING, VD, NET_RATE, PACKAGE, SPECIAL, MELA, GENERAL
+  currency           String            @default("PKR") @db.VarChar(10)
+  status             String            @default("ACTIVE") @db.VarChar(50) // DRAFT, ACTIVE, INACTIVE, ARCHIVED
+  isMobileVisible    Boolean           @default(true)
+  isMobileSelectable Boolean           @default(true)
+  isInternalOnly     Boolean           @default(false)
+  priority           Int               @default(0)
+  createdById        String?           @db.VarChar(100)
+  approvedById       String?           @db.VarChar(100)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(6)
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  versions           RateListVersion[]
+  salesOrders        SalesOrder[]
+  salesOrderItems    SalesOrderItem[]
+  pricingSchemes     PricingScheme[]   @relation("BaseRateListSchemes")
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([category])
+  @@index([status])
+  @@map("rate_lists")
+}
+
+model RateListVersion {
+  id                 String          @id @default(uuid()) @db.Uuid
+  rateListId         String          @db.Uuid
+  versionNumber      Int             @default(1)
+  effectiveFrom      DateTime        @db.Timestamptz(6)
+  effectiveTo        DateTime?       @db.Timestamptz(6)
+  status             String          @default("ACTIVE") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, ACTIVE, EXPIRED, ARCHIVED, CANCELLED
+  notes              String?         @db.Text
+  createdById        String?         @db.VarChar(100)
+  approvedById       String?         @db.VarChar(100)
+  approvedAt         DateTime?       @db.Timestamptz(6)
+  publishedAt        DateTime?       @db.Timestamptz(6)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(6)
+
+  rateList           RateList        @relation(fields: [rateListId], references: [id], onDelete: Cascade)
+  items              RateListItem[]
+  salesOrders        SalesOrder[]
+  salesOrderItems    SalesOrderItem[]
+
+  @@unique([rateListId, versionNumber])
+  @@index([rateListId])
+  @@index([status, effectiveFrom, effectiveTo])
+  @@map("rate_list_versions")
+}
+
+model RateListItem {
+  id                  String          @id @default(uuid()) @db.Uuid
+  rateListVersionId   String          @db.Uuid
+  finishedProductId   String          @db.Uuid
+  packSizeId          String?         @db.Uuid
+  baseRate            Decimal         @db.Decimal(18, 4)
+  unit                String?         @default("BAG") @db.VarChar(50)
+  discountType        String?         @default("PERCENTAGE") @db.VarChar(50) // PERCENTAGE, FLAT
+  discountValue       Decimal         @default(0) @db.Decimal(18, 4)
+  fixedNetRate        Decimal?        @db.Decimal(18, 4)
+  minAllowedRate      Decimal?        @db.Decimal(18, 4)
+  quantityFrom        Decimal         @default(1) @db.Decimal(18, 4)
+  quantityTo          Decimal?        @db.Decimal(18, 4)
+  freeQuantity        Decimal         @default(0) @db.Decimal(18, 4)
+  commercialCondition String?         @db.VarChar(255)
+  isActive            Boolean         @default(true)
+  createdAt           DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(6)
+
+  rateListVersion     RateListVersion @relation(fields: [rateListVersionId], references: [id], onDelete: Cascade)
+  finishedProduct     FinishedProduct @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
+  packSize            PackSize?       @relation(fields: [packSizeId], references: [id], onDelete: SetNull)
+
+  @@index([rateListVersionId])
+  @@index([finishedProductId])
+  @@index([packSizeId])
+  @@map("rate_list_items")
+}
+
+model PricingScheme {
+  id                   String          @id @default(uuid()) @db.Uuid
+  organizationId       String          @db.Uuid
+  companyId            String          @db.Uuid
+  code                 String          @db.VarChar(50)
+  name                 String          @db.VarChar(200)
+  description          String?         @db.Text
+  schemeType           String          @default("CASH_DISCOUNT") @db.VarChar(50) // CASH_DISCOUNT, ADVANCE_BOOKING, PACKAGE, SPECIAL_RATE, VOLUME_DISCOUNT, NET_RATE, MELA_EVENT, CREDIT_COMMERCIAL, OTHER
+  calculationMethod    String          @default("ADDITIVE") @db.VarChar(50) // ADDITIVE, SEQUENTIAL
+  discountComponents   Json?           // Array of { name: string, type: 'PERCENTAGE' | 'FLAT', value: number }
+  baseRateListId       String?         @db.Uuid
+  paidQuantity         Decimal?        @default(0) @db.Decimal(18, 4)
+  freeQuantity         Decimal?        @default(0) @db.Decimal(18, 4)
+  minQuantity          Decimal?        @default(0) @db.Decimal(18, 4)
+  maxQuantity          Decimal?        @db.Decimal(18, 4)
+  applicableDealerTier String?         @default("ALL") @db.VarChar(50)
+  paymentTerm          String?         @default("ANY") @db.VarChar(50) // CASH, CREDIT, ADVANCE, ANY
+  effectiveFrom        DateTime        @db.Timestamptz(6)
+  effectiveTo          DateTime?       @db.Timestamptz(6)
+  isMobileVisible      Boolean         @default(true)
+  isMobileSelectable   Boolean         @default(true)
+  isInternalOnly       Boolean         @default(false)
+  priority             Int             @default(0)
+  status               String          @default("ACTIVE") @db.VarChar(50) // DRAFT, ACTIVE, EXPIRED, ARCHIVED
+  createdById          String?         @db.VarChar(100)
+  approvedById         String?         @db.VarChar(100)
+  createdAt            DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization         Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  baseRateList         RateList?       @relation("BaseRateListSchemes", fields: [baseRateListId], references: [id], onDelete: SetNull)
+  salesOrders          SalesOrder[]
+  salesOrderItems      SalesOrderItem[]
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([schemeType])
+  @@index([status, effectiveFrom, effectiveTo])
+  @@map("pricing_schemes")
+}
+
+// ==========================================
+// 12. FINANCIAL ACCOUNTING & GENERAL LEDGER (GL)
+// ==========================================
+
+model Account {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @db.Uuid
+  companyId        String?           @db.Uuid
+  accountCode      String            @db.VarChar(50) // e.g. "101000", "102000", "103000", "201000", "401000", "501000", "601000"
+  accountName      String            @db.VarChar(200)
+  accountType      String            @db.VarChar(50) // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
+  category         String            @db.VarChar(100) // CURRENT_ASSET, NON_CURRENT_ASSET, CURRENT_LIABILITY, EQUITY, OPERATING_REVENUE, COGS, OPERATING_EXPENSE, TAX
+  currency         String            @default("PKR") @db.VarChar(10)
+  isSystem         Boolean           @default(false)
+  isActive         Boolean           @default(true)
+  currentBalance   Decimal           @default(0) @db.Decimal(18, 4)
+  notes            String?           @db.Text
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  journalLines     JournalEntryLine[]
+  expenseAccounts  ExpenseEntry[]    @relation("ExpenseAccount")
+  paymentAccounts  ExpenseEntry[]    @relation("PaymentAccount")
+  financialTxAccounts FinancialTransaction[] @relation("FinancialTxAccount")
+  financialTxContraAccounts FinancialTransaction[] @relation("FinancialTxContraAccount")
+
+  @@unique([organizationId, accountCode])
+  @@index([organizationId, accountType])
+  @@index([companyId])
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @db.Uuid
+  companyId        String            @db.Uuid
+  entryNumber      String            @db.VarChar(50) // e.g. "JV-2026-00001", "SJ-2026-00001", "PJ-2026-00001"
+  entryDate        DateTime          @db.Timestamptz(6)
+  sourceType       String            @db.VarChar(50) // SALES_INVOICE, PURCHASE_INVOICE, DEALER_PAYMENT, VENDOR_PAYMENT, EXPENSE, MANUAL_JOURNAL
+  sourceId         String?           @db.Uuid
+  referenceNumber  String?           @db.VarChar(100)
+  description      String?           @db.Text
+  totalDebit       Decimal           @default(0) @db.Decimal(18, 4)
+  totalCredit      Decimal           @default(0) @db.Decimal(18, 4)
+  isBalanced       Boolean           @default(true)
+  status           String            @default("POSTED") @db.VarChar(50) // DRAFT, POSTED, REVERSED
+  createdById      String?           @db.VarChar(100)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  lines            JournalEntryLine[]
+
+  @@unique([companyId, entryNumber])
+  @@index([organizationId])
+  @@index([companyId, entryDate])
+  @@index([sourceType, sourceId])
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id               String            @id @default(uuid()) @db.Uuid
+  journalEntryId   String            @db.Uuid
+  accountId        String            @db.Uuid
+  debit            Decimal           @default(0) @db.Decimal(18, 4)
+  credit           Decimal           @default(0) @db.Decimal(18, 4)
+  description      String?           @db.Text
+  dealerId         String?           @db.Uuid
+  vendorId         String?           @db.Uuid
+  salesOfficerId   String?           @db.Uuid
+  regionId         String?           @db.Uuid
+  zoneId           String?           @db.Uuid
+  territoryId      String?           @db.Uuid
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+
+  journalEntry     JournalEntry      @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account          Account           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([dealerId])
+  @@index([vendorId])
+  @@index([regionId])
+  @@map("journal_entry_lines")
+}
+
+model ExpenseEntry {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizationId   String            @db.Uuid
+  companyId        String            @db.Uuid
+  voucherNumber    String            @db.VarChar(50)
+  expenseDate      DateTime          @db.Timestamptz(6)
+  expenseAccountId String            @db.Uuid
+  paymentAccountId String            @db.Uuid
+  paymentMethod    String            @default("BANK") @db.VarChar(50) // CASH, BANK, PAYABLE
+  amount           Decimal           @db.Decimal(18, 2)
+  taxAmount        Decimal           @default(0) @db.Decimal(18, 2)
+  payee            String?           @db.VarChar(200)
+  referenceNumber  String?           @db.VarChar(100)
+  category         String?           @db.VarChar(100)
+  description      String?           @db.Text
+  regionId         String?           @db.Uuid
+  zoneId           String?           @db.Uuid
+  territoryId      String?           @db.Uuid
+  status           String            @default("POSTED") @db.VarChar(50)
+  createdById      String?           @db.VarChar(100)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  expenseAccount   Account           @relation("ExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: Restrict)
+  paymentAccount   Account           @relation("PaymentAccount", fields: [paymentAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId, expenseDate])
+  @@index([category])
+  @@map("expense_entries")
+}
+
+// ==========================================
+// 13. HIERARCHICAL CREDIT CONTROL & TARGETS
+// ==========================================
+
+model CreditLimit {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organizationId             String       @db.Uuid
+  companyId                  String       @db.Uuid
+  level                      String       @db.VarChar(50) // DEALER, SALES_OFFICER, TERRITORY, ZONE, REGION, COMPANY
+  entityId                   String       @db.VarChar(100) // ID of Dealer, User, Territory, Zone, Region, Company
+  creditLimit                Decimal      @db.Decimal(18, 2)
+  effectiveFrom              DateTime     @default(now()) @db.Timestamptz(6)
+  effectiveTo                DateTime?    @db.Timestamptz(6)
+  status                     String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, SUSPENDED
+  approvalAuthority          String?      @db.VarChar(100)
+  nearLimitThresholdPercent  Decimal      @default(85.00) @db.Decimal(5, 2)
+  notes                      String?      @db.Text
+  createdById                String?      @db.VarChar(100)
+  createdAt                  DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt                  DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                    Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([companyId, level, entityId, status])
+  @@map("credit_limits")
+}
+
+model CreditOverrideRequest {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  salesOrderId       String       @db.Uuid
+  level              String       @db.VarChar(50) // DEALER, SALES_OFFICER, TERRITORY, ZONE, REGION
+  entityId           String       @db.VarChar(100)
+  entityName         String       @db.VarChar(200)
+  currentLimit       Decimal      @db.Decimal(18, 2)
+  currentExposure    Decimal      @db.Decimal(18, 2)
+  orderAmount        Decimal      @db.Decimal(18, 2)
+  projectedExposure  Decimal      @db.Decimal(18, 2)
+  exceededAmount     Decimal      @db.Decimal(18, 2)
+  requestedById      String?      @db.VarChar(100)
+  reason             String       @db.Text
+  status             String       @default("PENDING") @db.VarChar(50) // PENDING, APPROVED, REJECTED
+  approvedById       String?      @db.VarChar(100)
+  approvedAt         DateTime?    @db.Timestamptz(6)
+  rejectionReason    String?      @db.Text
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrder         SalesOrder   @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([companyId, status])
+  @@index([salesOrderId])
+  @@map("credit_override_requests")
+}
+
+model SalesTarget {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  level              String       @db.VarChar(50) // REGION, ZONE, TERRITORY, SALES_OFFICER, DEALER
+  entityId           String       @db.VarChar(100)
+  periodYear         Int
+  periodMonth        Int
+  targetAmount       Decimal      @default(0) @db.Decimal(18, 2)
+  targetQuantity     Decimal      @default(0) @db.Decimal(18, 4)
+  targetType         String       @default("REVENUE") @db.VarChar(50) // REVENUE, QUANTITY, HYBRID
+  status             String       @default("ACTIVE") @db.VarChar(50)
+  notes              String?      @db.Text
+  createdById        String?      @db.VarChar(100)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, level, entityId, periodYear, periodMonth])
+  @@index([organizationId])
+  @@index([companyId, periodYear, periodMonth])
+  @@map("sales_targets")
+}
+
+// ==========================================
+// 14. VEHICLE, FLEET & ASSET MANAGEMENT
+// ==========================================
+
+model Vehicle {
+  id                 String              @id @default(uuid()) @db.Uuid
+  organizationId     String              @db.Uuid
+  companyId          String              @db.Uuid
+  vehicleNumber      String              @db.VarChar(50) // e.g. "ABC-123"
+  companyName        String?             @db.VarChar(200)
+  vehicleModel       String              @db.VarChar(100) // e.g. "Toyota Corolla GLI"
+  registrationYear   Int                 // e.g. 2022
+  engineNumber       String?             @db.VarChar(100)
+  chassisNumber      String?             @db.VarChar(100)
+  status             String              @default("AVAILABLE") @db.VarChar(50) // AVAILABLE, ASSIGNED, UNDER_MAINTENANCE, SOLD, DISPOSED, INACTIVE
+  currentEmployeeId  String?             @db.Uuid
+  assignmentDate     DateTime?           @db.Timestamptz(6)
+  currentLocation    String?             @default("Head Office") @db.VarChar(150)
+  notes              String?             @db.Text
+  createdAt          DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(6)
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentEmployee    Employee?           @relation("CurrentVehicleCustodian", fields: [currentEmployeeId], references: [id], onDelete: SetNull)
+  assignments        VehicleAssignment[]
+  expenses           VehicleExpense[]
+
+  @@unique([companyId, vehicleNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([currentEmployeeId])
+  @@index([status])
+  @@map("vehicles")
+}
+
+model VehicleAssignment {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  vehicleId          String       @db.Uuid
+  employeeId         String       @db.Uuid
+  assignedById       String?      @db.VarChar(100)
+  assignmentDate     DateTime     @default(now()) @db.Timestamptz(6)
+  returnDate         DateTime?    @db.Timestamptz(6)
+  returnReason       String?      @db.VarChar(255)
+  returnCondition    String?      @db.Text
+  status             String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, RETURNED
+  notes              String?      @db.Text
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vehicle            Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  employee           Employee     @relation("EmployeeVehicleAssignments", fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([vehicleId])
+  @@index([employeeId])
+  @@index([status])
+  @@map("vehicle_assignments")
+}
+
+model VehicleExpense {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  vehicleId          String       @db.Uuid
+  employeeId         String?      @db.Uuid
+  voucherNumber      String       @db.VarChar(50)
+  expenseType        String       @default("FUEL") @db.VarChar(50) // FUEL, MAINTENANCE, REPAIR, TOLL_TAX, INSURANCE, OTHER
+  expenseDate        DateTime     @db.Timestamptz(6)
+  fuelStation        String?      @db.VarChar(150)
+  quantity           Decimal      @default(0) @db.Decimal(18, 4) // e.g. Liters
+  rate               Decimal      @default(0) @db.Decimal(18, 4) // PKR per unit
+  totalAmount        Decimal      @db.Decimal(18, 2)             // quantity * rate
+  paymentMethod      String       @default("CASH") @db.VarChar(50) // CASH, BANK, PAYABLE
+  remarks            String?      @db.Text
+  attachmentUrl      String?      @db.Text
+  expenseEntryId     String?      @db.Uuid
+  journalEntryId     String?      @db.Uuid
+  status             String       @default("POSTED") @db.VarChar(50)
+  createdById        String?      @db.VarChar(100)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  vehicle            Vehicle      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  employee           Employee?    @relation("EmployeeVehicleExpenses", fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([vehicleId])
+  @@index([employeeId])
+  @@index([companyId, expenseDate])
+  @@map("vehicle_expenses")
+}
+
+model EmployeeSalaryPayment {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  employeeId         String       @db.Uuid
+  voucherNumber      String       @db.VarChar(50)
+  salaryMonth        String       @db.VarChar(20) // e.g. "October 2026"
+  paymentDate        DateTime     @db.Timestamptz(6)
+  grossSalary        Decimal      @db.Decimal(18, 2)
+  adjustments        Decimal      @default(0) @db.Decimal(18, 2) // allowances (+) / deductions (-)
+  netPaid            Decimal      @db.Decimal(18, 2)
+  paymentMethod      String       @default("BANK") @db.VarChar(50) // CASH, BANK
+  referenceNumber    String?      @db.VarChar(100)
+  remarks            String?      @db.Text
+  attachmentUrl      String?      @db.Text
+  expenseEntryId     String?      @db.Uuid
+  journalEntryId     String?      @db.Uuid
+  status             String       @default("POSTED") @db.VarChar(50)
+  createdById        String?      @db.VarChar(100)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee           Employee     @relation("EmployeeSalaryPayments", fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([companyId, salaryMonth])
+  @@map("employee_salary_payments")
+}
+
+// ==========================================
+// 15. UNIFIED FINANCIAL TRANSACTIONS
+// (Cash Receipt, Cash Payment, Bank Receipt, Bank Payment)
+// ==========================================
+
+model FinancialTransaction {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  voucherNumber      String       @db.VarChar(50)
+  transactionType    String       @db.VarChar(50) // CASH_RECEIPT, CASH_PAYMENT, BANK_RECEIPT, BANK_PAYMENT
+  transactionDate    DateTime     @db.Timestamptz(6)
+  partyType          String?      @db.VarChar(50) // DEALER, VENDOR, EMPLOYEE, OTHER
+  partyId            String?      @db.VarChar(100)
+  partyName          String?      @db.VarChar(200)
+  amount             Decimal      @db.Decimal(18, 2)
+  paymentMethod      String       @db.VarChar(50) // CASH, BANK, CHEQUE, ONLINE, DD, OTHER
+  accountId          String       @db.Uuid        // Cash / Bank account
+  contraAccountId    String       @db.Uuid        // Counter ledger account
+  bankName           String?      @db.VarChar(100)
+  branchName         String?      @db.VarChar(100)
+  referenceNumber    String?      @db.VarChar(100)
+  remarks            String?      @db.Text
+  attachmentUrl      String?      @db.Text
+  status             String       @default("POSTED") @db.VarChar(50) // DRAFT, POSTED, REVERSED
+  journalEntryId     String?      @db.Uuid
+  createdById        String?      @db.VarChar(100)
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  account            Account      @relation("FinancialTxAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  contraAccount      Account      @relation("FinancialTxContraAccount", fields: [contraAccountId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, voucherNumber])
+  @@index([organizationId])
+  @@index([companyId, transactionDate])
+  @@index([transactionType])
+  @@map("financial_transactions")
+}
+
+// ==========================================
+// 16. PROVISIONAL RECEIPTS (PR) & ALLOCATIONS
+// ==========================================
+
+model ProvisionalReceipt {
+  id                     String                          @id @default(uuid()) @db.Uuid
+  organizationId         String                          @db.Uuid
+  companyId              String                          @db.Uuid
+  prNumber               String                          @db.VarChar(50) // PR-000001
+  receiptDate            DateTime                        @db.Timestamptz(6)
+  issueDate              DateTime                        @db.Timestamptz(6)
+  name                   String?                         @db.VarChar(150)
+  receivedFrom           String                          @db.VarChar(200)
+  partyDealerId          String?                         @db.Uuid
+  partyCode              String?                         @db.VarChar(50)
+  address                String?                         @db.Text
+  salesOfficerId         String?                         @db.Uuid
+  regionId               String?                         @db.Uuid
+  territoryId            String?                         @db.Uuid
+  paymentMethod          String                          @db.VarChar(50) // CASH, CHEQUE, DD, ONLINE, OTHER
+  paymentReferenceNumber String?                         @db.VarChar(100)
+  bankName               String?                         @db.VarChar(100)
+  branchName             String?                         @db.VarChar(100)
+  totalAmount            Decimal                         @db.Decimal(18, 2)
+  totalAmountInWords     String?                         @db.VarChar(255)
+  allocatedAmount        Decimal                         @default(0) @db.Decimal(18, 2)
+  unallocatedAmount      Decimal                         @db.Decimal(18, 2)
+  allocationStatus       String                          @default("UNALLOCATED") @db.VarChar(50) // UNALLOCATED, PARTIALLY_ALLOCATED, FULLY_ALLOCATED
+  status                 String                          @default("DRAFT") @db.VarChar(50) // DRAFT, PENDING_ALLOCATION, POSTED, REVERSED, CANCELLED
+  remarks                String?                         @db.Text
+  attachmentUrl          String?                         @db.Text
+  journalEntryId         String?                         @db.Uuid
+  createdById            String?                         @db.VarChar(100)
+  postedById             String?                         @db.VarChar(100)
+  postedAt               DateTime?                       @db.Timestamptz(6)
+  reversedById           String?                         @db.VarChar(100)
+  reversedAt             DateTime?                       @db.Timestamptz(6)
+  reversalReason         String?                         @db.Text
+  createdAt              DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime                        @updatedAt @db.Timestamptz(6)
+
+  organization           Organization                    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                Company                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  dealer                 Dealer?                         @relation(fields: [partyDealerId], references: [id], onDelete: SetNull)
+  region                 Region?                         @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  territory              Territory?                      @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  products               ProvisionalReceiptProduct[]
+  allocations            ProvisionalReceiptAllocation[]
+
+  @@unique([companyId, prNumber])
+  @@index([organizationId])
+  @@index([companyId, receiptDate])
+  @@index([status])
+  @@index([allocationStatus])
+  @@map("provisional_receipts")
+}
+
+model ProvisionalReceiptProduct {
+  id                   String             @id @default(uuid()) @db.Uuid
+  provisionalReceiptId String             @db.Uuid
+  srNo                 Int
+  finishedProductId    String?            @db.Uuid
+  productName          String             @db.VarChar(200)
+  packSize             String             @db.VarChar(100)
+  quantity             Decimal            @db.Decimal(18, 4)
+  policyRate           Decimal            @db.Decimal(18, 4)
+  amount               Decimal            @db.Decimal(18, 2) // quantity * policyRate
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+
+  provisionalReceipt   ProvisionalReceipt @relation(fields: [provisionalReceiptId], references: [id], onDelete: Cascade)
+  finishedProduct      FinishedProduct?   @relation(fields: [finishedProductId], references: [id], onDelete: SetNull)
+
+  @@index([provisionalReceiptId])
+  @@map("provisional_receipt_products")
+}
+
+model ProvisionalReceiptAllocation {
+  id                   String             @id @default(uuid()) @db.Uuid
+  provisionalReceiptId String             @db.Uuid
+  dealerId             String             @db.Uuid
+  partyCode            String?            @db.VarChar(50)
+  dealerName           String?            @db.VarChar(200)
+  regionId             String?            @db.Uuid
+  territoryId          String?            @db.Uuid
+  allocatedAmount      Decimal            @db.Decimal(18, 2)
+  reference            String?            @db.VarChar(100)
+  remarks              String?            @db.Text
+  status               String             @default("POSTED") @db.VarChar(50) // POSTED, REVERSED
+  dealerLedgerEntryId  String?            @db.Uuid
+  journalEntryId       String?            @db.Uuid
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+
+  provisionalReceipt   ProvisionalReceipt @relation(fields: [provisionalReceiptId], references: [id], onDelete: Cascade)
+  dealer               Dealer             @relation(fields: [dealerId], references: [id], onDelete: Restrict)
+
+  @@index([provisionalReceiptId])
+  @@index([dealerId])
+  @@map("provisional_receipt_allocations")
+}
+
+

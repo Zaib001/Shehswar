@@ -13,6 +13,7 @@ import { SettingsModule } from './settings/settings.module';
 import { DocumentNumberingModule } from './document-numbering/document-numbering.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { HealthModule } from './health/health.module';
+import { MasterDataModule } from './master-data/master-data.module';
 import { TransactionService } from '../common/services/transaction.service';
 
 @Module({
@@ -28,6 +29,7 @@ import { TransactionService } from '../common/services/transaction.service';
     DocumentNumberingModule,
     FeatureFlagsModule,
     HealthModule,
+    MasterDataModule,
   ],
   providers: [TransactionService],
   exports: [
@@ -42,6 +44,7 @@ import { TransactionService } from '../common/services/transaction.service';
     DocumentNumberingModule,
     FeatureFlagsModule,
     HealthModule,
+    MasterDataModule,
     TransactionService,
   ],
 })

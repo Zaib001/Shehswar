@@ -49,5 +49,12 @@ Thumbs.db
 ehthumbs.db
 [Dd]esktop.ini
 
-# Prisma generated artifacts (except schema and migrations)
-# Keep generated client in node_modules or dist
+# Database dumps & backups
+*.dump
+
+# TypeScript build info cache
+*.tsbuildinfo
+
+# Scratch files
+**/scratch*
+query_db.js

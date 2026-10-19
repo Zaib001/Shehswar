@@ -27,6 +27,14 @@ export enum Action {
   // Sensitive & Domain Specific Permissions
   VIEW_COST = 'view_cost',
   VIEW_MARGIN = 'view_margin',
+  VIEW_PRODUCT_COST = 'view_product_cost',
+  VIEW_PARENT_MANUFACTURING_COST = 'view_parent_manufacturing_cost',
+  VIEW_PARENT_MARGIN = 'view_parent_margin',
+  VIEW_INTERCOMPANY_PRICE = 'view_intercompany_price',
+  MODIFY_INTERCOMPANY_PRICE = 'modify_intercompany_price',
+  APPROVE_INTERCOMPANY_PRICE = 'approve_intercompany_price',
+  VIEW_CHILD_MARGIN = 'view_child_margin',
+  VIEW_CONSOLIDATED_MARGIN = 'view_consolidated_margin',
   EDIT_FORMULA = 'edit_formula',
   APPROVE_FORMULA = 'approve_formula',
   MODIFY_PRICE = 'modify_price',
@@ -64,10 +72,33 @@ export enum Resource {
   APPROVAL_WORKFLOW = 'approval_workflow',
   NOTIFICATION = 'notification',
 
-  // Business Modules (Future Phases)
+  // Master Data Expansion (Phase 4.5)
+  UNIT_OF_MEASURE = 'unit_of_measure',
+  UOM_CONVERSION = 'uom_conversion',
+  MATERIAL_CATEGORY = 'material_category',
+  RAW_MATERIAL = 'raw_material',
+  PACKING_MATERIAL = 'packing_material',
+  PRODUCT_CATEGORY = 'product_category',
+  FINISHED_PRODUCT = 'finished_product',
+  PACK_SIZE = 'pack_size',
+  WAREHOUSE_LOCATION = 'warehouse_location',
+  PRODUCTION_LINE = 'production_line',
+  SHIFT = 'shift',
+  QC_SPECIFICATION = 'qc_specification',
+  PAYMENT_TERM = 'payment_term',
+  TAX_CATEGORY = 'tax_category',
+  INTERCOMPANY_PRICING = 'intercompany_pricing',
+  REASON_CODE = 'reason_code',
+
+  // Business Modules (Procurement & Operations)
   VENDOR = 'vendor',
+  PURCHASE_REQUISITION = 'purchase_requisition',
+  RFQ = 'rfq',
+  QUOTATION = 'quotation',
+  QUOTATION_COMPARISON = 'quotation_comparison',
   PURCHASE_ORDER = 'purchase_order',
   GOODS_RECEIPT = 'goods_receipt',
+  VENDOR_PERFORMANCE = 'vendor_performance',
   QC_INSPECTION = 'qc_inspection',
   FORMULA_BOM = 'formula_bom',
   PRODUCTION_ORDER = 'production_order',
@@ -101,6 +132,7 @@ export enum ApprovalStatus {
 
 export enum DocumentType {
   PR = 'PR', // Purchase Requisition
+  RFQ = 'RFQ', // Request For Quotation
   PO = 'PO', // Purchase Order
   GRN = 'GRN', // Goods Received Note
   QC = 'QC', // QC Inspection Report

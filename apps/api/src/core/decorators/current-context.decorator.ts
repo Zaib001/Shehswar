@@ -10,9 +10,21 @@ export const CurrentContext = createParamDecorator(
     const user = request.user;
     const headers = request.headers;
 
+    const isSuperAdmin = user?.isSuperAdmin === true;
+    const requestedCompanyId = headers['x-company-id'] as string | undefined;
+
+    let effectiveCompanyId = user?.companyId;
+    if (isSuperAdmin) {
+      if (requestedCompanyId && requestedCompanyId !== 'ALL' && requestedCompanyId !== 'all') {
+        effectiveCompanyId = requestedCompanyId;
+      } else {
+        effectiveCompanyId = undefined;
+      }
+    }
+
     return {
       organizationId: headers['x-organization-id'] || user?.organizationId,
-      companyId: headers['x-company-id'] || user?.companyId,
+      companyId: effectiveCompanyId,
       plantId: headers['x-plant-id'] || user?.context?.plantId,
       branchId: headers['x-branch-id'] || user?.context?.branchId,
       departmentId: headers['x-department-id'] || user?.context?.departmentId,

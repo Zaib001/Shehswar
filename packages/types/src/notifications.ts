@@ -23,6 +23,8 @@ export interface InAppNotification {
   title: string;
   body: string;
   linkUrl?: string;
+  category?: 'APPROVAL' | 'SYSTEM' | 'SECURITY' | 'WARNING' | string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent' | 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   isRead: boolean;
   createdAt: Date;
   readAt?: Date;

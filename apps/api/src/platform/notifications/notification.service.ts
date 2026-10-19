@@ -35,6 +35,8 @@ export class NotificationService {
           title: payload.title,
           body: payload.body,
           linkUrl: (payload.data?.['linkUrl'] as string) || null,
+          category: (payload.data?.['category'] as string)?.toUpperCase() || 'SYSTEM',
+          priority: payload.priority ? payload.priority.toUpperCase() : 'NORMAL',
         },
       });
       return;
@@ -54,4 +56,50 @@ export class NotificationService {
       },
     });
   }
+
+  /**
+   * Retrieves notifications for a user with category, priority, and read filters
+   */
+  async getUserNotifications(
+    userId: string,
+    filter?: { isRead?: boolean; category?: string; priority?: string },
+  ) {
+    const where: any = { userId };
+    if (filter?.isRead !== undefined) where.isRead = filter.isRead;
+    if (filter?.category) where.category = filter.category.toUpperCase();
+    if (filter?.priority) where.priority = filter.priority.toUpperCase();
+
+    return this.prisma.userNotification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  /**
+   * Marks a specific notification as read
+   */
+  async markAsRead(id: string, userId: string) {
+    return this.prisma.userNotification.updateMany({
+      where: { id, userId },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Marks all notifications as read for a user
+   */
+  async markAllAsRead(userId: string) {
+    return this.prisma.userNotification.updateMany({
+      where: { userId, isRead: false },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+  }
 }
+

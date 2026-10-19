@@ -6,6 +6,7 @@
  *   2. Client Bootstrap (Shehswar Group customer account)
  *   3. Development Demo Seed (only in non-production environments)
  */
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { seedSystem } from './seeds/system.seed';
 import { seedClient } from './seeds/client.seed';

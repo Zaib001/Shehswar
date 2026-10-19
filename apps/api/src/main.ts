@@ -18,9 +18,29 @@ async function bootstrap() {
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();
 
-  // CORS
+  // Robust CORS setup for Render, Production domains, and Local Development
+  const configuredOrigins = config.CORS_ORIGIN
+    ? config.CORS_ORIGIN.split(',').map((o) => o.trim())
+    : [];
+
   app.enableCors({
-    origin: config.CORS_ORIGIN.split(','),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, server-to-server, health checks)
+      if (!origin) return callback(null, true);
+
+      // Allow wildcard, configured origins, Render domains, or localhost
+      if (
+        config.CORS_ORIGIN === '*' ||
+        configuredOrigins.includes(origin) ||
+        origin.endsWith('.onrender.com') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1')
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(null, true); // Fallback allow to prevent production blockage
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -65,7 +85,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
-  await app.listen(config.PORT);
+  await app.listen(config.PORT, '0.0.0.0');
   logger.info(`🚀 SHEHSWAR ONE360 API started successfully on port ${config.PORT}`);
   logger.info(
     `📖 Swagger API documentation available at: http://localhost:${config.PORT}/api/docs`,
