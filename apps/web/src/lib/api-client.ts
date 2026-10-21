@@ -12,15 +12,23 @@ export class ApiClient {
     if (envUrl && envUrl.trim().length > 0) {
       return envUrl.replace(/\/$/, '');
     }
-    // In the browser, if NEXT_PUBLIC_API_URL is omitted, use relative path so Next.js rewrites/proxies seamlessly
+    // In browser on Render, automatically route directly to the deployed API
     if (typeof window !== 'undefined') {
+      if (window.location.hostname.includes('shehswar-web') || window.location.hostname.includes('onrender.com')) {
+        return 'https://shehswar-api.onrender.com';
+      }
       return '';
     }
     const serverTarget = process.env.BACKEND_API_URL || process.env.INTERNAL_API_URL;
     if (serverTarget) {
+      if (serverTarget.includes('shehswar-api') && !serverTarget.includes('.')) {
+        return 'https://shehswar-api.onrender.com';
+      }
       return serverTarget.startsWith('http') ? serverTarget.replace(/\/$/, '') : `http://${serverTarget.replace(/\/$/, '')}`;
     }
-    return 'http://localhost:4000';
+    return process.env.NODE_ENV === 'production'
+      ? 'https://shehswar-api.onrender.com'
+      : 'http://localhost:4000';
   }
 
   private static getHeaders(customHeaders?: Record<string, string>): Record<string, string> {

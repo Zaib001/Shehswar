@@ -10,10 +10,17 @@ const nextConfig = {
       process.env.INTERNAL_API_URL ||
       process.env.API_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
-      'http://localhost:4000';
+      (process.env.NODE_ENV === 'production'
+        ? 'https://shehswar-api.onrender.com'
+        : 'http://localhost:4000');
+
+    // Handle Render internal hostport (e.g. shehswar-api:10000 or shehswar-api) which is unreachable on free tier
+    if (rawTarget.includes('shehswar-api') && !rawTarget.includes('.')) {
+      rawTarget = 'https://shehswar-api.onrender.com';
+    }
 
     if (!rawTarget.startsWith('http://') && !rawTarget.startsWith('https://')) {
-      rawTarget = `http://${rawTarget}`;
+      rawTarget = `https://${rawTarget}`;
     }
     const destinationTarget = rawTarget.replace(/\/$/, '');
 

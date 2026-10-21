@@ -107,6 +107,14 @@ export class AuthService {
     // Hash refresh token for DB persistence
     const tokenHash = await bcrypt.hash(refreshToken, 8);
 
+    // Sanitize network metadata to prevent PostgreSQL character length truncation
+    const safeIp = meta?.ipAddress
+      ? (String(meta.ipAddress).split(',')[0] ?? '').trim().slice(0, 45)
+      : undefined;
+    const safeUserAgent = meta?.userAgent
+      ? String(meta.userAgent).slice(0, 490)
+      : undefined;
+
     // Create active session atomically with real unique tokenHash
     const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     await this.prisma.userSession.create({
@@ -114,8 +122,8 @@ export class AuthService {
         id: sessionId,
         userId: user.id,
         tokenHash,
-        userAgent: meta?.userAgent,
-        ipAddress: meta?.ipAddress,
+        userAgent: safeUserAgent,
+        ipAddress: safeIp,
         expiresAt: sessionExpiresAt,
       },
     });
@@ -161,17 +169,21 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         isSuperAdmin: user.isSuperAdmin,
-        organization: {
-          id: user.organization.id,
-          code: user.organization.code,
-          name: user.organization.name,
-        },
-        company: {
-          id: user.company.id,
-          code: user.company.code,
-          name: user.company.name,
-          isParent: user.company.isParent,
-        },
+        organization: user.organization
+          ? {
+              id: user.organization.id,
+              code: user.organization.code,
+              name: user.organization.name,
+            }
+          : null,
+        company: user.company
+          ? {
+              id: user.company.id,
+              code: user.company.code,
+              name: user.company.name,
+              isParent: user.company.isParent,
+            }
+          : null,
         roles,
         permissions,
       },

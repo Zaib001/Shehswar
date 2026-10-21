@@ -70,9 +70,6 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_API_URL
-        value: "" # Uses relative same-origin API proxy via Next.js rewrites (zero CORS)
+        value: https://shehswar-api.onrender.com
       - key: BACKEND_API_URL
-        fromService:
-          type: web
-          name: shehswar-api
-          property: hostport
+        value: https://shehswar-api.onrender.com
