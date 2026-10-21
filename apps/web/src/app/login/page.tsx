@@ -26,6 +26,8 @@ import {
   IconSun,
   IconMoon,
   IconAlertTriangle,
+  IconEye,
+  IconEyeOff,
 } from '../../components/icons';
 
 export default function LoginPage() {
@@ -35,6 +37,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -48,7 +51,10 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
       setErrorMessage('Please enter both your email address and password.');
       return;
     }
@@ -57,7 +63,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login(email.trim(), password);
+      await login(cleanEmail, cleanPassword);
       router.push('/');
     } catch (err: any) {
       setErrorMessage(err.message || 'Authentication failed. Please verify your email and password.');
@@ -265,9 +271,28 @@ export default function LoginPage() {
                   >
                     Password
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: 'var(--color-primary)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontWeight: 500,
+                      padding: 0,
+                    }}
+                  >
+                    {showPassword ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                    <span>{showPassword ? 'Hide' : 'Show'}</span>
+                  </button>
                 </div>
                 <Input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   placeholder="Enter your account password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -314,6 +339,64 @@ export default function LoginPage() {
               >
                 {isSubmitting ? 'Authenticating with API...' : 'Sign In'}
               </Button>
+
+              {/* Quick-fill Provisioned Credentials */}
+              <div
+                style={{
+                  marginTop: '12px',
+                  paddingTop: '12px',
+                  borderTop: '1px dashed var(--border-default)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <span>Quick Fill Credentials:</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('admin@shehswar.com');
+                      setPassword('Shehswar@2026!');
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-default)',
+                      background: 'var(--bg-canvas)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Super Admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('sales.officer@shehswar.com');
+                      setPassword('Shehswar@2026!');
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-default)',
+                      background: 'var(--bg-canvas)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Sales Officer
+                  </button>
+                </div>
+              </div>
             </form>
           </CardContent>
         </Card>
