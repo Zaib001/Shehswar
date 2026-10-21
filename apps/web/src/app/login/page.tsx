@@ -339,64 +339,6 @@ export default function LoginPage() {
               >
                 {isSubmitting ? 'Authenticating with API...' : 'Sign In'}
               </Button>
-
-              {/* Quick-fill Provisioned Credentials */}
-              <div
-                style={{
-                  marginTop: '12px',
-                  paddingTop: '12px',
-                  borderTop: '1px dashed var(--border-default)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                  <span>Quick Fill Credentials:</span>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail('admin@shehswar.com');
-                      setPassword('Shehswar@2026!');
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '6px 8px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-default)',
-                      background: 'var(--bg-canvas)',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Super Admin
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail('sales.officer@shehswar.com');
-                      setPassword('Shehswar@2026!');
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '6px 8px',
-                      fontSize: '11px',
-                      fontWeight: 500,
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-default)',
-                      background: 'var(--bg-canvas)',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Sales Officer
-                  </button>
-                </div>
-              </div>
             </form>
           </CardContent>
         </Card>

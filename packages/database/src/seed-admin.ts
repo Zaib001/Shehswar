@@ -19,7 +19,7 @@ const prisma = new PrismaClient();
 export async function seedAdmin() {
   console.log('🔐 Seeding Production Credentials (Admin & Sales Officer)...');
 
-  const defaultPassword = 'Shehswar@2026!';
+  const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Shehswar@2026!';
   const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
   let org = await prisma.organization.findFirst({
