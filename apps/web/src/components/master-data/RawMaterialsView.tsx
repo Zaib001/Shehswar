@@ -218,7 +218,7 @@ export const RawMaterialsView: React.FC = () => {
             {row.grade && <span>Grade: <strong>{row.grade}</strong></span>}
             {row.storageRequirements && (
               <span title={row.storageRequirements} style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                📦 {row.storageRequirements}
+                {row.storageRequirements}
               </span>
             )}
           </div>
@@ -311,7 +311,7 @@ export const RawMaterialsView: React.FC = () => {
       render: (row: RawMaterial) =>
         row.isHazardous ? (
           <span style={{ padding: '2px 8px', borderRadius: '999px', fontSize: '0.7rem', fontWeight: 700, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>
-            ⚠ HAZARDOUS
+            HAZARDOUS
           </span>
         ) : (
           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Safe</span>

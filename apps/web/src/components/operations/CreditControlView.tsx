@@ -32,13 +32,28 @@ import {
 import {
   IconRefresh,
   IconPlus,
+  IconDownload,
+  IconFileText,
 } from '../icons';
+import { PercentageCreditView } from './PercentageCreditView';
+import {
+  exportCreditDashboardReportPdf,
+  exportCreditDashboardReportCsv,
+  exportConfiguredLimitsReportPdf,
+  exportConfiguredLimitsReportCsv,
+  exportCreditOverridesReportPdf,
+  exportCreditOverridesReportCsv,
+} from '../../lib/executive-reports-export';
 
-export const CreditControlView: React.FC = () => {
+export interface CreditControlViewProps {
+  defaultTab?: 'dashboard' | 'limits' | 'targets' | 'overrides' | 'percentage-credit';
+}
+
+export const CreditControlView: React.FC<CreditControlViewProps> = ({ defaultTab = 'dashboard' }) => {
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'limits' | 'targets' | 'overrides'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'limits' | 'targets' | 'overrides' | 'percentage-credit'>(defaultTab);
   const [loading, setLoading] = useState(false);
   const [companyId, setCompanyId] = useState<string>('');
   const [companies, setCompanies] = useState<any[]>([]);
@@ -209,6 +224,51 @@ export const CreditControlView: React.FC = () => {
             <IconRefresh size={14} /> Refresh
           </Button>
 
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const compName = companies.find((c) => c.id === companyId)?.name || 'Shehswar Group';
+              if (activeTab === 'limits') {
+                exportConfiguredLimitsReportPdf({
+                  companyName: compName,
+                  limits: limitsList,
+                });
+              } else if (activeTab === 'overrides') {
+                exportCreditOverridesReportPdf({
+                  companyName: compName,
+                  overrides: overrideRequests,
+                });
+              } else {
+                const dealers = dashboardData?.dealers || dashboardData?.items || [];
+                exportCreditDashboardReportPdf({
+                  companyName: compName,
+                  dealers,
+                  summary: dashboardData?.summary || dashboardData?.kpis || {},
+                });
+              }
+            }}
+          >
+            <IconDownload size={14} /> PDF Report
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              if (activeTab === 'limits') {
+                exportConfiguredLimitsReportCsv(limitsList, 'Shehswar_Configured_Credit_Limits');
+              } else if (activeTab === 'overrides') {
+                exportCreditOverridesReportCsv(overrideRequests, 'Shehswar_Credit_Overrides_Audit');
+              } else {
+                const dealers = dashboardData?.dealers || dashboardData?.items || [];
+                exportCreditDashboardReportCsv(dealers, 'Shehswar_Credit_Limits_and_Exposure');
+              }
+            }}
+          >
+            <IconFileText size={14} /> Export CSV
+          </Button>
+
           <Button variant="primary" size="sm" onClick={() => setIsConfigModalOpen(true)}>
             <IconPlus size={14} /> Configure Limit
           </Button>
@@ -216,9 +276,10 @@ export const CreditControlView: React.FC = () => {
       </div>
 
       {/* Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '8px' }}>
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '8px', overflowX: 'auto' }}>
         {[
           { id: 'dashboard', label: 'Credit Dashboard' },
+          { id: 'percentage-credit', label: 'Percentage Credit & Lock' },
           { id: 'limits', label: 'Configured Limits' },
           { id: 'targets', label: 'Target vs Limit' },
           { id: 'overrides', label: 'Override Requests' },
@@ -576,6 +637,13 @@ export const CreditControlView: React.FC = () => {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* 5. PERCENTAGE CREDIT CONTROL & DYNAMIC LOCK EMBEDDED TAB */}
+      {activeTab === 'percentage-credit' && (
+        <div style={{ marginTop: 'var(--space-sm)' }}>
+          <PercentageCreditView />
+        </div>
       )}
 
       {/* CONFIGURE LIMIT MODAL */}

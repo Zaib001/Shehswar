@@ -93,6 +93,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             flex: 1,
             padding: 'var(--space-lg)',
             overflowY: 'auto',
+            overflowX: 'hidden',
             maxWidth: '1600px',
             width: '100%',
             margin: '0 auto',

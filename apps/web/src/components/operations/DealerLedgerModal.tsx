@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Modal, Button, Input, TableSkeleton } from '../ui';
-import { IconRefresh } from '../icons';
+import { IconRefresh, IconDownload } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { SHEHSWAR_LOGO_BASE64 } from '../../lib/shehswar-logo-base64';
@@ -213,7 +213,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
               }}
             >
               <IconRefresh size={14} />
-              {isRegenerating ? 'Recalculating...' : '⚡ Regenerate Ledger'}
+              {isRegenerating ? 'Recalculating...' : 'Regenerate Ledger'}
             </Button>
 
             <Button
@@ -229,7 +229,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 gap: '6px',
               }}
             >
-              🖨️ Print Statement / PDF
+              <IconDownload size={14} /> Print Statement / PDF
             </Button>
           </div>
         </div>
@@ -251,7 +251,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
               {dealer.name}
             </div>
             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-              {dealer.city ? `📍 ${dealer.city}` : ''} {dealer.phone ? `• 📞 ${dealer.phone}` : ''}
+              {dealer.city ? dealer.city : ''} {dealer.phone ? `• Tel: ${dealer.phone}` : ''}
             </div>
             {creditLimit > 0 && (
               <div style={{ fontSize: '11px', color: utilizationPct > 80 ? '#b91c1c' : '#475569', marginTop: '3px', fontWeight: 600 }}>
@@ -549,7 +549,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
             Official Computer-Generated Statement of Account • Validated against immutable sub-ledger entries.
           </div>
           <Button variant="secondary" onClick={onClose}>
-            ✕ Close
+            Close
           </Button>
         </div>
       </div>

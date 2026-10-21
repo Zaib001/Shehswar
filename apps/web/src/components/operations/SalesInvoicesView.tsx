@@ -16,7 +16,7 @@ import {
   ColumnDef,
   Modal,
 } from '../ui';
-import { IconFileText, IconRefresh, IconPlus, IconTrash, IconRotateCcw } from '../icons';
+import { IconFileText, IconRefresh, IconPlus, IconTrash, IconRotateCcw, IconMapPin, IconBuilding } from '../icons';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
 import { SalesInvoiceExportData } from '../../lib/pdf-export';
 
@@ -382,8 +382,8 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
         <div>
           <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.dealer?.name || 'Walk-in / Cash'}</div>
           {inv.dealer?.city && (
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              📍 {inv.dealer.city}
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <IconMapPin size={11} /> {inv.dealer.city}
             </div>
           )}
         </div>
@@ -419,8 +419,8 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
       key: 'warehouse',
       header: 'Dispatch Warehouse',
       render: (inv) => (
-        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-          🏭 {inv.warehouse?.name || 'Central Warehouse'}
+        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <IconBuilding size={13} /> {inv.warehouse?.name || 'Central Warehouse'}
         </span>
       ),
     },
@@ -669,7 +669,7 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
               color: '#065f46',
             }}
           >
-            ⚡ <strong>Direct Invoicing:</strong> Creates order, dispatches stock from warehouse, debits dealer ledger, and immediately posts the official numbered commercial Sales Invoice.
+            <strong>Direct Invoicing:</strong> Creates order, dispatches stock from warehouse, debits dealer ledger, and immediately posts the official numbered commercial Sales Invoice.
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px' }}>
@@ -795,7 +795,7 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
                 boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
               }}
             >
-              {isCreating ? 'Processing...' : '⚡ Post Commercial Sales Invoice'}
+              {isCreating ? 'Processing...' : 'Post Commercial Sales Invoice'}
             </Button>
           </div>
         </div>
@@ -832,7 +832,7 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
           </div>
 
           <div style={{ padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '12px', color: '#1e40af' }}>
-            💡 <strong>Customizable Return Quantity:</strong> You can return partial quantities (e.g. return 30 out of 100 sold units). Warehouse stock will be restored and dealer ledger balance will be credited proportionately.
+            <strong>Customizable Return Quantity:</strong> You can return partial quantities (e.g. return 30 out of 100 sold units). Warehouse stock will be restored and dealer ledger balance will be credited proportionately.
           </div>
 
           <div>

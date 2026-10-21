@@ -28,7 +28,13 @@ import {
 } from '../ui';
 import {
   IconRefresh,
+  IconDownload,
+  IconFileText,
 } from '../icons';
+import {
+  exportConsolidatedDrillDownReportPdf,
+  exportConsolidatedDrillDownReportCsv,
+} from '../../lib/executive-reports-export';
 
 type DrillLevel = 'GROUP' | 'COMPANY' | 'REGION' | 'ZONE' | 'TERRITORY' | 'DEALER';
 
@@ -169,6 +175,41 @@ export const ConsolidatedReportingView: React.FC = () => {
 
           <Button variant="secondary" size="sm" onClick={fetchDrillLevel} disabled={loading}>
             <IconRefresh size={14} /> Refresh
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              exportConsolidatedDrillDownReportPdf({
+                scopeTitle: `${currentBreadcrumb.name} - Consolidated Performance Report`,
+                period: `${month}/${year}`,
+                reportData: reportData || {},
+                breadcrumbs,
+              });
+            }}
+          >
+            <IconDownload size={14} /> PDF Report
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              const rows =
+                reportData?.companies ||
+                reportData?.regions ||
+                reportData?.zones ||
+                reportData?.territories ||
+                reportData?.dealers ||
+                reportData?.breakdown ||
+                reportData?.items ||
+                reportData?.drilldown ||
+                [];
+              exportConsolidatedDrillDownReportCsv(rows, `Consolidated_${currentBreadcrumb.level}_${month}_${year}`);
+            }}
+          >
+            <IconFileText size={14} /> Export CSV
           </Button>
         </div>
       </div>

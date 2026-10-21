@@ -1671,7 +1671,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            ⚡ Split
+                            Split
                           </button>
                         </td>
                       </tr>
@@ -1777,7 +1777,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           >
             <div>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                ⚡ Multi-Warehouse Split Allocation
+                Multi-Warehouse Split Allocation
               </h3>
               <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#64748b' }}>
                 Split &apos;{targetItem.itemName || 'Item'}&apos; across multiple destination warehouses (e.g. 50 in WH A, 100 in WH B, 50 in WH C).
@@ -1813,7 +1813,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   {totalAllocated} / {targetQty}
                 </strong>
                 {isBalanced ? (
-                  <span style={{ marginLeft: '8px', fontSize: '12px', color: '#047857', fontWeight: 700 }}>✅ Balanced</span>
+                  <span style={{ marginLeft: '8px', fontSize: '12px', color: '#047857', fontWeight: 700 }}>Balanced</span>
                 ) : (
                   <span style={{ marginLeft: '8px', fontSize: '12px', color: '#b45309', fontWeight: 600 }}>
                     ({targetQty - totalAllocated > 0 ? `${targetQty - totalAllocated} remaining` : `${totalAllocated - targetQty} over`})
@@ -2013,7 +2013,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         letterSpacing: '0.04em',
                       }}
                     >
-                      📅 Multi-Date Weekly Procurement Sheet Detected
+                      Multi-Date Weekly Procurement Sheet Detected
                     </span>
                     <span
                       style={{
@@ -2044,7 +2044,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     fontWeight: 700,
                   }}
                 >
-                  {isPostingBatchPos ? 'Creating Batch Orders...' : `⚡ 1-Click Create All (${datedVouchers.length}) Dated POs`}
+                  {isPostingBatchPos ? 'Creating Batch Orders...' : `1-Click Create All (${datedVouchers.length}) Dated POs`}
                 </Button>
               </div>
 
@@ -2115,7 +2115,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    ⚡ Dynamic Vendor Document Properties
+                    Dynamic Vendor Document Properties
                   </span>
                   <span style={{ fontSize: '11px', color: '#64748b' }}>
                     ({Object.keys(extractedExtraFields).length} properties detected &amp; saved)
@@ -2436,7 +2436,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                   [{m.materialCode}] {m.materialName} {m.standardCost ? `(PKR ${Number(m.standardCost).toLocaleString()})` : ''}
                                 </option>
                               ))}
-                              <option value="__custom__">✎ Custom / Non-Catalog Item...</option>
+                              <option value="__custom__">Custom / Non-Catalog Item...</option>
                             </select>
 
                             {/* Item Description / Custom Name input & quick master button */}
@@ -2630,7 +2630,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              ⚡ Split
+                              Split
                             </button>
                             <button
                               onClick={() => removeItemRow(idx)}

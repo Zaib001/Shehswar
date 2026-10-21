@@ -115,6 +115,31 @@ export enum Resource {
   ACCOUNTING = 'accounting',
   REPORT = 'report',
   INTEGRATION = 'integration',
+  EMPLOYEE = 'employee',
+  VEHICLE = 'vehicle',
+  CREDIT_CONTROL = 'credit_control',
+  EMPLOYEE_COST = 'employee_cost',
+  EXPENSE_CONTROL = 'expense_control',
+}
+
+export enum EmployeeCostStatus {
+  WITHIN_LIMIT = 'WITHIN_LIMIT',
+  NEAR_LIMIT = 'NEAR_LIMIT',
+  LIMIT_REACHED = 'LIMIT_REACHED',
+  LIMIT_EXCEEDED = 'LIMIT_EXCEEDED',
+  NO_SALES = 'NO_SALES',
+  REVIEW_REQUIRED = 'REVIEW_REQUIRED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  BLOCKED = 'BLOCKED',
+}
+
+export enum PercentageCreditStatus {
+  WITHIN_LIMIT = 'WITHIN_LIMIT',
+  NEAR_LIMIT = 'NEAR_LIMIT',
+  LIMIT_REACHED = 'LIMIT_REACHED',
+  LIMIT_EXCEEDED = 'LIMIT_EXCEEDED',
+  CREDIT_LOCK = 'CREDIT_LOCK',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
 }
 
 export enum ApprovalStatus {

@@ -288,7 +288,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleSidebar, onOpenCom
                 >
                   <div>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>🌐</span> Consolidated Enterprise
+                      <IconBuilding size={15} style={{ color: '#2563eb' }} /> Consolidated Enterprise
                     </div>
                     <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--text-muted)' }}>
                       View all Parent and Child Distributors

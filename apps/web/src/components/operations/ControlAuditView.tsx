@@ -27,7 +27,19 @@ import {
 } from '../ui';
 import {
   IconRefresh,
+  IconDownload,
+  IconFileText,
 } from '../icons';
+import {
+  exportOrderControlAuditReportPdf,
+  exportOrderControlAuditReportCsv,
+  exportSalesAuditReportPdf,
+  exportSalesAuditReportCsv,
+  exportPurchaseAuditReportPdf,
+  exportPurchaseAuditReportCsv,
+  exportPaymentAuditReportPdf,
+  exportPaymentAuditReportCsv,
+} from '../../lib/executive-reports-export';
 
 export const ControlAuditView: React.FC = () => {
   const { user } = useAuth();
@@ -78,17 +90,21 @@ export const ControlAuditView: React.FC = () => {
       if (activeTab === 'order-control') {
         let q = `/api/v1/audit-control/orders?companyId=${companyId}`;
         if (statusFilter) q += `&status=${statusFilter}`;
-        const res = await ApiClient.get<any>(q);
-        setOrderControlData((res as any)?.data || res);
+        const res: any = await ApiClient.get<any>(q);
+        const payload = res?.data || res;
+        setOrderControlData(payload);
       } else if (activeTab === 'sales-audit') {
-        const res = await ApiClient.get<any[]>(`/api/v1/audit-control/sales?companyId=${companyId}`);
-        setSalesAuditData((res as any)?.data || res || []);
+        const res: any = await ApiClient.get<any>(`/api/v1/audit-control/sales?companyId=${companyId}`);
+        const payload = res?.data?.invoices || res?.data?.data || res?.invoices || res?.data || res;
+        setSalesAuditData(Array.isArray(payload) ? payload : []);
       } else if (activeTab === 'purchase-audit') {
-        const res = await ApiClient.get<any[]>(`/api/v1/audit-control/purchases?companyId=${companyId}`);
-        setPurchaseAuditData((res as any)?.data || res || []);
+        const res: any = await ApiClient.get<any>(`/api/v1/audit-control/purchases?companyId=${companyId}`);
+        const payload = res?.data?.purchases || res?.data?.data || res?.purchases || res?.data || res;
+        setPurchaseAuditData(Array.isArray(payload) ? payload : []);
       } else if (activeTab === 'payment-audit') {
-        const res = await ApiClient.get<any[]>(`/api/v1/audit-control/payments?companyId=${companyId}`);
-        setPaymentAuditData((res as any)?.data || res || []);
+        const res: any = await ApiClient.get<any>(`/api/v1/audit-control/payments?companyId=${companyId}`);
+        const payload = res?.data?.payments || res?.data?.data || res?.payments || res?.data || res;
+        setPaymentAuditData(Array.isArray(payload) ? payload : []);
       }
     } catch (err: any) {
       showToast({ type: 'error', title: err.message || 'Failed to load audit records' });
@@ -120,6 +136,54 @@ export const ControlAuditView: React.FC = () => {
     const num = Number(val || 0);
     return `PKR ${num.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
+
+  const handleDownloadPdf = () => {
+    const compName = companies.find((c) => c.id === companyId)?.name || 'Shehswar Group';
+    if (activeTab === 'order-control') {
+      const orders = orderControlData?.orders || orderControlData?.data || [];
+      exportOrderControlAuditReportPdf({
+        companyName: compName,
+        orders,
+        summary: orderControlData?.kpis || {},
+      });
+    } else if (activeTab === 'sales-audit') {
+      exportSalesAuditReportPdf({
+        companyName: compName,
+        invoices: salesAuditData,
+      });
+    } else if (activeTab === 'purchase-audit') {
+      exportPurchaseAuditReportPdf({
+        companyName: compName,
+        purchases: purchaseAuditData,
+      });
+    } else if (activeTab === 'payment-audit') {
+      exportPaymentAuditReportPdf({
+        companyName: compName,
+        payments: paymentAuditData,
+      });
+    }
+  };
+
+  const handleDownloadCsv = () => {
+    if (activeTab === 'order-control') {
+      const orders = orderControlData?.orders || orderControlData?.data || [];
+      exportOrderControlAuditReportCsv(orders, 'Shehswar_Order_Control_and_Traceability_Report');
+    } else if (activeTab === 'sales-audit') {
+      exportSalesAuditReportCsv(salesAuditData, 'Shehswar_Sales_Audit_Trace_Report');
+    } else if (activeTab === 'purchase-audit') {
+      exportPurchaseAuditReportCsv(purchaseAuditData, 'Shehswar_Purchase_Procurement_Audit_Report');
+    } else if (activeTab === 'payment-audit') {
+      exportPaymentAuditReportCsv(paymentAuditData, 'Shehswar_Payment_Collection_Audit_Report');
+    }
+  };
+
+  const kpis = orderControlData?.kpis || {};
+  const totalOrdersCount = kpis.totalOrders ?? kpis.total ?? 0;
+  const pendingOrdersCount = kpis.pendingOrders ?? kpis.pending ?? 0;
+  const creditHoldOrdersCount = kpis.creditHoldOrders ?? kpis.creditHold ?? 0;
+  const approvedOrdersCount = kpis.approvedOrders ?? kpis.approved ?? 0;
+  const convertedOrdersCount = kpis.convertedOrders ?? kpis.converted ?? 0;
+  const ordersList = orderControlData?.orders || orderControlData?.data || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-lg)' }}>
@@ -172,11 +236,19 @@ export const ControlAuditView: React.FC = () => {
           <Button variant="secondary" size="sm" onClick={fetchData} disabled={loading}>
             <IconRefresh size={14} /> Refresh
           </Button>
+
+          <Button variant="secondary" size="sm" onClick={handleDownloadPdf}>
+            <IconDownload size={14} /> Download PDF
+          </Button>
+
+          <Button variant="secondary" size="sm" onClick={handleDownloadCsv}>
+            <IconFileText size={14} /> Export CSV
+          </Button>
         </div>
       </div>
 
       {/* Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '8px' }}>
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-default)', paddingBottom: '8px', overflowX: 'auto' }}>
         {[
           { id: 'order-control', label: 'Order Control' },
           { id: 'sales-audit', label: 'Sales Audit' },
@@ -212,7 +284,7 @@ export const ControlAuditView: React.FC = () => {
               <CardContent style={{ padding: '14px' }}>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700 }}>TOTAL ORDERS</div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, marginTop: '4px' }}>
-                  {orderControlData?.kpis?.totalOrders || 0}
+                  {totalOrdersCount}
                 </div>
               </CardContent>
             </Card>
@@ -221,7 +293,7 @@ export const ControlAuditView: React.FC = () => {
               <CardContent style={{ padding: '14px' }}>
                 <div style={{ fontSize: '11px', color: '#D97706', fontWeight: 700 }}>PENDING</div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: '#D97706', marginTop: '4px' }}>
-                  {orderControlData?.kpis?.pendingOrders || 0}
+                  {pendingOrdersCount}
                 </div>
               </CardContent>
             </Card>
@@ -230,7 +302,7 @@ export const ControlAuditView: React.FC = () => {
               <CardContent style={{ padding: '14px' }}>
                 <div style={{ fontSize: '11px', color: '#DC2626', fontWeight: 700 }}>CREDIT HOLD</div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: '#DC2626', marginTop: '4px' }}>
-                  {orderControlData?.kpis?.creditHoldOrders || 0}
+                  {creditHoldOrdersCount}
                 </div>
               </CardContent>
             </Card>
@@ -239,7 +311,7 @@ export const ControlAuditView: React.FC = () => {
               <CardContent style={{ padding: '14px' }}>
                 <div style={{ fontSize: '11px', color: '#2563EB', fontWeight: 700 }}>APPROVED</div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: '#2563EB', marginTop: '4px' }}>
-                  {orderControlData?.kpis?.approvedOrders || 0}
+                  {approvedOrdersCount}
                 </div>
               </CardContent>
             </Card>
@@ -248,7 +320,7 @@ export const ControlAuditView: React.FC = () => {
               <CardContent style={{ padding: '14px' }}>
                 <div style={{ fontSize: '11px', color: '#16A34A', fontWeight: 700 }}>INVOICED / SALE</div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: '#16A34A', marginTop: '4px' }}>
-                  {orderControlData?.kpis?.convertedOrders || 0}
+                  {convertedOrdersCount}
                 </div>
               </CardContent>
             </Card>
@@ -262,7 +334,7 @@ export const ControlAuditView: React.FC = () => {
             <CardContent>
               {loading ? (
                 <TableSkeleton columns={7} rows={6} />
-              ) : !orderControlData?.orders || orderControlData.orders.length === 0 ? (
+              ) : ordersList.length === 0 ? (
                 <EmptyState title="No Orders" description="No sales orders found matching current filter." />
               ) : (
                 <div style={{ overflowX: 'auto' }}>
@@ -279,61 +351,64 @@ export const ControlAuditView: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {orderControlData.orders.map((ord: any) => (
-                        <tr key={ord.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '10px 12px' }}>
-                            <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{ord.orderNumber}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                              {new Date(ord.orderDate).toLocaleDateString()}
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <div style={{ fontWeight: 600 }}>{ord.dealer?.name}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                              {ord.region?.name} • {ord.territory?.name}
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            {ord.salesOfficer ? `${ord.salesOfficer.firstName} ${ord.salesOfficer.lastName}` : 'Direct'}
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <Badge variant={ord.paymentTerm === 'CREDIT' ? 'warning' : 'secondary'}>
-                              {ord.paymentTerm || 'CASH'}
-                            </Badge>
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>
-                            {formatPKR(ord.totalAmount)}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            <Badge
-                              variant={
-                                ord.status === 'CREDIT_HOLD'
-                                  ? 'danger'
-                                  : ord.status === 'CONVERTED_TO_SALE'
-                                  ? 'success'
-                                  : ord.status === 'APPROVED'
-                                  ? 'primary'
-                                  : 'warning'
-                              }
-                            >
-                              {ord.status}
-                            </Badge>
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            {ord.invoices && ord.invoices.length > 0 ? (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => openAccountingImpact('SALES_INVOICE', ord.invoices[0].id)}
+                      {ordersList.map((ord: any) => {
+                        const invoiceList = ord.salesInvoices || ord.invoices || [];
+                        return (
+                          <tr key={ord.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{ord.orderNumber}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {new Date(ord.orderDate).toLocaleDateString()}
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ fontWeight: 600 }}>{ord.dealer?.name}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {ord.region?.name} • {ord.territory?.name}
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              {ord.salesOfficer ? `${ord.salesOfficer.firstName} ${ord.salesOfficer.lastName}` : 'Direct'}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <Badge variant={ord.paymentTerm === 'CREDIT' ? 'warning' : 'secondary'}>
+                                {ord.paymentTerm || 'CASH'}
+                              </Badge>
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>
+                              {formatPKR(ord.totalAmount)}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              <Badge
+                                variant={
+                                  ord.status === 'CREDIT_HOLD'
+                                    ? 'danger'
+                                    : ord.status === 'CONVERTED_TO_SALE'
+                                    ? 'success'
+                                    : ord.status === 'APPROVED'
+                                    ? 'primary'
+                                    : 'warning'
+                                }
                               >
-                                View Impact
-                              </Button>
-                            ) : (
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Pre-Invoice</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                                {ord.status}
+                              </Badge>
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {invoiceList.length > 0 ? (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => openAccountingImpact('SALES_INVOICE', invoiceList[0].id)}
+                                >
+                                  View Impact
+                                </Button>
+                              ) : (
+                                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Pre-Invoice</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -538,8 +613,12 @@ export const ControlAuditView: React.FC = () => {
           <TableSkeleton columns={3} rows={5} />
         ) : !selectedImpact ? (
           <EmptyState title="No Records" description="No accounting consequence found for this transaction." />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        ) : (() => {
+          const jvList = selectedImpact.journalEntries || (selectedImpact.journalEntry ? [selectedImpact.journalEntry] : []);
+          const ledList = selectedImpact.ledgerEntries || selectedImpact.ledgerImpact || [];
+          const stkList = selectedImpact.stockEntries || selectedImpact.stockMovement || [];
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Header Summary */}
             <div
               style={{
@@ -570,7 +649,7 @@ export const ControlAuditView: React.FC = () => {
               <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', marginBottom: '8px', color: 'var(--text-primary)' }}>
                 1. General Ledger Balanced Journal Impact
               </div>
-              {selectedImpact.journalEntries && selectedImpact.journalEntries.length > 0 ? (
+              {jvList.length > 0 ? (
                 <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
                     <thead>
@@ -582,7 +661,7 @@ export const ControlAuditView: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedImpact.journalEntries.map((jv: any) =>
+                      {jvList.map((jv: any) =>
                         (jv.lines || []).map((l: any) => (
                           <tr key={l.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                             <td style={{ padding: '6px 10px', color: 'var(--color-primary)', fontWeight: 600 }}>{jv.entryNumber}</td>
@@ -609,7 +688,7 @@ export const ControlAuditView: React.FC = () => {
               <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', marginBottom: '8px', color: 'var(--text-primary)' }}>
                 2. Sub-Ledger Running Balance Impact
               </div>
-              {selectedImpact.ledgerEntries && selectedImpact.ledgerEntries.length > 0 ? (
+              {ledList.length > 0 ? (
                 <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
                     <thead>
@@ -621,7 +700,7 @@ export const ControlAuditView: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedImpact.ledgerEntries.map((le: any) => (
+                      {ledList.map((le: any) => (
                         <tr key={le.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '6px 10px' }}>{le.voucherNumber}</td>
                           <td style={{ padding: '6px 10px', textAlign: 'right' }}>{Number(le.debit) > 0 ? formatPKR(le.debit) : '-'}</td>
@@ -642,7 +721,7 @@ export const ControlAuditView: React.FC = () => {
               <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', marginBottom: '8px', color: 'var(--text-primary)' }}>
                 3. Physical Stock Movement
               </div>
-              {selectedImpact.stockEntries && selectedImpact.stockEntries.length > 0 ? (
+              {stkList.length > 0 ? (
                 <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
                     <thead>
@@ -653,7 +732,7 @@ export const ControlAuditView: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedImpact.stockEntries.map((stk: any) => (
+                      {stkList.map((stk: any) => (
                         <tr key={stk.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '6px 10px' }}>{stk.itemType}</td>
                           <td
@@ -683,7 +762,8 @@ export const ControlAuditView: React.FC = () => {
               </Button>
             </div>
           </div>
-        )}
+        );
+      })()}
       </Modal>
     </div>
   );

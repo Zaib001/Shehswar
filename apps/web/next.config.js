@@ -5,12 +5,16 @@ const nextConfig = {
   poweredByHeader: false,
   output: process.env.NEXT_OUTPUT_STANDALONE === 'true' ? 'standalone' : undefined,
   async rewrites() {
-    const rawTarget =
+    let rawTarget =
       process.env.BACKEND_API_URL ||
       process.env.INTERNAL_API_URL ||
       process.env.API_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
       'http://localhost:4000';
+
+    if (!rawTarget.startsWith('http://') && !rawTarget.startsWith('https://')) {
+      rawTarget = `http://${rawTarget}`;
+    }
     const destinationTarget = rawTarget.replace(/\/$/, '');
 
     return [
@@ -19,6 +23,10 @@ const nextConfig = {
         destination: `${destinationTarget}/api/v1/:path*`,
       },
     ];
+  },
+  experimental: {
+    cpus: 1,
+    workerThreads: false,
   },
 };
 

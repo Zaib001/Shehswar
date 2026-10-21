@@ -29,11 +29,26 @@ import {
   IconCheck,
   IconRefresh,
   IconTruck,
+  IconUsers,
+  IconFinance,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { EmployeeCostView } from '../operations/EmployeeCostView';
 
-export const EmployeesView: React.FC = () => {
+export interface EmployeesViewProps {
+  defaultTab?: 'directory' | 'cost-control';
+}
+
+export const EmployeesView: React.FC<EmployeesViewProps> = ({ defaultTab = 'directory' }) => {
   const { showToast } = useToast();
+  const [employeeSectionTab, setEmployeeSectionTab] = useState<'directory' | 'cost-control'>(defaultTab);
+
+  useEffect(() => {
+    if (defaultTab) {
+      setEmployeeSectionTab(defaultTab);
+    }
+  }, [defaultTab]);
+
   const [employees, setEmployees] = useState<any[]>([]);
   const [companies, setCompanies] = useState<CompanyDto[]>([]);
   const [departments, setDepartments] = useState<DepartmentDto[]>([]);
@@ -807,8 +822,8 @@ export const EmployeesView: React.FC = () => {
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'monospace', color: '#16a34a' }}>
-                            🚗 {currentVehicle.vehicleNumber}
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'monospace', color: '#16a34a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <IconTruck size={20} /> {currentVehicle.vehicleNumber}
                           </div>
                           <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '0.25rem' }}>
                             {currentVehicle.vehicleModel} ({currentVehicle.modelYear || 'Year N/A'})
@@ -976,11 +991,75 @@ export const EmployeesView: React.FC = () => {
     );
   }
 
+  // Render Cost Control Sub-Section if selected
+  if (mode === 'list' && employeeSectionTab === 'cost-control') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md, 16px)' }}>
+        {/* Navigation Switcher Tabs */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            backgroundColor: 'var(--bg-surface, #ffffff)',
+            padding: '10px 16px',
+            borderRadius: 'var(--radius-lg, 12px)',
+            border: '1px solid var(--border-default, #e2e8f0)',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '8px' }}>
+            Section View:
+          </span>
+          <button
+            onClick={() => setEmployeeSectionTab('directory')}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md, 8px)',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <IconUsers size={16} /> Personnel Master Registry
+          </button>
+          <button
+            onClick={() => setEmployeeSectionTab('cost-control')}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md, 8px)',
+              border: 'none',
+              backgroundColor: 'var(--color-primary, #0d9488)',
+              color: '#ffffff',
+              fontWeight: 700,
+              fontSize: '13px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 6px rgba(13, 148, 136, 0.3)',
+            }}
+          >
+            <IconFinance size={16} /> Cost vs Sales Performance & Control
+          </button>
+        </div>
+
+        <EmployeeCostView />
+      </div>
+    );
+  }
+
   // Render List Mode
   return (
     <ListPageTemplate
-      title="Employee Master Registry"
-      subtitle="Corporate staff, plant chemists, warehouse personnel, commercial field executives, and fleet custodians."
+      title="Employee Master Registry & Cost Control"
+      subtitle="Corporate staff, plant chemists, warehouse personnel, commercial field executives, fleet custodians & cost performance."
       breadcrumbs={[{ label: 'Master Data', href: '#' }, { label: 'Employees' }]}
       primaryAction={{
         label: 'Register Employee',
@@ -1029,6 +1108,62 @@ export const EmployeesView: React.FC = () => {
         },
       ]}
     >
+      {/* Navigation Switcher Tabs */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+          backgroundColor: 'var(--bg-surface, #ffffff)',
+          padding: '10px 16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--border-default, #e2e8f0)',
+          alignItems: 'center',
+          marginBottom: '1.5rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '8px' }}>
+          Section View:
+        </span>
+        <button
+          onClick={() => setEmployeeSectionTab('directory')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 'var(--radius-md, 8px)',
+            border: 'none',
+            backgroundColor: 'var(--color-primary, #0d9488)',
+            color: '#ffffff',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 2px 6px rgba(13, 148, 136, 0.3)',
+          }}
+        >
+          <IconUsers size={16} /> Personnel Master Registry
+        </button>
+        <button
+          onClick={() => setEmployeeSectionTab('cost-control')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 'var(--radius-md, 8px)',
+            border: 'none',
+            backgroundColor: 'transparent',
+            color: 'var(--text-secondary)',
+            fontWeight: 600,
+            fontSize: '13px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
+          <IconFinance size={16} /> Cost vs Sales Performance & Control
+        </button>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
         <KpiCard title="Total Employees" value={employees.length} icon={<IconBuildings size={20} />} />
         <KpiCard

@@ -29,6 +29,8 @@ import {
 import {
   IconRefresh,
   IconPlus,
+  IconDownload,
+  IconCheck,
 } from '../icons';
 import {
   exportBalanceSheetToPdf,
@@ -238,7 +240,7 @@ export const FinanceView: React.FC = () => {
                 fontSize: 'var(--font-size-xs)',
               }}
             >
-              <option value="ALL">🏢 All Companies (Consolidated Group)</option>
+              <option value="ALL">All Companies (Consolidated Group)</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({c.code})
@@ -248,7 +250,7 @@ export const FinanceView: React.FC = () => {
           )}
 
           <Button variant="outline" size="sm" onClick={handleExportCurrentTabPdf} disabled={loading}>
-            🖨️ Download PDF Report
+            <IconDownload size={14} /> Download PDF Report
           </Button>
 
           <Button variant="secondary" size="sm" onClick={fetchData} disabled={loading}>
@@ -310,7 +312,7 @@ export const FinanceView: React.FC = () => {
               />
               {balanceSheet?.isBalanced !== undefined && (
                 <Badge variant={balanceSheet.isBalanced ? 'success' : 'danger'}>
-                  {balanceSheet.isBalanced ? '✓ Equation Balanced (Assets = Liabilities + Equity)' : '⚠ Imbalance Detected'}
+                  {balanceSheet.isBalanced ? 'Equation Balanced (Assets = Liabilities + Equity)' : 'Imbalance Detected'}
                 </Badge>
               )}
             </div>
@@ -321,7 +323,7 @@ export const FinanceView: React.FC = () => {
               onClick={handleExportBalanceSheetPdf}
               disabled={!balanceSheet || loading}
             >
-              🖨️ Download Balance Sheet PDF
+              <IconDownload size={14} /> Download Balance Sheet PDF
             </Button>
           </div>
 
@@ -506,7 +508,7 @@ export const FinanceView: React.FC = () => {
               onClick={handleExportProfitLossPdf}
               disabled={!profitAndLoss || loading}
             >
-              🖨️ Download P&L Statement PDF
+              <IconDownload size={14} /> Download P&L Statement PDF
             </Button>
           </div>
 
@@ -672,7 +674,7 @@ export const FinanceView: React.FC = () => {
               onClick={handleExportGeneralLedgerPdf}
               disabled={glEntries.length === 0 || loading}
             >
-              🖨️ Download General Ledger PDF
+              <IconDownload size={14} /> Download General Ledger PDF
             </Button>
           </div>
 
@@ -713,7 +715,7 @@ export const FinanceView: React.FC = () => {
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatPKR(entry.totalDebit)}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right' }}>{formatPKR(entry.totalCredit)}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <span style={{ color: '#16A34A', fontWeight: 800 }}>✓</span>
+                          <IconCheck size={14} style={{ color: '#16A34A', display: 'inline' }} />
                         </td>
                       </tr>
                       {/* Lines Breakdown */}
@@ -742,7 +744,11 @@ export const FinanceView: React.FC = () => {
                     <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--color-primary)' }}>
                       {formatPKR(glEntries.reduce((s: number, e: any) => s + Number(e.totalCredit || 0), 0))}
                     </td>
-                    <td style={{ textAlign: 'center', color: '#16A34A' }}>✓ Balanced</td>
+                    <td style={{ textAlign: 'center', color: '#16A34A' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <IconCheck size={12} /> Balanced
+                      </span>
+                    </td>
                   </tr>
                 </tbody>
               </table>

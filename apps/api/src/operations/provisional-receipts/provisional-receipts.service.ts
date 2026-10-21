@@ -58,6 +58,7 @@ export interface CreateProvisionalReceiptDto {
   paymentReferenceNumber?: string;
   bankName?: string;
   branchName?: string;
+  bankAccountId?: string;
   totalAmount?: number;
   totalAmountInWords?: string;
   remarks?: string;
@@ -270,6 +271,7 @@ export class ProvisionalReceiptsService {
           paymentReferenceNumber: dto.paymentReferenceNumber || null,
           bankName: dto.bankName || null,
           branchName: dto.branchName || null,
+          bankAccountId: dto.bankAccountId || null,
           totalAmount,
           totalAmountInWords,
           allocatedAmount: totalAllocated,
@@ -363,6 +365,59 @@ export class ProvisionalReceiptsService {
         postedById: userId || null,
       },
     });
+
+    // Authoritatively update bank account balance if payment method is BANK and bankAccountId is present
+    if (isBank && pr.bankAccountId) {
+      const bankAcc = await tx.bankAccount.findUnique({
+        where: { id: pr.bankAccountId },
+      });
+      if (bankAcc) {
+        await tx.bankAccount.update({
+          where: { id: bankAcc.id },
+          data: {
+            currentBalance: {
+              increment: Number(pr.totalAmount),
+            },
+          },
+        });
+      }
+    }
+
+    // Atomic Cash & Bank Transaction Integration
+    const mainAcc = await tx.account.findFirst({
+      where: { companyId: pr.companyId, accountCode: cashOrBankCode },
+    });
+    const clearingAcc = await tx.account.findFirst({
+      where: { companyId: pr.companyId, accountCode: clearingAccountCode },
+    });
+
+    if (mainAcc && clearingAcc) {
+      await tx.financialTransaction.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId: pr.companyId,
+          voucherNumber: `PR-TX-${pr.prNumber}`,
+          transactionType: isBank ? 'BANK_RECEIPT' : 'CASH_RECEIPT',
+          transactionDate: pr.receiptDate,
+          partyType: 'DEALER',
+          partyId: pr.partyDealerId || null,
+          partyName: pr.receivedFrom,
+          amount: Number(pr.totalAmount),
+          paymentMethod: pr.paymentMethod,
+          accountId: mainAcc.id,
+          contraAccountId: clearingAcc.id,
+          bankAccountId: isBank ? pr.bankAccountId || null : null,
+          bankName: pr.bankName || null,
+          branchName: pr.branchName || null,
+          referenceNumber: pr.prNumber,
+          remarks: `Provisional Receipt [${pr.prNumber}] - ${pr.remarks || ''}`.trim(),
+          status: 'POSTED',
+          journalEntryId: journal.id,
+          createdById: userId || null,
+        },
+      });
+    }
 
     return journal;
   }
@@ -659,6 +714,28 @@ export class ProvisionalReceiptsService {
               description: `Reverse cash/bank receipt for PR ${pr.prNumber}`,
             },
           ],
+        });
+
+        // Reversal of Bank Balance and FinancialTransaction
+        if (isBank && pr.bankAccountId) {
+          await tx.bankAccount.update({
+            where: { id: pr.bankAccountId },
+            data: {
+              currentBalance: {
+                decrement: Number(pr.totalAmount),
+              },
+            },
+          });
+        }
+
+        await tx.financialTransaction.updateMany({
+          where: {
+            OR: [
+              { voucherNumber: `PR-TX-${pr.prNumber}` },
+              { referenceNumber: pr.prNumber },
+            ],
+          },
+          data: { status: 'REVERSED' },
         });
       }
 

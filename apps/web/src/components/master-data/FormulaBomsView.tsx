@@ -27,6 +27,7 @@ import {
   IconFlask,
   IconPackage,
   IconDownload,
+  IconBuilding,
 } from '../icons';
 import { exportBomToPdf } from '../../lib/pdf-export';
 
@@ -574,7 +575,7 @@ export const FormulaBomsView: React.FC = () => {
                       gap: '8px',
                     }}
                   >
-                    <span>🧪 Total Volume:</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><IconFlask size={14} /> Total Volume:</span>
                     <span>
                       {totalProductionVolume.toLocaleString()} Liters ({productionQuantity} Packs × {packSizeLiters}L)
                     </span>
@@ -892,7 +893,7 @@ export const FormulaBomsView: React.FC = () => {
                       gap: '1rem',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ fontSize: '1.75rem' }}>🧴</span>
+                        <IconPackage size={24} style={{ color: '#0284c7' }} />
                         <div>
                           <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
                             Cost Breakdown per Single Finished Pack ({productionQuantity.toLocaleString()} Packs of {packSizeLiters}L Produced)
@@ -934,8 +935,8 @@ export const FormulaBomsView: React.FC = () => {
                 label: 'Parent Company Intercompany Markup Simulator',
                 field: (
                   <Card style={{ padding: '1.25rem', background: '#EEF2FF', border: '1px solid #C7D2FE', width: '100%' }}>
-                    <div style={{ fontWeight: 700, color: '#3730A3', marginBottom: '0.5rem' }}>
-                      🏢 Parent Company Intercompany Transfer Pricing Mechanism
+                    <div style={{ fontWeight: 700, color: '#3730A3', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <IconBuilding size={16} /> Parent Company Intercompany Transfer Pricing Mechanism
                     </div>
                     <div style={{ fontSize: '0.82rem', color: '#4338CA', marginBottom: '1rem', lineHeight: '1.5' }}>
                       Parent Company (Shehswar Manufacturing) manufactures at standard unit cost of <strong>{unitCost.toFixed(2)} PKR</strong>. When supplying child distribution entities (consceptAG, Nectar, AgriventurePakistan), the system applies the defined corporate markup:
@@ -1058,7 +1059,7 @@ export const FormulaBomsView: React.FC = () => {
           gap: '1rem',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontSize: '1.75rem' }}>🧴</span>
+            <IconPackage size={24} style={{ color: '#0284c7' }} />
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
                 Complete Cost Breakdown of 1 Single Finished Pack ({detailBatchSize.toLocaleString()} Packs of {detailPackSize}L Produced)

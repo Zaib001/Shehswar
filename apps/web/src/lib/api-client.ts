@@ -16,6 +16,10 @@ export class ApiClient {
     if (typeof window !== 'undefined') {
       return '';
     }
+    const serverTarget = process.env.BACKEND_API_URL || process.env.INTERNAL_API_URL;
+    if (serverTarget) {
+      return serverTarget.startsWith('http') ? serverTarget.replace(/\/$/, '') : `http://${serverTarget.replace(/\/$/, '')}`;
+    }
     return 'http://localhost:4000';
   }
 

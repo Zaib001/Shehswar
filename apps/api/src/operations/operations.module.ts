@@ -40,6 +40,7 @@ import { ConsolidatedReportingController } from './reporting/consolidated-report
 import { VehiclesController } from './vehicles/vehicles.controller';
 import { FinancialTransactionsController } from './finance/financial-transactions.controller';
 import { ProvisionalReceiptsController } from './provisional-receipts/provisional-receipts.controller';
+import { EmployeeCostController } from './employee-cost/employee-cost.controller';
 
 // Services
 import { InventoryService } from './inventory/inventory.service';
@@ -61,6 +62,7 @@ import { ConsolidatedReportingService } from './reporting/consolidated-reporting
 import { VehiclesService } from './vehicles/vehicles.service';
 import { FinancialTransactionsService } from './finance/financial-transactions.service';
 import { ProvisionalReceiptsService } from './provisional-receipts/provisional-receipts.service';
+import { EmployeeCostService } from './employee-cost/employee-cost.service';
 
 @Module({
   imports: [CoreModule, PlatformModule],
@@ -89,6 +91,7 @@ import { ProvisionalReceiptsService } from './provisional-receipts/provisional-r
     VehiclesController,
     FinancialTransactionsController,
     ProvisionalReceiptsController,
+    EmployeeCostController,
   ],
   providers: [
     InventoryService,
@@ -110,6 +113,7 @@ import { ProvisionalReceiptsService } from './provisional-receipts/provisional-r
     VehiclesService,
     FinancialTransactionsService,
     ProvisionalReceiptsService,
+    EmployeeCostService,
   ],
   exports: [
     InventoryService,
@@ -131,6 +135,7 @@ import { ProvisionalReceiptsService } from './provisional-receipts/provisional-r
     VehiclesService,
     FinancialTransactionsService,
     ProvisionalReceiptsService,
+    EmployeeCostService,
   ],
 })
 export class OperationsModule {}

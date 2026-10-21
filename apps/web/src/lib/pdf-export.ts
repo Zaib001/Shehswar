@@ -492,14 +492,14 @@ export const exportBomToPdf = (
   <!-- Screen Toolbar for Printing -->
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Master Formula BOM — ${bom.formulaCode}</span>
-      <span class="tip-text" style="margin-left: 14px;">(💡 Tip: Uncheck "Headers and footers" in print preview to remove browser URL/dates)</span>
+      <span>Master Formula BOM — ${bom.formulaCode}</span>
+      <span class="tip-text" style="margin-left: 14px;">(Tip: Uncheck "Headers and footers" in print preview to remove browser URL/dates)</span>
     </div>
     <div>
       <button onclick="window.print()">
-        🖨️ Download / Save PDF
+        Download / Save PDF
       </button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -646,7 +646,7 @@ export const exportBomToPdf = (
 
         <div class="bottle-decomposition">
           <div style="font-weight: 600; color: #0f172a;">
-            🧴 Cost Decomposition for 1 Finished Pack (${packSize}L):
+            Cost Decomposition for 1 Finished Pack (${packSize}L):
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
             <div class="decomp-item" style="color: #047857;">Bulk Liquid (${packSize}L): ${unitRawCost.toFixed(2)} PKR</div>
@@ -1130,14 +1130,14 @@ export const exportIntercompanyPricingToPdf = (
   <!-- Screen Toolbar for Printing -->
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Intercompany Transfer Pricing Agreement — ${parentName} &rarr; ${childName}</span>
-      <span class="tip-text" style="margin-left: 14px;">(💡 Tip: In print preview, uncheck "Headers and footers" to remove browser date/URL)</span>
+      <span>Intercompany Transfer Pricing Agreement — ${parentName} &rarr; ${childName}</span>
+      <span class="tip-text" style="margin-left: 14px;">(Tip: In print preview, uncheck "Headers and footers" to remove browser date/URL)</span>
     </div>
     <div>
       <button onclick="window.print()">
-        🖨️ Download / Save PDF
+        Download / Save PDF
       </button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -1240,7 +1240,7 @@ export const exportIntercompanyPricingToPdf = (
 
       <!-- Tax Compliance Clause -->
       <div class="clause-box">
-        <strong>⚖️ Tax & Arm's Length Governance Compliance:</strong><br>
+        <strong>Tax & Arm's Length Governance Compliance:</strong><br>
         This transfer pricing agreement has been established in strict conformity with the <em>Arm's Length Principle</em> under Section 108 of the Income Tax Ordinance and OECD Guidelines for Multinational Enterprises. The ${markupPercent.toFixed(1)}% cost-plus markup reflects standard commercial contract manufacturing markups for agricultural chemical formulations, ensuring full deductibility and cross-entity audit transparency.
         ${rule.notes ? `<br><strong>Governance Notes:</strong> ${rule.notes}` : ''}
       </div>
@@ -1830,12 +1830,12 @@ export const exportSalesInvoiceToPdf = (
   <!-- Screen Toolbar -->
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 ${docTitleBadge} — ${invoice.invoiceNumber}</span>
+      <span>${docTitleBadge} — ${invoice.invoiceNumber}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${docSubtitle})</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Print / Save PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Print / Save PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -2435,12 +2435,12 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
   <!-- Screen Toolbar -->
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Official Dealer Ledger Statement — ${dealer.code} (${dealer.name})</span>
+      <span>Official Dealer Ledger Statement — ${dealer.code} (${dealer.name})</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(Shehswar Corporate Accounting Ledger)</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Print / Save PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Print / Save PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -3001,12 +3001,12 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
   <!-- Screen Toolbar -->
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Official Vendor Ledger Statement — ${vendor.code} (${vendor.name})</span>
+      <span>Official Vendor Ledger Statement — ${vendor.code} (${vendor.name})</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(Shehswar Corporate Accounts Payable Sub-Ledger)</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Print / Save PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Print / Save PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -3783,12 +3783,12 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Authoritative Balance Sheet — ${companyName}</span>
+      <span>Authoritative Balance Sheet — ${companyName}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(As of ${asOfDate})</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Download / Print PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Download / Print PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -3804,7 +3804,7 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
           <div class="report-title">STATEMENT OF FINANCIAL POSITION (BALANCE SHEET)</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
-          <div class="balance-status">${isBalanced ? '✓ ACCOUNTING EQUATION BALANCED' : '⚠ EQUATION IMBALANCE'}</div>
+          <div class="balance-status">${isBalanced ? 'ACCOUNTING EQUATION BALANCED' : 'EQUATION IMBALANCE'}</div>
           <div style="font-size: 7pt; color: #64748b; margin-top: 4px; font-family: monospace;">
             ENTITY: ${companyName}<br>
             AS OF: ${asOfDate}
@@ -4151,12 +4151,12 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Statement of Profit & Loss — ${companyName}</span>
+      <span>Statement of Profit & Loss — ${companyName}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${period})</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Download / Print PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Download / Print PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -4462,12 +4462,12 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Authoritative General Ledger — ${companyName}</span>
+      <span>Authoritative General Ledger — ${companyName}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${entries.length} Balanced Journal Entries)</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Download / Print PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Download / Print PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -4509,7 +4509,7 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
       </div>
       <div class="meta-item">
         <span class="meta-label">Audit Verification</span>
-        <span class="meta-val" style="color: #047857;">✓ Strict Double-Entry Balanced</span>
+        <span class="meta-val" style="color: #047857;">Strict Double-Entry Balanced</span>
       </div>
     </div>
 
@@ -4697,12 +4697,12 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>📑 Dealers & Market Hierarchy Directory</span>
+      <span>Dealers & Market Hierarchy Directory</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${dealers.length} Registered Dealerships)</span>
     </div>
     <div>
-      <button onclick="window.print()">🖨️ Download / Print PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Download / Print PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 
@@ -4947,10 +4947,10 @@ export const exportProvisionalReceiptToPdf = (pr: any) => {
 </head>
 <body>
   <div class="screen-toolbar">
-    <div style="font-weight: 600;">📜 Provisional Receipt (PR) • ${prNumber}</div>
+    <div style="font-weight: 600;">Provisional Receipt (PR) • ${prNumber}</div>
     <div>
-      <button onclick="window.print()">🖨️ Print / Save as PDF</button>
-      <button class="close-btn" onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">Print / Save as PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
     </div>
   </div>
 

@@ -26,7 +26,7 @@ import {
   StatusBadge,
   TableSkeleton,
 } from '../ui';
-import { IconRefresh } from '../icons';
+import { IconRefresh, IconFlask } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 
@@ -213,7 +213,7 @@ export const ProductCostingView: React.FC = () => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ fontWeight: 700, fontSize: '15px', color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>🧪</span> Master Formula Cost Allocation Breakdown
+            <IconFlask size={18} /> Master Formula Cost Allocation Breakdown
           </div>
           <div style={{ fontSize: '12px', color: '#15803D', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
             Cost per Liter = Total RM Cost ÷ (Packs × Pack Size) | Cost per Pack = Cost per Liter × Pack Size

@@ -948,7 +948,7 @@ export const PricingManagementView: React.FC = () => {
                             display: 'inline-block',
                           }}
                         >
-                          🎁 Package: Buy {sc.paidQuantity} Bags → Get {sc.freeQuantity} Free
+                          Package: Buy {sc.paidQuantity} Bags → Get {sc.freeQuantity} Free
                         </div>
                       ) : (
                         <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -1011,7 +1011,7 @@ export const PricingManagementView: React.FC = () => {
               marginBottom: '18px',
             }}
           >
-            💡 <strong>Dynamic Multi-Price Reality:</strong> The exact same product can have different authorized selling rates on the same day depending on payment term, volume, and applied commercial scheme.
+            <strong>Dynamic Multi-Price Reality:</strong> The exact same product can have different authorized selling rates on the same day depending on payment term, volume, and applied commercial scheme.
           </div>
 
           <div
@@ -1095,7 +1095,7 @@ export const PricingManagementView: React.FC = () => {
               marginBottom: '20px',
             }}
           >
-            🛡️ <strong>Role-Based Discount Authority Engine:</strong> Orders exceeding an officer's configured threshold are automatically escalated to Area Manager, Business Manager, or Admin for mandatory approval.
+            <strong>Role-Based Discount Authority Engine:</strong> Orders exceeding an officer's configured threshold are automatically escalated to Area Manager, Business Manager, or Admin for mandatory approval.
           </div>
 
           <div
@@ -1136,16 +1136,16 @@ export const PricingManagementView: React.FC = () => {
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       {l.canSetNetRate ? (
-                        <span style={{ color: '#059669', fontWeight: 700 }}>✓ Allowed</span>
+                        <span style={{ color: '#059669', fontWeight: 700 }}>Allowed</span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>✕ Restricted</span>
+                        <span style={{ color: '#9ca3af' }}>Restricted</span>
                       )}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       {l.canApplySpecialRate ? (
-                        <span style={{ color: '#059669', fontWeight: 700 }}>✓ Allowed</span>
+                        <span style={{ color: '#059669', fontWeight: 700 }}>Allowed</span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>✕ Restricted</span>
+                        <span style={{ color: '#9ca3af' }}>Restricted</span>
                       )}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
@@ -1283,7 +1283,7 @@ export const PricingManagementView: React.FC = () => {
               </div>
 
               <Button variant="primary" onClick={handleRunSimulation} isLoading={isSimulating} style={{ marginTop: '8px' }}>
-                ⚡ Resolve Authoritative Price
+                Resolve Authoritative Price
               </Button>
             </CardContent>
           </Card>
@@ -1324,7 +1324,7 @@ export const PricingManagementView: React.FC = () => {
                           fontSize: '12px',
                         }}
                       >
-                        ⚠️ Requires {simResult.authorityRequired} Approval
+                        Requires {simResult.authorityRequired} Approval
                       </span>
                     ) : (
                       <span
@@ -1337,7 +1337,7 @@ export const PricingManagementView: React.FC = () => {
                           fontSize: '12px',
                         }}
                       >
-                        ✓ Self-Approved Rate
+                        Self-Approved Rate
                       </span>
                     )}
                   </div>
@@ -1397,7 +1397,7 @@ export const PricingManagementView: React.FC = () => {
                     {simResult.freeQuantity > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Free Quantity Benefit:</span>
-                        <strong style={{ color: '#7c3aed' }}>🎁 +{simResult.freeQuantity} Free Bags</strong>
+                        <strong style={{ color: '#7c3aed' }}>+{simResult.freeQuantity} Free Bags</strong>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1569,7 +1569,7 @@ export const PricingManagementView: React.FC = () => {
                   isLoading={isPopulatingProducts}
                   style={{ backgroundColor: '#059669' }}
                 >
-                  ⚡ Add All Active Finished Products
+                  Add All Active Finished Products
                 </Button>
 
                 {rateListItems.length > 0 && (

@@ -72,12 +72,59 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       >
         {toasts.map((t) => {
           const typeColors = {
-            success: { border: 'var(--success-500)', icon: '✓', bg: 'rgba(16, 185, 129, 0.12)' },
-            warning: { border: 'var(--warning-500)', icon: '⚠', bg: 'rgba(245, 158, 11, 0.12)' },
-            error: { border: 'var(--danger-500)', icon: '✕', bg: 'rgba(239, 68, 68, 0.12)' },
-            danger: { border: 'var(--danger-500)', icon: '✕', bg: 'rgba(239, 68, 68, 0.12)' },
-            info: { border: 'var(--info-500)', icon: 'ℹ', bg: 'rgba(59, 130, 246, 0.12)' },
-          }[t.type];
+            success: {
+              border: 'var(--success-500)',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ),
+              bg: 'rgba(16, 185, 129, 0.12)',
+            },
+            warning: {
+              border: 'var(--warning-500)',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              ),
+              bg: 'rgba(245, 158, 11, 0.12)',
+            },
+            error: {
+              border: 'var(--danger-500)',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              ),
+              bg: 'rgba(239, 68, 68, 0.12)',
+            },
+            danger: {
+              border: 'var(--danger-500)',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              ),
+              bg: 'rgba(239, 68, 68, 0.12)',
+            },
+            info: {
+              border: 'var(--info-500)',
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+              ),
+              bg: 'rgba(59, 130, 246, 0.12)',
+            },
+          };
+          const currentConfig = typeColors[t.type as keyof typeof typeColors] || typeColors.info;
 
           const toastMessage = t.message || t.description;
 
@@ -89,7 +136,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               style={{
                 pointerEvents: 'auto',
                 backgroundColor: 'var(--bg-surface-raised)',
-                border: `1px solid ${typeColors.border}`,
+                border: `1px solid ${currentConfig.border}`,
                 borderRadius: 'var(--radius-lg)',
                 boxShadow: 'var(--shadow-xl)',
                 padding: '14px 16px',
@@ -104,8 +151,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   width: '24px',
                   height: '24px',
                   borderRadius: 'var(--radius-full)',
-                  backgroundColor: typeColors.bg,
-                  color: typeColors.border,
+                  backgroundColor: currentConfig.bg,
+                  color: currentConfig.border,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -114,7 +161,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   flexShrink: 0,
                 }}
               >
-                {typeColors.icon}
+                {currentConfig.icon}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -138,12 +185,18 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 aria-label="Close notification"
                 style={{
                   color: 'var(--text-muted)',
-                  fontSize: '1rem',
-                  lineHeight: 1,
                   padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
                 }}
               >
-                ✕
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
           );

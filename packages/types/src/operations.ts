@@ -802,6 +802,8 @@ export type CreditStatus =
   | 'LIMIT_REACHED'
   | 'LIMIT_EXCEEDED'
   | 'CREDIT_HOLD'
+  | 'CREDIT_LOCK'
+  | 'PENDING_APPROVAL'
   | 'PENDING_CREDIT_APPROVAL';
 
 export interface CreditLimitRecord {
@@ -812,6 +814,8 @@ export interface CreditLimitRecord {
   entityId: string;
   entityName?: string;
   creditLimit: number;
+  maxCreditPercentage?: number;
+  creditControlMode?: 'FIXED' | 'PERCENTAGE' | 'BOTH';
   effectiveFrom: string | Date;
   effectiveTo?: string | Date | null;
   status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
@@ -833,6 +837,12 @@ export interface CreditCheckLevelResult {
   status: CreditStatus;
   allowed: boolean;
   approvalRequired: boolean;
+  netSales?: number;
+  creditPercentage?: number;
+  projectedCreditPercentage?: number;
+  maxCreditPercentage?: number;
+  maxAllowedCreditByPercentage?: number;
+  creditLock?: boolean;
 }
 
 export interface CreditCheckResult {

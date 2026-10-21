@@ -152,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'plants', label: 'Plants' },
           { id: 'branches', label: 'Branches' },
           { id: 'departments', label: 'Departments' },
-          { id: 'employees', label: 'Employees' },
+          { id: 'employees', label: 'Employees & Cost Control', badge: '13% Cost' },
           { id: 'vehicles', label: 'Vehicles & Fleet Management', badge: 'Fleet' },
         ],
       },
@@ -229,14 +229,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       },
       {
         id: 'credit-control-mgmt',
-        label: 'Credit Control',
+        label: 'Credit Control & Risk Limits',
         icon: <IconCreditCard size={18} />,
         color: '#DC2626',
         gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)',
         badge: '5-Tier',
         badgeColor: '#DC2626',
         children: [
-          { id: 'credit-control', label: 'Credit Dashboard & Limits' },
+          { id: 'credit-control', label: 'Credit Dashboard, Limits & Percentage Lock' },
         ],
       },
       {
@@ -479,9 +479,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     cursor: 'pointer',
                     fontSize: '12px',
                     padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
                   }}
+                  title="Clear search"
                 >
-                  ✕
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
                 </button>
               )}
             </div>

@@ -1943,7 +1943,7 @@ export class SalesService {
       // Debit Cash/Bank, Credit Dealer Receivable
       const isBankPayment = (dto.paymentType || '').toUpperCase().includes('BANK');
       const cashOrBankCode = isBankPayment ? '1010' : '1000';
-      await this.financeService.postJournalEntry(tx, {
+      const journal = await this.financeService.postJournalEntry(tx, {
         organizationId,
         companyId,
         entryNumber: `JV-${receiptNumber}`,
@@ -1971,6 +1971,45 @@ export class SalesService {
             description: `Receivable reduction - ${dealer.name}`,
           },
         ],
+      });
+
+      // 4. Financial Transactions: Cash / Bank Control Voucher
+      const cashOrBankAccount = await this.financeService.resolveAccount(
+        tx,
+        organizationId,
+        companyId,
+        cashOrBankCode,
+      );
+      const receivableAccount = await this.financeService.resolveAccount(
+        tx,
+        organizationId,
+        companyId,
+        '1100',
+      );
+
+      await tx.financialTransaction.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId,
+          voucherNumber: receiptNumber,
+          transactionType: isBankPayment ? 'BANK_RECEIPT' : 'CASH_RECEIPT',
+          transactionDate: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+          partyType: 'DEALER',
+          partyId: dto.dealerId,
+          partyName: dealer.name,
+          amount: Number(dto.amount),
+          paymentMethod: isBankPayment ? 'BANK' : 'CASH',
+          accountId: cashOrBankAccount.id,
+          contraAccountId: receivableAccount.id,
+          bankName: dto.bankName ?? null,
+          referenceNumber: dto.referenceNumber ?? null,
+          remarks: dto.notes ?? `Dealer Payment Collection - ${dealer.name}`,
+          attachmentUrl: dto.receiptImageUrl ?? null,
+          status: 'POSTED',
+          journalEntryId: (journal as any)?.id ?? null,
+          createdById: actor.id,
+        },
       });
 
       this.logger.log(`Dealer payment: ${receiptNumber} | ${dto.paymentType} | ${dto.amount} | dealer=${dto.dealerId}`);
@@ -2068,7 +2107,7 @@ export class SalesService {
       // Debit Accounts Payable, Credit Cash/Bank
       const isBankPayment = (dto.paymentType || '').toUpperCase().includes('BANK');
       const cashOrBankCode = isBankPayment ? '1010' : '1000';
-      await this.financeService.postJournalEntry(tx, {
+      const journal = await this.financeService.postJournalEntry(tx, {
         organizationId,
         companyId,
         entryNumber: `JV-${voucherNumber}`,
@@ -2094,6 +2133,44 @@ export class SalesService {
             description: `${isBankPayment ? 'Bank' : 'Cash'} Payment to ${vendor.name}`,
           },
         ],
+      });
+
+      // Financial Transactions: Cash / Bank Control Voucher
+      const cashOrBankAccount = await this.financeService.resolveAccount(
+        tx,
+        organizationId,
+        companyId,
+        cashOrBankCode,
+      );
+      const payableAccount = await this.financeService.resolveAccount(
+        tx,
+        organizationId,
+        companyId,
+        '2000',
+      );
+
+      await tx.financialTransaction.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId,
+          voucherNumber,
+          transactionType: isBankPayment ? 'BANK_PAYMENT' : 'CASH_PAYMENT',
+          transactionDate: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+          partyType: 'VENDOR',
+          partyId: dto.vendorId,
+          partyName: vendor.name,
+          amount: Number(dto.amount),
+          paymentMethod: isBankPayment ? 'BANK' : 'CASH',
+          accountId: cashOrBankAccount.id,
+          contraAccountId: payableAccount.id,
+          bankName: dto.bankName ?? null,
+          referenceNumber: dto.referenceNumber ?? null,
+          remarks: dto.notes ?? `Vendor Payment - ${vendor.name}`,
+          status: 'POSTED',
+          journalEntryId: (journal as any)?.id ?? null,
+          createdById: actor.id,
+        },
       });
 
       return payment;

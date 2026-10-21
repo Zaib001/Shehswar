@@ -115,11 +115,29 @@ export class CreditControlController {
     );
   }
 
-  @Post('targets')
-  async setTarget(
-    @Body() dto: any,
+  @Get('percentage-report')
+  async getPercentageReport(
     @CurrentUser() user: AuthUser,
+    @Query('companyId') companyId?: string,
+    @Query('regionId') regionId?: string,
+    @Query('zoneId') zoneId?: string,
+    @Query('territoryId') territoryId?: string,
+    @Query('salesOfficerId') salesOfficerId?: string,
+    @Query('dealerId') dealerId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.creditService.setSalesTarget(dto, user);
+    const targetCompanyId = companyId || user.companyId;
+    return this.creditService.getPercentageCreditReport({
+      companyId: targetCompanyId,
+      regionId,
+      zoneId,
+      territoryId,
+      salesOfficerId,
+      dealerId,
+      startDate,
+      endDate,
+    });
   }
 }
+

@@ -836,7 +836,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
         </div>
 
         <div style={{ padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '12px', color: '#1e40af' }}>
-          💡 <strong>Warehouse Stock Deduction & Quantity:</strong> Select the warehouse from which each item is returned. Stock will be deducted from that warehouse and the purchase invoice value updated.
+          <strong>Warehouse Stock Deduction & Quantity:</strong> Select the warehouse from which each item is returned. Stock will be deducted from that warehouse and the purchase invoice value updated.
         </div>
 
         <div>
@@ -1045,7 +1045,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
             }}
           >
             <span>Allocated: {totalAllocated} / {targetQty} units</span>
-            <span>{isBalanced ? '✅ Perfectly Balanced' : `⚠️ ${diff > 0 ? `Need +${diff} more` : `Exceeds by ${-diff}`}`}</span>
+            <span>{isBalanced ? 'Balanced' : (diff > 0 ? `Need +${diff} more` : `Exceeds by ${-diff}`)}</span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
@@ -1293,7 +1293,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
                       letterSpacing: '0.04em',
                     }}
                   >
-                    📅 Multi-Date Weekly Procurement Sheet Detected
+                    Multi-Date Weekly Procurement Sheet Detected
                   </span>
                   <span
                     style={{
@@ -1324,7 +1324,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
                   fontWeight: 700,
                 }}
               >
-                {isPostingBatchPurchases ? 'Posting Batch Purchases...' : `⚡ 1-Click Post All (${datedVouchers.length}) Dated Invoices`}
+                {isPostingBatchPurchases ? 'Posting Batch Purchases...' : `1-Click Post All (${datedVouchers.length}) Dated Invoices`}
               </Button>
             </div>
 
@@ -1565,7 +1565,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
                       title="Split this quantity across multiple warehouses (e.g. 50 in WH-A, 100 in WH-B, 50 in WH-C)"
                       style={{ padding: '4px 8px', fontSize: '11px', fontWeight: 600, color: '#0284c7' }}
                     >
-                      ⚡ Split
+                      Split
                     </Button>
                     <Button
                       variant="ghost"

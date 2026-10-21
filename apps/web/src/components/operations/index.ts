@@ -21,3 +21,5 @@ export * from './ConsolidatedReportingView';
 export * from './VehiclesView';
 export * from './FinancialTransactionsView';
 export * from './ProvisionalReceiptsView';
+export * from './EmployeeCostView';
+export * from './PercentageCreditView';

@@ -7,6 +7,7 @@ import {
   Post,
   Body,
   Query,
+  Param,
   UseGuards,
   Req,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import {
   FinancialTransactionsService,
   CreateFinancialTransactionDto,
+  CreateBankAccountDto,
 } from './financial-transactions.service';
 
 @ApiTags('Financial Transactions')
@@ -23,6 +25,54 @@ import {
 @Controller('api/v1/financial-transactions')
 export class FinancialTransactionsController {
   constructor(private readonly service: FinancialTransactionsService) {}
+
+  @Get('bank-accounts')
+  @ApiOperation({ summary: 'List all dynamic bank accounts with authoritative balances' })
+  async getBankAccounts(@Query('companyId') companyId?: string) {
+    return this.service.getBankAccounts(companyId);
+  }
+
+  @Post('bank-accounts')
+  @ApiOperation({ summary: 'Create new dynamic Bank Account' })
+  async createBankAccount(@Body() dto: CreateBankAccountDto, @Req() req: any) {
+    const orgId = req.user?.organizationId || req.user?.orgId;
+    const userId = req.user?.id;
+    return this.service.createBankAccount(orgId, dto, userId);
+  }
+
+  @Get('bank-accounts/:id/ledger')
+  @ApiOperation({ summary: 'Bank Account Drill-Down Transaction Ledger with Running Balance' })
+  async getBankAccountLedger(
+    @Param('id') id: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.service.getBankAccountLedger(id, { fromDate, toDate });
+  }
+
+  @Get('reports')
+  @ApiOperation({ summary: 'Cash & Bank Reports with Bank-Wise Comparison and Period Filters' })
+  async getCashBankReports(
+    @Query('companyId') companyId?: string,
+    @Query('bankName') bankName?: string,
+    @Query('bankAccountId') bankAccountId?: string,
+    @Query('transactionType') transactionType?: string,
+    @Query('period') period?: 'DAILY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'CUSTOM',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.getCashBankReports({
+      companyId,
+      bankName,
+      bankAccountId,
+      transactionType,
+      period,
+      dateFrom,
+      dateTo,
+      status,
+    });
+  }
 
   @Get()
   @ApiOperation({ summary: 'List financial transactions with filters' })

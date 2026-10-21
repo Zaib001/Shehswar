@@ -712,7 +712,7 @@ export const CompaniesView: React.FC = () => {
               color: 'var(--text-secondary)',
             }}
           >
-            🔒 <strong>Strict Multi-Tenant Scoping:</strong> Once created, this user is tied to <strong>{formData.name || 'this company'}</strong>. When they log in, all dashboards, products, pricing, and orders will strictly reflect this company.
+            <strong>Strict Multi-Tenant Scoping:</strong> Once created, this user is tied to <strong>{formData.name || 'this company'}</strong>. When they log in, all dashboards, products, pricing, and orders will strictly reflect this company.
           </div>
         </form>
       </Modal>

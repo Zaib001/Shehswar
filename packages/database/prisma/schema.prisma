@@ -99,6 +99,10 @@ model Organization {
   salaryPayments   EmployeeSalaryPayment[]
   financialTransactions FinancialTransaction[]
   provisionalReceipts ProvisionalReceipt[]
+  employeeCostPolicies EmployeeCostPolicy[]
+  expenseCategoryPolicies ExpenseCategoryPolicy[]
+  employeeExpenseAudits EmployeeExpenseAudit[]
+  bankAccounts     BankAccount[]
 
   @@index([tenantId])
   @@map("organizations")
@@ -188,6 +192,10 @@ model Company {
   salaryPayments   EmployeeSalaryPayment[]
   financialTransactions FinancialTransaction[]
   provisionalReceipts ProvisionalReceipt[]
+  employeeCostPolicies EmployeeCostPolicy[]
+  expenseCategoryPolicies ExpenseCategoryPolicy[]
+  employeeExpenseAudits EmployeeExpenseAudit[]
+  bankAccounts     BankAccount[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -410,6 +418,9 @@ model Employee {
   vehicleAssignments VehicleAssignment[] @relation("EmployeeVehicleAssignments")
   vehicleExpenses VehicleExpense[] @relation("EmployeeVehicleExpenses")
   salaryPayments EmployeeSalaryPayment[] @relation("EmployeeSalaryPayments")
+  expenses       ExpenseEntry[]          @relation("EmployeeGeneralExpenses")
+  expenseAudits  EmployeeExpenseAudit[]
+  costPolicies   EmployeeCostPolicy[]
 
   @@unique([companyId, employeeCode])
   @@index([organizationId])
@@ -2944,6 +2955,12 @@ model ExpenseEntry {
   regionId         String?           @db.Uuid
   zoneId           String?           @db.Uuid
   territoryId      String?           @db.Uuid
+  employeeId       String?           @db.Uuid
+  isEmployeeCost   Boolean           @default(true)
+  approvalStatus   String            @default("APPROVED") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, POSTED
+  approvedById     String?           @db.VarChar(100)
+  approvedAt       DateTime?         @db.Timestamptz(6)
+  overrideReason   String?           @db.Text
   status           String            @default("POSTED") @db.VarChar(50)
   createdById      String?           @db.VarChar(100)
   createdAt        DateTime          @default(now()) @db.Timestamptz(6)
@@ -2953,11 +2970,13 @@ model ExpenseEntry {
   company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
   expenseAccount   Account           @relation("ExpenseAccount", fields: [expenseAccountId], references: [id], onDelete: Restrict)
   paymentAccount   Account           @relation("PaymentAccount", fields: [paymentAccountId], references: [id], onDelete: Restrict)
+  employee         Employee?         @relation("EmployeeGeneralExpenses", fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, voucherNumber])
   @@index([organizationId])
   @@index([companyId, expenseDate])
   @@index([category])
+  @@index([employeeId])
   @@map("expense_entries")
 }
 
@@ -2972,6 +2991,8 @@ model CreditLimit {
   level                      String       @db.VarChar(50) // DEALER, SALES_OFFICER, TERRITORY, ZONE, REGION, COMPANY
   entityId                   String       @db.VarChar(100) // ID of Dealer, User, Territory, Zone, Region, Company
   creditLimit                Decimal      @db.Decimal(18, 2)
+  maxCreditPercentage        Decimal?     @default(20.00) @db.Decimal(5, 2)
+  creditControlMode          String       @default("BOTH") @db.VarChar(50) // FIXED, PERCENTAGE, BOTH
   effectiveFrom              DateTime     @default(now()) @db.Timestamptz(6)
   effectiveTo                DateTime?    @db.Timestamptz(6)
   status                     String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, SUSPENDED
@@ -3003,6 +3024,11 @@ model CreditOverrideRequest {
   orderAmount        Decimal      @db.Decimal(18, 2)
   projectedExposure  Decimal      @db.Decimal(18, 2)
   exceededAmount     Decimal      @db.Decimal(18, 2)
+  currentSales       Decimal?     @default(0) @db.Decimal(18, 2)
+  currentCreditPercent Decimal?   @default(0) @db.Decimal(5, 2)
+  projectedCreditPercent Decimal? @default(0) @db.Decimal(5, 2)
+  maxCreditPercent   Decimal?     @default(20.00) @db.Decimal(5, 2)
+  creditLockStatus   String?      @default("CREDIT_LOCK") @db.VarChar(50)
   requestedById      String?      @db.VarChar(100)
   reason             String       @db.Text
   status             String       @default("PENDING") @db.VarChar(50) // PENDING, APPROVED, REJECTED
@@ -3131,6 +3157,11 @@ model VehicleExpense {
   attachmentUrl      String?      @db.Text
   expenseEntryId     String?      @db.Uuid
   journalEntryId     String?      @db.Uuid
+  isEmployeeCost     Boolean      @default(false)
+  approvalStatus     String       @default("APPROVED") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, POSTED
+  approvedById       String?      @db.VarChar(100)
+  approvedAt         DateTime?    @db.Timestamptz(6)
+  overrideReason     String?      @db.Text
   status             String       @default("POSTED") @db.VarChar(50)
   createdById        String?      @db.VarChar(100)
   createdAt          DateTime     @default(now()) @db.Timestamptz(6)
@@ -3210,6 +3241,7 @@ model FinancialTransaction {
   attachmentUrl      String?      @db.Text
   status             String       @default("POSTED") @db.VarChar(50) // DRAFT, POSTED, REVERSED
   journalEntryId     String?      @db.Uuid
+  bankAccountId      String?      @db.Uuid
   createdById        String?      @db.VarChar(100)
   createdAt          DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
@@ -3218,6 +3250,7 @@ model FinancialTransaction {
   company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   account            Account      @relation("FinancialTxAccount", fields: [accountId], references: [id], onDelete: Restrict)
   contraAccount      Account      @relation("FinancialTxContraAccount", fields: [contraAccountId], references: [id], onDelete: Restrict)
+  bankAccount        BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, voucherNumber])
   @@index([organizationId])
@@ -3258,6 +3291,7 @@ model ProvisionalReceipt {
   remarks                String?                         @db.Text
   attachmentUrl          String?                         @db.Text
   journalEntryId         String?                         @db.Uuid
+  bankAccountId          String?                         @db.Uuid
   createdById            String?                         @db.VarChar(100)
   postedById             String?                         @db.VarChar(100)
   postedAt               DateTime?                       @db.Timestamptz(6)
@@ -3272,6 +3306,7 @@ model ProvisionalReceipt {
   dealer                 Dealer?                         @relation(fields: [partyDealerId], references: [id], onDelete: SetNull)
   region                 Region?                         @relation(fields: [regionId], references: [id], onDelete: SetNull)
   territory              Territory?                      @relation(fields: [territoryId], references: [id], onDelete: SetNull)
+  bankAccount            BankAccount?                    @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   products               ProvisionalReceiptProduct[]
   allocations            ProvisionalReceiptAllocation[]
 
@@ -3324,6 +3359,126 @@ model ProvisionalReceiptAllocation {
   @@index([provisionalReceiptId])
   @@index([dealerId])
   @@map("provisional_receipt_allocations")
+}
+
+// ==========================================
+// 17. EMPLOYEE COST POLICY & CONTROL
+// ==========================================
+
+model EmployeeCostPolicy {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organizationId             String       @db.Uuid
+  companyId                  String       @db.Uuid
+  employeeId                 String?      @db.Uuid
+  roleScope                  String       @default("SALES_OFFICER") @db.VarChar(50) // ALL, SALES_OFFICER, AREA_MANAGER, BUSINESS_MANAGER, OTHER
+  maximumCostPercentage      Decimal      @default(13.00) @db.Decimal(5, 2) // e.g. 13.00%
+  nearLimitThresholdPercent  Decimal      @default(85.00) @db.Decimal(5, 2) // e.g. 85.00% of max, or custom near limit
+  blockingAction             String       @default("APPROVAL_REQUIRED") @db.VarChar(50) // BLOCK, APPROVAL_REQUIRED, WARNING_ONLY
+  effectiveFrom              DateTime     @default(now()) @db.Timestamptz(6)
+  effectiveTo                DateTime?    @db.Timestamptz(6)
+  status                     String       @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE
+  notes                      String?      @db.Text
+  createdById                String?      @db.VarChar(100)
+  createdAt                  DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt                  DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                    Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee                   Employee?    @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([companyId, roleScope, status])
+  @@index([companyId, employeeId])
+  @@map("employee_cost_policies")
+}
+
+model ExpenseCategoryPolicy {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organizationId             String       @db.Uuid
+  companyId                  String       @db.Uuid
+  categoryKey                String       @db.VarChar(100) // FUEL, TRAVEL, MEALS, ACCOMMODATION, DAILY_ALLOWANCE, VEHICLE_BEARING, VEHICLE_MAINTENANCE, BUILDING_REPAIR, OTHER
+  categoryName               String       @db.VarChar(200)
+  isEmployeeCost             Boolean      @default(true)  // Contributes to Employee Cost calculation
+  isAssetExpense             Boolean      @default(false) // Company vehicle or asset expense
+  description                String?      @db.Text
+  status                     String       @default("ACTIVE") @db.VarChar(50)
+  createdById                String?      @db.VarChar(100)
+  createdAt                  DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt                  DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                    Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, categoryKey])
+  @@index([organizationId])
+  @@index([companyId, isEmployeeCost])
+  @@map("expense_category_policies")
+}
+
+model EmployeeExpenseAudit {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organizationId             String       @db.Uuid
+  companyId                  String       @db.Uuid
+  employeeId                 String       @db.Uuid
+  expenseType                String       @db.VarChar(50) // VEHICLE_EXPENSE, GENERAL_EXPENSE
+  expenseId                  String?      @db.Uuid
+  voucherNumber              String?      @db.VarChar(50)
+  currentSales               Decimal      @db.Decimal(18, 2)
+  currentCost                Decimal      @db.Decimal(18, 2)
+  currentCostPercentage      Decimal      @db.Decimal(5, 2)
+  maximumPercentage          Decimal      @db.Decimal(5, 2)
+  requestedAmount            Decimal      @db.Decimal(18, 2)
+  projectedCost              Decimal      @db.Decimal(18, 2)
+  projectedCostPercentage    Decimal      @db.Decimal(5, 2)
+  decision                   String       @db.VarChar(50) // WITHIN_LIMIT, NEAR_LIMIT, LIMIT_REACHED, LIMIT_EXCEEDED, APPROVED, OVERRIDDEN, REJECTED, BLOCKED
+  approvedById               String?      @db.VarChar(100)
+  approvedAt                 DateTime?    @db.Timestamptz(6)
+  reason                     String?      @db.Text
+  createdAt                  DateTime     @default(now()) @db.Timestamptz(6)
+
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company                    Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee                   Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([companyId, employeeId])
+  @@index([decision])
+  @@map("employee_expense_audits")
+}
+
+// ==========================================
+// 19. BANK ACCOUNTS MASTER
+// ==========================================
+
+model BankAccount {
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @db.Uuid
+  companyId          String       @db.Uuid
+  bankName           String       @db.VarChar(100) // HBL, UBL, Bank Alfalah, Meezan Bank, etc.
+  accountTitle       String       @db.VarChar(200) // e.g. "Shehswar Main Operations"
+  accountNumber      String       @db.VarChar(100) // e.g. "PK00HABB0001234567890"
+  branchName         String?      @db.VarChar(150)
+  branchCode         String?      @db.VarChar(50)
+  iban               String?      @db.VarChar(50)
+  swiftCode          String?      @db.VarChar(50)
+  currency           String       @default("PKR") @db.VarChar(10)
+  openingBalance     Decimal      @default(0) @db.Decimal(18, 2)
+  currentBalance     Decimal      @default(0) @db.Decimal(18, 2)
+  glAccountId        String?      @db.Uuid
+  isActive           Boolean      @default(true)
+  notes              String?      @db.Text
+  createdAt          DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @db.Timestamptz(6)
+
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  financialTransactions FinancialTransaction[]
+  provisionalReceipts   ProvisionalReceipt[]
+
+  @@unique([companyId, accountNumber])
+  @@index([organizationId])
+  @@index([companyId, bankName])
+  @@map("bank_accounts")
 }
 
 

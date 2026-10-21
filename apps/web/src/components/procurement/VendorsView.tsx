@@ -44,6 +44,8 @@ import {
   IconFileText,
   IconBuilding,
   IconRefresh,
+  IconEdit,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
@@ -716,7 +718,7 @@ export const VendorsView: React.FC = () => {
                 <IconFileText size={15} /> View & Download Ledger
               </Button>
               <Button variant="secondary" onClick={() => handleOpenEdit(v)}>
-                ✏️ Edit Vendor
+                <IconEdit size={14} /> Edit Vendor
               </Button>
               {v.status === VendorStatus.DRAFT && (
                 <Button variant="primary" onClick={() => handleSubmitForApproval(v)}>
@@ -1554,7 +1556,7 @@ export const VendorsView: React.FC = () => {
                           onClick={() => handleRemoveDocFromForm(idx)}
                           style={{ color: '#dc2626' }}
                         >
-                          ✕ Remove
+                          <IconTrash size={14} /> Remove
                         </Button>
                       </div>
                     ))}

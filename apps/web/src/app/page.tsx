@@ -232,6 +232,8 @@ function isRoutePermittedForUser(route: string, user: any): { permitted: boolean
     case 'provisional-receipts':
     case 'vehicles':
     case 'credit-control':
+    case 'percentage-credit-report':
+    case 'employee-cost':
     case 'control-audit':
     case 'consolidated-reporting':
       return { permitted: true };
@@ -652,7 +654,9 @@ export default function ShowroomPage() {
           {currentRoute === 'financial-transactions' && <FinancialTransactionsView />}
           {currentRoute === 'provisional-receipts' && <ProvisionalReceiptsView />}
           {currentRoute === 'vehicles' && <VehiclesView />}
-          {currentRoute === 'credit-control' && <CreditControlView />}
+          {currentRoute === 'credit-control' && <CreditControlView defaultTab="dashboard" />}
+          {currentRoute === 'percentage-credit-report' && <CreditControlView defaultTab="percentage-credit" />}
+          {currentRoute === 'employee-cost' && <EmployeesView defaultTab="cost-control" />}
           {currentRoute === 'control-audit' && <ControlAuditView />}
           {currentRoute === 'consolidated-reporting' && <ConsolidatedReportingView />}
         </>

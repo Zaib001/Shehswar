@@ -16,6 +16,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { FinanceService } from './finance.service';
+import { DealerLedgerService } from '../ledger/dealer-ledger.service';
+import { VendorLedgerService } from '../ledger/vendor-ledger.service';
 import { v7 as uuidv7 } from 'uuid';
 
 export interface CreateFinancialTransactionDto {
@@ -32,9 +34,24 @@ export interface CreateFinancialTransactionDto {
   contraAccountCode?: string;// Or pass account code
   bankName?: string;
   branchName?: string;
+  bankAccountId?: string;
   referenceNumber?: string;
   remarks?: string;
   attachmentUrl?: string;
+}
+
+export interface CreateBankAccountDto {
+  companyId: string;
+  bankName: string;
+  accountTitle: string;
+  accountNumber: string;
+  branchName?: string;
+  branchCode?: string;
+  iban?: string;
+  swiftCode?: string;
+  currency?: string;
+  openingBalance?: number;
+  notes?: string;
 }
 
 @Injectable()
@@ -44,6 +61,8 @@ export class FinancialTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly financeService: FinanceService,
+    private readonly dealerLedgerService: DealerLedgerService,
+    private readonly vendorLedgerService: VendorLedgerService,
   ) {}
 
   /**
@@ -144,6 +163,33 @@ export class FinancialTransactionsService {
         lines: journalLines,
       });
 
+      let resolvedBankName = dto.bankName || null;
+      let resolvedBranchName = dto.branchName || null;
+      let linkedBankAccountId: string | null = null;
+
+      if (isBank && dto.bankAccountId) {
+        const bankAcc = await tx.bankAccount.findFirst({
+          where: { id: dto.bankAccountId, companyId: dto.companyId },
+        });
+        if (bankAcc) {
+          linkedBankAccountId = bankAcc.id;
+          resolvedBankName = bankAcc.bankName;
+          resolvedBranchName = bankAcc.branchName || dto.branchName || null;
+
+          // Authoritatively update bank account balance:
+          // Receipt = Debit bank (+)
+          // Payment = Credit bank (-)
+          await tx.bankAccount.update({
+            where: { id: bankAcc.id },
+            data: {
+              currentBalance: {
+                [isReceipt ? 'increment' : 'decrement']: amount,
+              },
+            },
+          });
+        }
+      }
+
       // Record FinancialTransaction record
       const record = await tx.financialTransaction.create({
         data: {
@@ -160,8 +206,9 @@ export class FinancialTransactionsService {
           paymentMethod: dto.paymentMethod || (isBank ? 'BANK' : 'CASH'),
           accountId: cashOrBankAccount.id,
           contraAccountId: contraAccount.id,
-          bankName: dto.bankName || null,
-          branchName: dto.branchName || null,
+          bankAccountId: linkedBankAccountId,
+          bankName: resolvedBankName,
+          branchName: resolvedBranchName,
           referenceNumber: dto.referenceNumber || null,
           remarks: dto.remarks || null,
           attachmentUrl: dto.attachmentUrl || null,
@@ -173,8 +220,105 @@ export class FinancialTransactionsService {
           account: true,
           contraAccount: true,
           company: { select: { id: true, code: true, name: true } },
+          bankAccount: true,
         },
       });
+
+      // Atomic Bridge: If Party is DEALER, create DealerPaymentReceipt & credit DealerLedger
+      if (dto.partyType === 'DEALER' && dto.partyId) {
+        const dealer = await tx.dealer.findFirst({
+          where: { id: dto.partyId, companyId: dto.companyId },
+        });
+
+        if (dealer) {
+          if (isReceipt) {
+            // 1. Create linked DealerPaymentReceipt so it appears in Dealer Payments & statements
+            const paymentReceipt = await tx.dealerPaymentReceipt.create({
+              data: {
+                id: uuidv7(),
+                organizationId,
+                companyId: dto.companyId,
+                receiptNumber: voucherNumber,
+                dealerId: dealer.id,
+                salesOfficerId: dealer.assignedFieldOfficerId ?? null,
+                paymentType: isBank ? 'BANK' : 'CASH',
+                amount,
+                paymentDate: txDate,
+                bankName: dto.bankName || null,
+                referenceNumber: dto.referenceNumber || null,
+                status: 'CONFIRMED',
+                notes: dto.remarks || `Logged via Cash/Bank Voucher: ${voucherNumber}`,
+              },
+            });
+
+            // 2. Post credit to Dealer Ledger (decreases outstanding balance, updates dealer.currentBalance)
+            await this.dealerLedgerService.postEntry(tx, {
+              organizationId,
+              companyId: dto.companyId,
+              dealerId: dealer.id,
+              entryType: 'PAYMENT_RECEIPT',
+              referenceId: record.id,
+              voucherNumber,
+              description: `[${dto.transactionType}] Collection - ${dto.remarks || voucherNumber}`,
+              debit: 0,
+              credit: amount,
+              dealerPaymentId: paymentReceipt.id,
+            });
+          } else {
+            // Payment to dealer (refund or debit)
+            await this.dealerLedgerService.postEntry(tx, {
+              organizationId,
+              companyId: dto.companyId,
+              dealerId: dealer.id,
+              entryType: 'SALES_RETURN',
+              referenceId: record.id,
+              voucherNumber,
+              description: `[${dto.transactionType}] Payment to Dealer - ${dto.remarks || voucherNumber}`,
+              debit: amount,
+              credit: 0,
+            });
+          }
+        }
+      }
+
+      // Atomic Bridge: If Party is VENDOR and Payment, create VendorPayment & debit VendorLedger
+      if (dto.partyType === 'VENDOR' && dto.partyId && !isReceipt) {
+        const vendor = await tx.vendor.findFirst({
+          where: { id: dto.partyId, companyId: dto.companyId },
+        });
+
+        if (vendor) {
+          const vPayment = await tx.vendorPayment.create({
+            data: {
+              id: uuidv7(),
+              organizationId,
+              companyId: dto.companyId,
+              voucherNumber,
+              vendorId: vendor.id,
+              paymentType: isBank ? 'BANK_TRANSFER' : 'CASH',
+              amount,
+              paymentDate: txDate,
+              bankName: dto.bankName || null,
+              referenceNumber: dto.referenceNumber || null,
+              status: 'POSTED',
+              notes: dto.remarks || `Cash/Bank Payment Voucher: ${voucherNumber}`,
+            },
+          });
+
+          await this.vendorLedgerService.postEntry(tx, {
+            organizationId,
+            companyId: dto.companyId,
+            vendorId: vendor.id,
+            entryType: 'VENDOR_PAYMENT',
+            referenceId: record.id,
+            voucherNumber,
+            description: `[${dto.transactionType}] Vendor Payment - ${dto.remarks || voucherNumber}`,
+            debit: amount,
+            credit: 0,
+            vendorPaymentId: vPayment.id,
+          });
+        }
+      }
 
       this.logger.log(`Created ${dto.transactionType} voucher: ${voucherNumber} for PKR ${amount}`);
       return record;
@@ -218,6 +362,7 @@ export class FinancialTransactionsService {
         account: { select: { id: true, accountCode: true, accountName: true } },
         contraAccount: { select: { id: true, accountCode: true, accountName: true } },
         company: { select: { id: true, code: true, name: true } },
+        bankAccount: true,
       },
       orderBy: { transactionDate: 'desc' },
       take: 200,
@@ -231,26 +376,57 @@ export class FinancialTransactionsService {
     const companyWhere: any = {};
     if (companyId && companyId !== 'ALL') companyWhere.companyId = companyId;
 
-    // 1. Fetch real Cash & Bank account balances
+    // 1. Fetch real Cash account balances
     const cashAccounts = await this.prisma.account.findMany({
       where: {
         ...companyWhere,
-        accountCode: { in: ['101000', '1000'] },
+        OR: [
+          { accountCode: { in: ['101000', '1000'] } },
+          { accountCode: { endsWith: '101000' } },
+        ],
       },
       select: { currentBalance: true },
     });
     const cashBalance = cashAccounts.reduce((sum, a) => sum + Number(a.currentBalance || 0), 0);
 
-    const bankAccounts = await this.prisma.account.findMany({
-      where: {
-        ...companyWhere,
-        accountCode: { in: ['102000', '1010'] },
-      },
-      select: { currentBalance: true },
-    });
-    const bankBalance = bankAccounts.reduce((sum, a) => sum + Number(a.currentBalance || 0), 0);
+    // 2. Fetch authoritative bank accounts
+    const bankAccounts = await this.getBankAccounts(companyId);
+    const totalBankBalance = bankAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+    const totalCashBankBalance = cashBalance + totalBankBalance;
 
-    // 2. Aggregate transactions
+    // 3. Group by bank name (HBL, UBL, Bank Alfalah, Meezan Bank, etc.)
+    const bankGroupMap: Record<string, {
+      bankName: string;
+      totalBalance: number;
+      totalOpening: number;
+      totalReceipts: number;
+      totalPayments: number;
+      accountCount: number;
+      accounts: any[];
+    }> = {};
+
+    for (const acc of bankAccounts) {
+      const bName = acc.bankName || 'Other Banks';
+      const grp = bankGroupMap[bName] ?? {
+        bankName: bName,
+        totalBalance: 0,
+        totalOpening: 0,
+        totalReceipts: 0,
+        totalPayments: 0,
+        accountCount: 0,
+        accounts: [],
+      };
+      grp.totalBalance += acc.currentBalance;
+      grp.totalOpening += acc.openingBalance;
+      grp.totalReceipts += acc.totalReceipts;
+      grp.totalPayments += acc.totalPayments;
+      grp.accountCount += 1;
+      grp.accounts.push(acc);
+      bankGroupMap[bName] = grp;
+    }
+    const bankGroups = Object.values(bankGroupMap);
+
+    // 4. Aggregate transactions
     const txs = await this.prisma.financialTransaction.findMany({
       where: { ...companyWhere, status: 'POSTED' },
       select: { transactionType: true, amount: true },
@@ -269,7 +445,7 @@ export class FinancialTransactionsService {
       else if (t.transactionType === 'BANK_PAYMENT') bankPayments += amt;
     }
 
-    // 3. Aggregate PR status
+    // 5. Aggregate PR status
     const prs = await this.prisma.provisionalReceipt.findMany({
       where: { ...companyWhere, status: { not: 'CANCELLED' } },
       select: { status: true, totalAmount: true, allocatedAmount: true, unallocatedAmount: true },
@@ -293,7 +469,11 @@ export class FinancialTransactionsService {
 
     return {
       cashBalance: Math.round(cashBalance * 100) / 100,
-      bankBalance: Math.round(bankBalance * 100) / 100,
+      bankBalance: Math.round(totalBankBalance * 100) / 100,
+      totalBankBalance: Math.round(totalBankBalance * 100) / 100,
+      totalCashBankBalance: Math.round(totalCashBankBalance * 100) / 100,
+      bankAccounts,
+      bankGroups,
       cashReceipts: Math.round(cashReceipts * 100) / 100,
       cashPayments: Math.round(cashPayments * 100) / 100,
       bankReceipts: Math.round(bankReceipts * 100) / 100,
@@ -429,6 +609,49 @@ export class FinancialTransactionsService {
         region: a.dealer.territory?.zone?.region?.name || 'Unassigned',
       };
       existing.amount += Number(a.allocatedAmount);
+      dealerMap.set(dId, existing);
+    }
+
+    // Direct dealer payment receipts
+    const directDealerPayments = await this.prisma.dealerPaymentReceipt.findMany({
+      where: {
+        ...compWhere,
+        status: 'CONFIRMED',
+      },
+      include: {
+        dealer: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            territory: {
+              select: {
+                id: true,
+                name: true,
+                zone: {
+                  select: {
+                    id: true,
+                    name: true,
+                    region: { select: { id: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    for (const dp of directDealerPayments) {
+      const dId = dp.dealerId;
+      const existing = dealerMap.get(dId) || {
+        code: dp.dealer.code,
+        name: dp.dealer.name,
+        amount: 0,
+        territory: dp.dealer.territory?.name || 'Unassigned',
+        region: dp.dealer.territory?.zone?.region?.name || 'Unassigned',
+      };
+      existing.amount += Number(dp.amount);
       dealerMap.set(dId, existing);
     }
 
@@ -607,6 +830,465 @@ export class FinancialTransactionsService {
       },
       orderBy: { paymentDate: 'desc' },
     });
+  }
+
+  /**
+   * List all Bank Accounts with real-time authoritative balances:
+   * Current Balance = Opening Balance + sum(Posted Bank Receipts) - sum(Posted Bank Payments)
+   */
+  async getBankAccounts(companyId?: string) {
+    const where: any = { isActive: true };
+    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+
+    const accounts = await this.prisma.bankAccount.findMany({
+      where,
+      include: {
+        company: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [
+        { bankName: 'asc' },
+        { accountNumber: 'asc' },
+      ],
+    });
+
+    const results = await Promise.all(
+      accounts.map(async (acc) => {
+        const txs = await this.prisma.financialTransaction.findMany({
+          where: { bankAccountId: acc.id, status: 'POSTED' },
+          select: { transactionType: true, amount: true },
+        });
+
+        let totalReceipts = 0;
+        let totalPayments = 0;
+        for (const t of txs) {
+          if (t.transactionType === 'BANK_RECEIPT') totalReceipts += Number(t.amount);
+          else if (t.transactionType === 'BANK_PAYMENT') totalPayments += Number(t.amount);
+        }
+
+        const openingBalance = Number(acc.openingBalance);
+        const currentBalance = openingBalance + totalReceipts - totalPayments;
+
+        // Keep currentBalance authoritative in db
+        if (Number(acc.currentBalance) !== currentBalance) {
+          await this.prisma.bankAccount.update({
+            where: { id: acc.id },
+            data: { currentBalance },
+          });
+        }
+
+        return {
+          ...acc,
+          openingBalance,
+          totalReceipts,
+          totalPayments,
+          currentBalance,
+        };
+      })
+    );
+
+    return results;
+  }
+
+  /**
+   * Create a new Bank Account dynamically
+   */
+  async createBankAccount(organizationId: string, dto: CreateBankAccountDto, _userId?: string) {
+    if (!dto.bankName?.trim() || !dto.accountTitle?.trim() || !dto.accountNumber?.trim() || !dto.companyId) {
+      throw new BadRequestException('bankName, accountTitle, accountNumber, and companyId are required');
+    }
+
+    const openingBalance = Number(dto.openingBalance || 0);
+
+    const account = await this.prisma.bankAccount.create({
+      data: {
+        id: uuidv7(),
+        organizationId,
+        companyId: dto.companyId,
+        bankName: dto.bankName.trim(),
+        accountTitle: dto.accountTitle.trim(),
+        accountNumber: dto.accountNumber.trim(),
+        branchName: dto.branchName?.trim() || null,
+        branchCode: dto.branchCode?.trim() || null,
+        iban: dto.iban?.trim() || null,
+        swiftCode: dto.swiftCode?.trim() || null,
+        currency: dto.currency || 'PKR',
+        openingBalance,
+        currentBalance: openingBalance,
+        notes: dto.notes || null,
+        isActive: true,
+      },
+      include: {
+        company: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    this.logger.log(`Created Bank Account: ${account.bankName} - ${account.accountNumber} for company ${dto.companyId}`);
+    return account;
+  }
+
+  /**
+   * Bank Account Drill-Down Transaction Ledger with Running Balance
+   */
+  async getBankAccountLedger(bankAccountId: string, filters?: { fromDate?: string; toDate?: string }) {
+    const bankAccount = await this.prisma.bankAccount.findUnique({
+      where: { id: bankAccountId },
+      include: {
+        company: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    if (!bankAccount) {
+      throw new NotFoundException(`Bank account ${bankAccountId} not found`);
+    }
+
+    const fromDate = filters?.fromDate ? new Date(filters.fromDate) : null;
+    const toDate = filters?.toDate ? new Date(filters.toDate) : null;
+
+    // Prior transactions for period opening balance
+    let priorReceipts = 0;
+    let priorPayments = 0;
+
+    if (fromDate) {
+      const priorTxs = await this.prisma.financialTransaction.findMany({
+        where: {
+          bankAccountId,
+          status: 'POSTED',
+          transactionDate: { lt: fromDate },
+        },
+        select: { transactionType: true, amount: true },
+      });
+      for (const pt of priorTxs) {
+        if (pt.transactionType === 'BANK_RECEIPT') priorReceipts += Number(pt.amount);
+        else if (pt.transactionType === 'BANK_PAYMENT') priorPayments += Number(pt.amount);
+      }
+    }
+
+    const periodOpeningBalance = Number(bankAccount.openingBalance) + priorReceipts - priorPayments;
+
+    // Transactions in period
+    const txWhere: any = {
+      bankAccountId,
+      status: 'POSTED',
+    };
+    if (fromDate || toDate) {
+      txWhere.transactionDate = {};
+      if (fromDate) txWhere.transactionDate.gte = fromDate;
+      if (toDate) txWhere.transactionDate.lte = toDate;
+    }
+
+    const transactions = await this.prisma.financialTransaction.findMany({
+      where: txWhere,
+      orderBy: [
+        { transactionDate: 'asc' },
+        { createdAt: 'asc' },
+      ],
+      include: {
+        account: { select: { id: true, accountCode: true, accountName: true } },
+        contraAccount: { select: { id: true, accountCode: true, accountName: true } },
+        company: { select: { id: true, code: true, name: true } },
+      },
+    });
+
+    let runningBalance = periodOpeningBalance;
+    let periodReceipts = 0;
+    let periodPayments = 0;
+
+    const ledgerEntries = transactions.map((t) => {
+      const amt = Number(t.amount);
+      const isReceipt = t.transactionType === 'BANK_RECEIPT';
+      const debit = isReceipt ? amt : 0;
+      const credit = !isReceipt ? amt : 0;
+
+      if (isReceipt) {
+        runningBalance += debit;
+        periodReceipts += debit;
+      } else {
+        runningBalance -= credit;
+        periodPayments += credit;
+      }
+
+      return {
+        id: t.id,
+        date: t.transactionDate,
+        transactionType: t.transactionType,
+        voucherNumber: t.voucherNumber,
+        referenceNumber: t.referenceNumber,
+        partyName: t.partyName,
+        partyType: t.partyType,
+        debit,
+        credit,
+        runningBalance: Math.round(runningBalance * 100) / 100,
+        status: t.status,
+        remarks: t.remarks,
+        contraAccount: t.contraAccount?.accountName || 'Counter Account',
+      };
+    });
+
+    // Lifetime metrics
+    const allTxs = await this.prisma.financialTransaction.findMany({
+      where: { bankAccountId, status: 'POSTED' },
+      select: { transactionType: true, amount: true },
+    });
+    let lifetimeReceipts = 0;
+    let lifetimePayments = 0;
+    for (const at of allTxs) {
+      if (at.transactionType === 'BANK_RECEIPT') lifetimeReceipts += Number(at.amount);
+      else if (at.transactionType === 'BANK_PAYMENT') lifetimePayments += Number(at.amount);
+    }
+    const lifetimeCurrentBalance = Number(bankAccount.openingBalance) + lifetimeReceipts - lifetimePayments;
+
+    return {
+      account: {
+        id: bankAccount.id,
+        bankName: bankAccount.bankName,
+        accountTitle: bankAccount.accountTitle,
+        accountNumber: bankAccount.accountNumber,
+        branchName: bankAccount.branchName,
+        branchCode: bankAccount.branchCode,
+        currency: bankAccount.currency,
+        company: bankAccount.company,
+        initialOpeningBalance: Number(bankAccount.openingBalance),
+        periodOpeningBalance: Math.round(periodOpeningBalance * 100) / 100,
+        periodReceipts: Math.round(periodReceipts * 100) / 100,
+        periodPayments: Math.round(periodPayments * 100) / 100,
+        periodClosingBalance: Math.round(runningBalance * 100) / 100,
+        lifetimeReceipts: Math.round(lifetimeReceipts * 100) / 100,
+        lifetimePayments: Math.round(lifetimePayments * 100) / 100,
+        lifetimeCurrentBalance: Math.round(lifetimeCurrentBalance * 100) / 100,
+      },
+      transactions: ledgerEntries,
+    };
+  }
+
+  /**
+   * Cash & Bank Reports: Bank-wise summary, account breakdowns, period filters (Daily, Monthly, Quarterly, Yearly, Custom)
+   */
+  async getCashBankReports(filters: {
+    companyId?: string;
+    bankName?: string;
+    bankAccountId?: string;
+    transactionType?: string;
+    period?: 'DAILY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'CUSTOM';
+    dateFrom?: string;
+    dateTo?: string;
+    status?: string;
+  }) {
+    let fromDate = filters.dateFrom ? new Date(filters.dateFrom) : undefined;
+    let toDate = filters.dateTo ? new Date(filters.dateTo) : undefined;
+
+    const now = new Date();
+    if (filters.period && !filters.dateFrom && !filters.dateTo) {
+      if (filters.period === 'DAILY') {
+        fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        toDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+      } else if (filters.period === 'MONTHLY') {
+        fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        toDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      } else if (filters.period === 'QUARTERLY') {
+        const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+        fromDate = new Date(now.getFullYear(), quarterMonth, 1);
+        toDate = new Date(now.getFullYear(), quarterMonth + 3, 0, 23, 59, 59);
+      } else if (filters.period === 'YEARLY') {
+        fromDate = new Date(now.getFullYear(), 0, 1);
+        toDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+      }
+    }
+
+    // 1. Bank Accounts Report
+    const bankAccounts = await this.getBankAccounts(filters.companyId);
+    let filteredBankAccounts = bankAccounts;
+    if (filters.bankName && filters.bankName !== 'ALL') {
+      filteredBankAccounts = filteredBankAccounts.filter(
+        (a) => a.bankName.toLowerCase() === filters.bankName!.toLowerCase(),
+      );
+    }
+    if (filters.bankAccountId && filters.bankAccountId !== 'ALL') {
+      filteredBankAccounts = filteredBankAccounts.filter((a) => a.id === filters.bankAccountId);
+    }
+
+    const bankReportRows = await Promise.all(
+      filteredBankAccounts.map(async (acc) => {
+        let priorReceipts = 0;
+        let priorPayments = 0;
+
+        if (fromDate) {
+          const priorTxs = await this.prisma.financialTransaction.findMany({
+            where: {
+              bankAccountId: acc.id,
+              status: 'POSTED',
+              transactionDate: { lt: fromDate },
+            },
+            select: { transactionType: true, amount: true },
+          });
+          for (const pt of priorTxs) {
+            if (pt.transactionType === 'BANK_RECEIPT') priorReceipts += Number(pt.amount);
+            else if (pt.transactionType === 'BANK_PAYMENT') priorPayments += Number(pt.amount);
+          }
+        }
+        const opening = Number(acc.openingBalance) + priorReceipts - priorPayments;
+
+        const periodWhere: any = { bankAccountId: acc.id, status: 'POSTED' };
+        if (fromDate || toDate) {
+          periodWhere.transactionDate = {};
+          if (fromDate) periodWhere.transactionDate.gte = fromDate;
+          if (toDate) periodWhere.transactionDate.lte = toDate;
+        }
+
+        const periodTxs = await this.prisma.financialTransaction.findMany({
+          where: periodWhere,
+          select: { transactionType: true, amount: true },
+        });
+
+        let receipts = 0;
+        let payments = 0;
+        for (const pt of periodTxs) {
+          if (pt.transactionType === 'BANK_RECEIPT') receipts += Number(pt.amount);
+          else if (pt.transactionType === 'BANK_PAYMENT') payments += Number(pt.amount);
+        }
+
+        const closing = opening + receipts - payments;
+
+        return {
+          id: acc.id,
+          bankName: acc.bankName,
+          accountTitle: acc.accountTitle,
+          accountNumber: acc.accountNumber,
+          branchName: acc.branchName,
+          companyName: acc.company?.name || 'Shehswar Group',
+          opening: Math.round(opening * 100) / 100,
+          receipts: Math.round(receipts * 100) / 100,
+          payments: Math.round(payments * 100) / 100,
+          closing: Math.round(closing * 100) / 100,
+        };
+      }),
+    );
+
+    // Group rows by bank
+    const bankGroupReportMap: Record<
+      string,
+      { bankName: string; opening: number; receipts: number; payments: number; closing: number; accounts: any[] }
+    > = {};
+
+    for (const row of bankReportRows) {
+      const bg = bankGroupReportMap[row.bankName] ?? {
+        bankName: row.bankName,
+        opening: 0,
+        receipts: 0,
+        payments: 0,
+        closing: 0,
+        accounts: [],
+      };
+      bg.opening += row.opening;
+      bg.receipts += row.receipts;
+      bg.payments += row.payments;
+      bg.closing += row.closing;
+      bg.accounts.push(row);
+      bankGroupReportMap[row.bankName] = bg;
+    }
+    const bankWiseSummary = Object.values(bankGroupReportMap).map((bg) => ({
+      ...bg,
+      opening: Math.round(bg.opening * 100) / 100,
+      receipts: Math.round(bg.receipts * 100) / 100,
+      payments: Math.round(bg.payments * 100) / 100,
+      closing: Math.round(bg.closing * 100) / 100,
+    }));
+
+    const totalBankOpening = Math.round(bankWiseSummary.reduce((s, b) => s + b.opening, 0) * 100) / 100;
+    const totalBankReceipts = Math.round(bankWiseSummary.reduce((s, b) => s + b.receipts, 0) * 100) / 100;
+    const totalBankPayments = Math.round(bankWiseSummary.reduce((s, b) => s + b.payments, 0) * 100) / 100;
+    const totalBankClosing = Math.round(bankWiseSummary.reduce((s, b) => s + b.closing, 0) * 100) / 100;
+
+    // 2. Cash Report
+    const cashWhere: any = {
+      transactionType: { in: ['CASH_RECEIPT', 'CASH_PAYMENT'] },
+      status: 'POSTED',
+    };
+    if (filters.companyId && filters.companyId !== 'ALL') cashWhere.companyId = filters.companyId;
+
+    let cashPriorReceipts = 0;
+    let cashPriorPayments = 0;
+    if (fromDate) {
+      const cashPriorTxs = await this.prisma.financialTransaction.findMany({
+        where: {
+          ...cashWhere,
+          transactionDate: { lt: fromDate },
+        },
+        select: { transactionType: true, amount: true },
+      });
+      for (const pt of cashPriorTxs) {
+        if (pt.transactionType === 'CASH_RECEIPT') cashPriorReceipts += Number(pt.amount);
+        else if (pt.transactionType === 'CASH_PAYMENT') cashPriorPayments += Number(pt.amount);
+      }
+    }
+    const cashOpening = cashPriorReceipts - cashPriorPayments;
+
+    const cashPeriodWhere: any = { ...cashWhere };
+    if (fromDate || toDate) {
+      cashPeriodWhere.transactionDate = {};
+      if (fromDate) cashPeriodWhere.transactionDate.gte = fromDate;
+      if (toDate) cashPeriodWhere.transactionDate.lte = toDate;
+    }
+    const cashPeriodTxs = await this.prisma.financialTransaction.findMany({
+      where: cashPeriodWhere,
+      select: { transactionType: true, amount: true },
+    });
+
+    let cashReceipts = 0;
+    let cashPayments = 0;
+    for (const pt of cashPeriodTxs) {
+      if (pt.transactionType === 'CASH_RECEIPT') cashReceipts += Number(pt.amount);
+      else if (pt.transactionType === 'CASH_PAYMENT') cashPayments += Number(pt.amount);
+    }
+    const cashClosing = cashOpening + cashReceipts - cashPayments;
+
+    // 3. Transactions matching detailed filters
+    const txWhere: any = {};
+    if (filters.companyId && filters.companyId !== 'ALL') txWhere.companyId = filters.companyId;
+    if (filters.transactionType && filters.transactionType !== 'ALL') txWhere.transactionType = filters.transactionType;
+    if (filters.bankAccountId && filters.bankAccountId !== 'ALL') txWhere.bankAccountId = filters.bankAccountId;
+    if (filters.status && filters.status !== 'ALL') txWhere.status = filters.status;
+    if (fromDate || toDate) {
+      txWhere.transactionDate = {};
+      if (fromDate) txWhere.transactionDate.gte = fromDate;
+      if (toDate) txWhere.transactionDate.lte = toDate;
+    }
+
+    const transactions = await this.prisma.financialTransaction.findMany({
+      where: txWhere,
+      include: {
+        account: { select: { id: true, accountCode: true, accountName: true } },
+        contraAccount: { select: { id: true, accountCode: true, accountName: true } },
+        company: { select: { id: true, code: true, name: true } },
+        bankAccount: true,
+      },
+      orderBy: { transactionDate: 'desc' },
+      take: 500,
+    });
+
+    return {
+      period: filters.period || 'CUSTOM',
+      fromDate: fromDate?.toISOString() || null,
+      toDate: toDate?.toISOString() || null,
+      bankWiseSummary,
+      bankAccounts: bankReportRows,
+      totalBankOpening,
+      totalBankReceipts,
+      totalBankPayments,
+      totalBankClosing,
+      cashSummary: {
+        opening: Math.round(cashOpening * 100) / 100,
+        receipts: Math.round(cashReceipts * 100) / 100,
+        payments: Math.round(cashPayments * 100) / 100,
+        closing: Math.round(cashClosing * 100) / 100,
+      },
+      grandSummary: {
+        totalOpening: Math.round((totalBankOpening + cashOpening) * 100) / 100,
+        totalReceipts: Math.round((totalBankReceipts + cashReceipts) * 100) / 100,
+        totalPayments: Math.round((totalBankPayments + cashPayments) * 100) / 100,
+        totalClosing: Math.round((totalBankClosing + cashClosing) * 100) / 100,
+      },
+      transactions,
+    };
   }
 }
 

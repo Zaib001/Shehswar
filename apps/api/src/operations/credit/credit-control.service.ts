@@ -129,7 +129,12 @@ export class CreditControlService {
   /**
    * Retrieves active configured credit limit record or returns default
    */
-  async getEffectiveLimit(companyId: string, level: CreditLevel, entityId: string): Promise<{ limit: number; threshold: number }> {
+  async getEffectiveLimit(companyId: string, level: CreditLevel, entityId: string): Promise<{
+    limit: number;
+    threshold: number;
+    maxCreditPercentage: number;
+    creditControlMode: string;
+  }> {
     const record = await this.prisma.creditLimit.findFirst({
       where: {
         companyId,
@@ -144,6 +149,8 @@ export class CreditControlService {
       return {
         limit: Number(record.creditLimit),
         threshold: Number(record.nearLimitThresholdPercent || 85),
+        maxCreditPercentage: Number(record.maxCreditPercentage || 20.0),
+        creditControlMode: record.creditControlMode || 'BOTH',
       };
     }
 
@@ -156,14 +163,57 @@ export class CreditControlService {
       return {
         limit: Number(dealer?.creditLimit || 0),
         threshold: 85,
+        maxCreditPercentage: 20.0,
+        creditControlMode: 'BOTH',
       };
     }
 
-    return { limit: 0, threshold: 85 };
+    return { limit: 0, threshold: 85, maxCreditPercentage: 20.0, creditControlMode: 'BOTH' };
   }
 
   /**
-   * Evaluates a single level against its limit and proposed order amount
+   * Calculate authoritative Net Sales for an entity to support percentage-based credit control
+   */
+  async calculateEntitySales(level: CreditLevel, entityId: string, companyId: string): Promise<number> {
+    let invoices: { netAmount: any }[] = [];
+    if (level === 'DEALER') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, dealerId: entityId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    } else if (level === 'SALES_OFFICER') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, salesOfficerId: entityId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    } else if (level === 'TERRITORY') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, territoryId: entityId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    } else if (level === 'ZONE') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, zoneId: entityId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    } else if (level === 'REGION') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, regionId: entityId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    } else if (level === 'COMPANY') {
+      invoices = await this.prisma.salesInvoice.findMany({
+        where: { companyId, postingStatus: 'POSTED' },
+        select: { netAmount: true },
+      });
+    }
+
+    const total = invoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
+    return Math.round(total * 100) / 100;
+  }
+
+  /**
+   * Evaluates a single level against its fixed limit and percentage-based credit policies
    */
   private evaluateLevel(
     level: CreditLevel,
@@ -174,43 +224,83 @@ export class CreditControlService {
     orderAmount: number,
     thresholdPercent: number,
     isCash: boolean,
+    maxCreditPercentage: number = 20.0,
+    creditControlMode: string = 'BOTH',
+    netSales: number = 0,
   ): CreditCheckLevelResult {
     const effectiveOrderAmount = isCash ? 0 : orderAmount;
     const projectedExposure = currentExposure + effectiveOrderAmount;
-    const availableCredit = limit > 0 ? Math.max(0, limit - currentExposure) : 999999999;
+
+    // Fixed limit metrics
+    const fixedAvailable = limit > 0 ? Math.max(0, limit - currentExposure) : 999999999;
     const utilizationPercent = limit > 0 ? Math.round((projectedExposure / limit) * 10000) / 100 : 0;
+
+    // Percentage limit metrics
+    const creditPercentage = netSales > 0 ? Math.round((currentExposure / netSales) * 10000) / 100 : 0;
+    const projectedCreditPercentage = netSales > 0 ? Math.round((projectedExposure / netSales) * 10000) / 100 : 0;
+    const maxAllowedCreditByPercentage = netSales > 0 ? Math.round(netSales * (maxCreditPercentage / 100) * 100) / 100 : 0;
+    const percentAvailable = maxAllowedCreditByPercentage > 0 ? Math.max(0, maxAllowedCreditByPercentage - currentExposure) : 999999999;
+
+    let availableCredit = fixedAvailable;
+    if (creditControlMode === 'PERCENTAGE' && maxAllowedCreditByPercentage > 0) {
+      availableCredit = percentAvailable;
+    } else if (creditControlMode === 'BOTH' && limit > 0 && maxAllowedCreditByPercentage > 0) {
+      availableCredit = Math.min(fixedAvailable, percentAvailable);
+    } else if (creditControlMode === 'BOTH' && maxAllowedCreditByPercentage > 0) {
+      availableCredit = percentAvailable;
+    }
 
     let status: CreditStatus = 'WITHIN_LIMIT';
     let allowed = true;
     let approvalRequired = false;
+    let creditLock = false;
 
-    if (limit > 0) {
-      if (currentExposure >= limit) {
-        status = 'CREDIT_HOLD';
-        allowed = false;
-        approvalRequired = true;
-      } else if (projectedExposure > limit) {
-        status = 'LIMIT_EXCEEDED';
-        allowed = false;
-        approvalRequired = true;
-      } else if (projectedExposure === limit) {
-        status = 'LIMIT_REACHED';
-        allowed = true;
-        approvalRequired = false;
-      } else if (utilizationPercent >= thresholdPercent) {
-        status = 'NEAR_LIMIT';
-        allowed = true;
-        approvalRequired = false;
+    // 1. Percentage-based Credit Check (Auto-releases dynamically upon payment)
+    if (creditControlMode === 'PERCENTAGE' || creditControlMode === 'BOTH') {
+      if (netSales > 0) {
+        if (currentExposure >= maxAllowedCreditByPercentage && maxAllowedCreditByPercentage > 0) {
+          status = 'CREDIT_LOCK';
+          allowed = false;
+          approvalRequired = true;
+          creditLock = true;
+        } else if (projectedCreditPercentage > maxCreditPercentage) {
+          status = 'CREDIT_LOCK';
+          allowed = false;
+          approvalRequired = true;
+          creditLock = true;
+        } else if (projectedCreditPercentage === maxCreditPercentage) {
+          status = 'LIMIT_REACHED';
+          allowed = true;
+          approvalRequired = false;
+        } else if (projectedCreditPercentage >= maxCreditPercentage * (thresholdPercent / 100)) {
+          status = 'NEAR_LIMIT';
+          allowed = true;
+          approvalRequired = false;
+        }
       }
     }
 
-    // CASH orders are always allowed unless explicitly in CREDIT_HOLD and business policy says so
+    // 2. Fixed Credit Limit Check
+    if ((creditControlMode === 'FIXED' || creditControlMode === 'BOTH') && limit > 0) {
+      if (currentExposure >= limit) {
+        if (!creditLock) status = 'CREDIT_HOLD';
+        allowed = false;
+        approvalRequired = true;
+      } else if (projectedExposure > limit) {
+        if (!creditLock) status = 'LIMIT_EXCEEDED';
+        allowed = false;
+        approvalRequired = true;
+      } else if (projectedExposure === limit && status === 'WITHIN_LIMIT') {
+        status = 'LIMIT_REACHED';
+      } else if (utilizationPercent >= thresholdPercent && status === 'WITHIN_LIMIT') {
+        status = 'NEAR_LIMIT';
+      }
+    }
+
+    // 3. CASH orders are always allowed
     if (isCash) {
       allowed = true;
       approvalRequired = false;
-      if (currentExposure >= limit && limit > 0) {
-        status = 'CREDIT_HOLD';
-      }
     }
 
     return {
@@ -221,11 +311,17 @@ export class CreditControlService {
       currentExposure,
       orderAmount: effectiveOrderAmount,
       projectedExposure,
-      availableCredit,
+      availableCredit: Math.max(0, availableCredit),
       utilizationPercent,
       status,
       allowed,
       approvalRequired,
+      netSales,
+      creditPercentage,
+      projectedCreditPercentage,
+      maxCreditPercentage,
+      maxAllowedCreditByPercentage,
+      creditLock,
     };
   }
 
@@ -265,6 +361,7 @@ export class CreditControlService {
     // 2. Evaluate Dealer Tier
     const dealerLimitConfig = await this.getEffectiveLimit(companyId, 'DEALER', dealer.id);
     const dealerExposure = await this.calculateCreditExposure('DEALER', dealer.id, companyId);
+    const dealerSales = await this.calculateEntitySales('DEALER', dealer.id, companyId);
     const dealerResult = this.evaluateLevel(
       'DEALER',
       dealer.id,
@@ -274,6 +371,9 @@ export class CreditControlService {
       input.orderAmount,
       dealerLimitConfig.threshold,
       isCash,
+      dealerLimitConfig.maxCreditPercentage,
+      dealerLimitConfig.creditControlMode,
+      dealerSales,
     );
 
     // 3. Evaluate Sales Officer Tier
@@ -286,6 +386,7 @@ export class CreditControlService {
       const officerName = officer ? `${officer.firstName} ${officer.lastName}` : 'Sales Officer';
       const officerLimitConfig = await this.getEffectiveLimit(companyId, 'SALES_OFFICER', salesOfficerId);
       const officerExposure = await this.calculateCreditExposure('SALES_OFFICER', salesOfficerId, companyId);
+      const officerSales = await this.calculateEntitySales('SALES_OFFICER', salesOfficerId, companyId);
       salesOfficerResult = this.evaluateLevel(
         'SALES_OFFICER',
         salesOfficerId,
@@ -295,6 +396,9 @@ export class CreditControlService {
         input.orderAmount,
         officerLimitConfig.threshold,
         isCash,
+        officerLimitConfig.maxCreditPercentage,
+        officerLimitConfig.creditControlMode,
+        officerSales,
       );
     }
 
@@ -308,6 +412,7 @@ export class CreditControlService {
       const territoryName = territory?.name || 'Territory';
       const terrLimitConfig = await this.getEffectiveLimit(companyId, 'TERRITORY', territoryId);
       const terrExposure = await this.calculateCreditExposure('TERRITORY', territoryId, companyId);
+      const terrSales = await this.calculateEntitySales('TERRITORY', territoryId, companyId);
       territoryResult = this.evaluateLevel(
         'TERRITORY',
         territoryId,
@@ -317,6 +422,9 @@ export class CreditControlService {
         input.orderAmount,
         terrLimitConfig.threshold,
         isCash,
+        terrLimitConfig.maxCreditPercentage,
+        terrLimitConfig.creditControlMode,
+        terrSales,
       );
     }
 
@@ -330,6 +438,7 @@ export class CreditControlService {
       const zoneName = zone?.name || 'Zone';
       const zoneLimitConfig = await this.getEffectiveLimit(companyId, 'ZONE', zoneId);
       const zoneExposure = await this.calculateCreditExposure('ZONE', zoneId, companyId);
+      const zoneSales = await this.calculateEntitySales('ZONE', zoneId, companyId);
       zoneResult = this.evaluateLevel(
         'ZONE',
         zoneId,
@@ -339,6 +448,9 @@ export class CreditControlService {
         input.orderAmount,
         zoneLimitConfig.threshold,
         isCash,
+        zoneLimitConfig.maxCreditPercentage,
+        zoneLimitConfig.creditControlMode,
+        zoneSales,
       );
     }
 
@@ -352,6 +464,7 @@ export class CreditControlService {
       const regionName = region?.name || 'Region';
       const regionLimitConfig = await this.getEffectiveLimit(companyId, 'REGION', regionId);
       const regionExposure = await this.calculateCreditExposure('REGION', regionId, companyId);
+      const regionSales = await this.calculateEntitySales('REGION', regionId, companyId);
       regionResult = this.evaluateLevel(
         'REGION',
         regionId,
@@ -361,6 +474,9 @@ export class CreditControlService {
         input.orderAmount,
         regionLimitConfig.threshold,
         isCash,
+        regionLimitConfig.maxCreditPercentage,
+        regionLimitConfig.creditControlMode,
+        regionSales,
       );
     }
 
@@ -808,5 +924,171 @@ export class CreditControlService {
       where,
       orderBy: [{ periodYear: 'desc' }, { periodMonth: 'desc' }],
     });
+  }
+
+  /**
+   * Percentage-Based Credit Performance Report (Additional Requirement)
+   * Drilldown: Company -> Region -> Zone -> Territory -> Sales Officer -> Dealer
+   */
+  async getPercentageCreditReport(params: {
+    companyId: string;
+    regionId?: string;
+    zoneId?: string;
+    territoryId?: string;
+    salesOfficerId?: string;
+    dealerId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) {
+    const { companyId } = params;
+
+    // 1. Fetch dealers matching filters
+    const dealerWhere: any = { companyId, status: 'ACTIVE' };
+    if (params.dealerId) dealerWhere.id = params.dealerId;
+    if (params.salesOfficerId) dealerWhere.assignedFieldOfficerId = params.salesOfficerId;
+    if (params.territoryId) dealerWhere.territoryId = params.territoryId;
+
+    const dealers = await this.prisma.dealer.findMany({
+      where: dealerWhere,
+      include: {
+        territory: {
+          include: {
+            zone: {
+              include: {
+                region: true,
+              },
+            },
+          },
+        },
+        assignedOfficer: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const dateFilter: any = {};
+    if (params.startDate) dateFilter.gte = new Date(params.startDate);
+    if (params.endDate) dateFilter.lte = new Date(params.endDate);
+
+    const reportItems = await Promise.all(
+      dealers.map(async (d) => {
+        const exposure = Math.max(0, Number(d.currentBalance || 0));
+        const limitConfig = await this.getEffectiveLimit(companyId, 'DEALER', d.id);
+        const maxCreditPercent = limitConfig.maxCreditPercentage || 20.0;
+
+        // Sales for this dealer
+        const salesWhere: any = {
+          companyId,
+          dealerId: d.id,
+          postingStatus: 'POSTED',
+          ...(params.startDate || params.endDate ? { invoiceDate: dateFilter } : {}),
+        };
+        const invoices = await this.prisma.salesInvoice.findMany({
+          where: salesWhere,
+          select: { id: true, netAmount: true },
+        });
+        const grossSales = invoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
+
+        let returnsTotal = 0;
+        const invIds = invoices.map((i) => i.id);
+        if (invIds.length > 0) {
+          const returns = await this.prisma.salesReturn.findMany({
+            where: {
+              companyId,
+              salesInvoiceId: { in: invIds },
+              postingStatus: 'POSTED',
+              ...(params.startDate || params.endDate ? { returnDate: dateFilter } : {}),
+            },
+            select: { netAmount: true },
+          });
+          returnsTotal = returns.reduce((sum, r) => sum + Number(r.netAmount || 0), 0);
+        }
+        const netSales = Math.max(0, grossSales - returnsTotal);
+
+        // Collections for this dealer
+        const collWhere: any = {
+          companyId,
+          dealerId: d.id,
+          status: 'POSTED',
+          ...(params.startDate || params.endDate ? { paymentDate: dateFilter } : {}),
+        };
+        const payments = await this.prisma.dealerPaymentReceipt.findMany({
+          where: collWhere,
+          select: { amount: true },
+        });
+        const collections = payments.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+
+        // Credit percentage calculation
+        let creditPercentage = 0;
+        let status = 'WITHIN_LIMIT';
+        const maxAllowedCredit = Math.round(netSales * (maxCreditPercent / 100) * 100) / 100;
+        const availableCredit = Math.max(0, maxAllowedCredit - exposure);
+
+        if (netSales <= 0) {
+          creditPercentage = 0;
+          status = exposure > 0 ? 'CREDIT_LOCK' : 'WITHIN_LIMIT';
+        } else {
+          creditPercentage = Math.round((exposure / netSales) * 10000) / 100;
+          if (creditPercentage > maxCreditPercent) {
+            status = 'CREDIT_LOCK';
+          } else if (creditPercentage === maxCreditPercent) {
+            status = 'LIMIT_REACHED';
+          } else if (creditPercentage >= maxCreditPercent * 0.85) {
+            status = 'NEAR_LIMIT';
+          } else {
+            status = 'WITHIN_LIMIT';
+          }
+        }
+
+        return {
+          id: d.id,
+          dealerName: d.name,
+          dealerCode: d.code,
+          officerId: d.assignedOfficer?.id || null,
+          officerName: d.assignedOfficer ? `${d.assignedOfficer.firstName} ${d.assignedOfficer.lastName}` : 'Unassigned',
+          territoryId: d.territoryId,
+          territoryName: d.territory?.name || 'Unassigned',
+          zoneId: d.territory?.zoneId,
+          zoneName: d.territory?.zone?.name || 'Unassigned',
+          regionId: d.territory?.zone?.regionId,
+          regionName: d.territory?.zone?.region?.name || 'Unassigned',
+          netSales: Math.round(netSales * 100) / 100,
+          collections: Math.round(collections * 100) / 100,
+          outstandingCredit: Math.round(exposure * 100) / 100,
+          creditPercentage,
+          maxCreditPercentage: maxCreditPercent,
+          maxAllowedCredit,
+          availableCredit: Math.round(availableCredit * 100) / 100,
+          status,
+        };
+      }),
+    );
+
+    // Apply region/zone filters if provided
+    let filtered = reportItems;
+    if (params.regionId) filtered = filtered.filter((r) => r.regionId === params.regionId);
+    if (params.zoneId) filtered = filtered.filter((r) => r.zoneId === params.zoneId);
+
+    const totalSales = filtered.reduce((s, i) => s + i.netSales, 0);
+    const totalCollections = filtered.reduce((s, i) => s + i.collections, 0);
+    const totalOutstanding = filtered.reduce((s, i) => s + i.outstandingCredit, 0);
+    const overallCreditPercentage = totalSales > 0 ? Math.round((totalOutstanding / totalSales) * 10000) / 100 : 0;
+    const creditLockCount = filtered.filter((i) => i.status === 'CREDIT_LOCK').length;
+    const nearLimitCount = filtered.filter((i) => i.status === 'NEAR_LIMIT' || i.status === 'LIMIT_REACHED').length;
+
+    return {
+      summary: {
+        totalDealers: filtered.length,
+        totalSales: Math.round(totalSales * 100) / 100,
+        totalCollections: Math.round(totalCollections * 100) / 100,
+        totalOutstanding: Math.round(totalOutstanding * 100) / 100,
+        overallCreditPercentage,
+        defaultMaxCreditPercentage: 20.0,
+        creditLockCount,
+        nearLimitCount,
+      },
+      items: filtered,
+    };
   }
 }

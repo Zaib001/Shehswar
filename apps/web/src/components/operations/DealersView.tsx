@@ -31,6 +31,7 @@ import {
   IconRefresh,
   IconEdit,
   IconClock,
+  IconDownload,
 } from '../icons';
 import { DealerLedgerModal } from './DealerLedgerModal';
 import { useToast } from '../../context/toast-context';
@@ -352,7 +353,7 @@ export const DealersView: React.FC = () => {
               handleDirectPdf(e, d);
             }}
           >
-            🖨️ PDF
+            <IconDownload size={14} /> PDF
           </Button>
           <Button
             variant="outline"
@@ -389,7 +390,7 @@ export const DealersView: React.FC = () => {
             variant="outline"
             onClick={() => exportDealersListPdf({ dealers: filteredDealers })}
           >
-            🖨️ Export Directory PDF
+            <IconDownload size={14} /> Export Directory PDF
           </Button>
           <Button variant="outline" icon={<IconRefresh size={16} />} onClick={loadData}>
             Refresh
@@ -570,7 +571,7 @@ export const DealersView: React.FC = () => {
               size="sm"
               onClick={() => window.print()}
             >
-              🖨️ Print History
+              <IconDownload size={14} /> Print History
             </Button>
             <Button variant="ghost" onClick={() => setIsHistoryModalOpen(false)}>
               Close

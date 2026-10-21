@@ -108,14 +108,21 @@ export class ControlAuditService {
     return {
       kpis: {
         total: totalCount,
+        totalOrders: totalCount,
         pending: pendingCount,
+        pendingOrders: pendingCount,
         approved: approvedCount,
+        approvedOrders: approvedCount,
         converted: convertedCount,
+        convertedOrders: convertedCount,
         rejected: rejectedCount,
+        rejectedOrders: rejectedCount,
         creditHold: creditHoldCount,
+        creditHoldOrders: creditHoldCount,
       },
       total,
       data: orders,
+      orders,
     };
   }
 
@@ -173,7 +180,7 @@ export class ControlAuditService {
       }),
     ]);
 
-    return { total, data: invoices };
+    return { total, data: invoices, invoices };
   }
 
   /**
@@ -212,7 +219,7 @@ export class ControlAuditService {
       take: filters?.limit ?? 50,
     });
 
-    return purchases;
+    return { total: purchases.length, data: purchases, purchases };
   }
 
   /**
@@ -251,7 +258,7 @@ export class ControlAuditService {
       take: filters?.limit ?? 50,
     });
 
-    return payments;
+    return { total: payments.length, data: payments, payments };
   }
 
   /**
@@ -260,8 +267,8 @@ export class ControlAuditService {
    * Dealer/Vendor balance impact, Stock movement, and Credit impact.
    */
   async getTransactionAccountingImpact(sourceType: string, sourceId: string) {
-    // 1. Locate Journal Entry
-    const journal = await this.prisma.journalEntry.findFirst({
+    // 1. Locate Journal Entries
+    const journals = await this.prisma.journalEntry.findMany({
       where: {
         sourceId,
       },
@@ -273,6 +280,7 @@ export class ControlAuditService {
         },
       },
     });
+    const journal = journals[0] || null;
 
     // 2. Locate Source Details
     let sourceRecord: any = null;
@@ -335,8 +343,11 @@ export class ControlAuditService {
       sourceId,
       sourceRecord,
       journalEntry: journal,
+      journalEntries: journals,
       stockMovement: stockEntries,
+      stockEntries,
       ledgerImpact: ledgerEntries,
+      ledgerEntries,
     };
   }
 }

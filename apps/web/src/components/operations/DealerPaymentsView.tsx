@@ -25,9 +25,16 @@ import {
 } from '../ui';
 import {
   IconPlus,
+  IconDownload,
+  IconFileText,
+  IconFinance,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
+import {
+  exportPaymentAuditReportPdf,
+  exportPaymentAuditReportCsv,
+} from '../../lib/executive-reports-export';
 
 export interface DealerPaymentRecord {
   id: string;
@@ -218,17 +225,43 @@ export const DealerPaymentsView: React.FC = () => {
     },
     {
       key: 'status',
-      header: 'Ledger Effect',
-      render: () => <StatusBadge status="CREDITED" variant="success" />,
+      header: 'Accounting & Treasury Impact',
+      render: () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <StatusBadge status="DEALER CREDITED" variant="success" />
+          <span style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600 }}>
+            Cash/Bank Till Inflow
+          </span>
+        </div>
+      ),
     },
   ];
 
   return (
     <ListPageTemplate
       title="Dealer Payments & Collections"
-      subtitle="Record and verify dealer payment receipts. Directly credits dealer ledger running balance."
+      subtitle="Record and verify dealer payment receipts. Directly credits dealer ledger running balance and updates Cash/Bank Treasury."
       actions={
         <div style={{ display: 'flex', gap: '8px' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              exportPaymentAuditReportPdf({
+                companyName: 'Shehswar Group Consolidated',
+                payments,
+              });
+            }}
+          >
+            <IconDownload size={14} /> PDF Report
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              exportPaymentAuditReportCsv(payments, 'Dealer_Payments_and_Treasury_Collections');
+            }}
+          >
+            <IconFileText size={14} /> Export CSV
+          </Button>
           <input
             type="file"
             ref={slipInputRef}
@@ -249,6 +282,26 @@ export const DealerPaymentsView: React.FC = () => {
         </div>
       }
     >
+      {/* Atomic Treasury & Subledger Bridge Banner */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 18px',
+          backgroundColor: '#eff6ff',
+          borderRadius: '8px',
+          border: '1px solid #bfdbfe',
+          marginBottom: '20px',
+          fontSize: '13px',
+          color: '#1e40af',
+        }}
+      >
+        <IconFinance size={20} />
+        <div>
+          <strong>Atomic Treasury & Subledger Bridge:</strong> Every dealer collection entered here directly credits the Dealer AR Subledger (reducing outstanding credit exposure) and automatically posts a balanced Cash/Bank Voucher in <strong>Financial Transactions & Cash/Bank Control</strong>.
+        </div>
+      </div>
       <div
         style={{
           display: 'grid',

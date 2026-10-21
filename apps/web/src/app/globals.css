@@ -289,6 +289,18 @@ h4 { font-size: var(--font-size-lg);  letter-spacing: -0.01em; }
   background: var(--text-muted);
 }
 
+/* Utility to completely hide scrollbar while preserving scrolling capability */
+.hide-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }

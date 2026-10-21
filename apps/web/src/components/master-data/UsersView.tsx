@@ -440,7 +440,7 @@ interface MarketAssignmentItem {
           }
         }}
         isSubmitting={isSubmitting}
-        submitLabel={wizardStep === 5 ? '⚡ Confirm & Create User' : `Next: Step ${wizardStep + 1} →`}
+        submitLabel={wizardStep === 5 ? 'Confirm & Create User' : `Next: Step ${wizardStep + 1} →`}
       >
         {/* Step Indicator Navigation */}
         <div
