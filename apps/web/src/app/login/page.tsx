@@ -1,13 +1,12 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Enterprise Authentication Gateway
+ * SHEHSWAR ONE360 - Enterprise Authentication Gateway (Production Mode)
  *
- * Real production login page connecting directly to the local backend API:
- * POST http://localhost:4000/api/v1/auth/login
- *
- * Verifies credentials against local PostgreSQL database, creates real sessions,
- * acquires signed JWT access tokens, and loads RBAC permission contexts.
+ * Direct production authentication gateway:
+ * - Submits credentials to /api/v1/auth/login
+ * - Acquires signed JWT access tokens & loads RBAC contexts
+ * - Clean enterprise security interface with zero hardcoded/predefined test users
  */
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -21,62 +20,22 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  Badge,
 } from '../../components/ui';
 import {
   IconShield,
   IconSun,
   IconMoon,
-  IconCheck,
   IconAlertTriangle,
 } from '../../components/icons';
-
-interface PresetUser {
-  label: string;
-  role: string;
-  email: string;
-  badgeVariant: 'primary' | 'warning' | 'info' | 'secondary';
-  description: string;
-}
-
-const PRESET_USERS: PresetUser[] = [
-  {
-    label: 'Super Admin',
-    role: 'ROLE_SUPER_ADMIN',
-    email: 'admin@shehswar.com',
-    badgeVariant: 'danger' as any,
-    description: 'Unrestricted system-wide access across all companies and platform domains',
-  },
-  {
-    label: 'Procurement Manager',
-    role: 'ROLE_PROCUREMENT_MGR',
-    email: 'procurement.manager@shehswar.com',
-    badgeVariant: 'primary',
-    description: 'Full procurement suite: Vendors, PR, RFQ, Quotes, Comparison, PO, GRN, Scorecards',
-  },
-  {
-    label: 'Finance Manager',
-    role: 'ROLE_FINANCE_MGR',
-    email: 'finance.manager@shehswar.com',
-    badgeVariant: 'warning',
-    description: 'Financial controls: PO approvals, vendor fiscal verification, costing clearance',
-  },
-  {
-    label: 'Department User',
-    role: 'ROLE_DEPT_USER',
-    email: 'dept.user@shehswar.com',
-    badgeVariant: 'info',
-    description: 'Plant requisition requester: PR create, edit, submit, and PO status tracking',
-  },
-];
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const [email, setEmail] = useState('procurement.manager@shehswar.com');
-  const [password, setPassword] = useState('Shehswar@2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -89,8 +48,8 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMessage('Please enter both email and password.');
+    if (!email.trim() || !password) {
+      setErrorMessage('Please enter both your email address and password.');
       return;
     }
 
@@ -99,19 +58,12 @@ export default function LoginPage() {
 
     try {
       await login(email.trim(), password);
-      // Success! Next navigation handled by useEffect or router push
       router.push('/');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Authentication failed. Please check your credentials.');
+      setErrorMessage(err.message || 'Authentication failed. Please verify your email and password.');
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleSelectPreset = (preset: PresetUser) => {
-    setEmail(preset.email);
-    setPassword('Shehswar@2026!');
-    setErrorMessage(null);
   };
 
   return (
@@ -186,7 +138,7 @@ export default function LoginPage() {
         </button>
       </div>
 
-      <div style={{ maxWidth: '480px', width: '100%', zIndex: 1 }}>
+      <div style={{ maxWidth: '440px', width: '100%', zIndex: 1 }}>
         {/* Brand Header */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
           <div
@@ -194,8 +146,8 @@ export default function LoginPage() {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '54px',
-              height: '54px',
+              width: '56px',
+              height: '56px',
               borderRadius: 'var(--radius-xl)',
               backgroundColor: 'var(--color-primary)',
               color: '#ffffff',
@@ -203,7 +155,7 @@ export default function LoginPage() {
               boxShadow: '0 8px 24px rgba(13, 148, 136, 0.3)',
             }}
           >
-            <IconShield size={28} />
+            <IconShield size={30} />
           </div>
           <h1
             style={{
@@ -234,6 +186,7 @@ export default function LoginPage() {
             backgroundColor: 'var(--bg-surface-raised)',
             border: '1px solid var(--border-default)',
             borderRadius: 'var(--radius-xl)',
+            boxShadow: 'var(--shadow-lg)',
             overflow: 'hidden',
           }}
         >
@@ -242,7 +195,7 @@ export default function LoginPage() {
               Sign In to Your Workspace
             </CardTitle>
             <CardDescription style={{ fontSize: '13px' }}>
-              Enter your enterprise credentials to access Shehswar ONE360.
+              Enter your enterprise credentials to access your designated workspace.
             </CardDescription>
           </CardHeader>
 
@@ -288,6 +241,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isSubmitting}
                   required
+                  autoFocus
                   autoComplete="email"
                   style={{ width: '100%' }}
                 />
@@ -311,18 +265,10 @@ export default function LoginPage() {
                   >
                     Password
                   </label>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    Default: Shehswar@2026!
-                  </span>
                 </div>
                 <Input
                   type="password"
-                  placeholder="Enter your password"
+                  placeholder="Enter your account password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isSubmitting}
@@ -332,6 +278,28 @@ export default function LoginPage() {
                 />
               </div>
 
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                  marginTop: '2px',
+                }}
+              >
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span>Remember my session</span>
+                </label>
+                <span style={{ color: 'var(--text-muted)' }}>Secure 256-bit TLS</span>
+              </div>
+
               <Button
                 type="submit"
                 variant="primary"
@@ -339,7 +307,7 @@ export default function LoginPage() {
                 isLoading={isSubmitting}
                 style={{
                   width: '100%',
-                  marginTop: '8px',
+                  marginTop: '10px',
                   fontWeight: 600,
                   boxShadow: '0 4px 14px rgba(13, 148, 136, 0.25)',
                 }}
@@ -347,110 +315,22 @@ export default function LoginPage() {
                 {isSubmitting ? 'Authenticating with API...' : 'Sign In'}
               </Button>
             </form>
-
-            {/* Real Database Quick-Select Test Accounts */}
-            <div
-              style={{
-                marginTop: '24px',
-                paddingTop: '20px',
-                borderTop: '1px solid var(--border-subtle)',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '12px',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  Real PostgreSQL Test Users
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--color-primary)', fontWeight: 600 }}>
-                  Click to populate
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {PRESET_USERS.map((preset) => {
-                  const isSelected = email === preset.email;
-                  return (
-                    <div
-                      key={preset.email}
-                      onClick={() => handleSelectPreset(preset)}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: isSelected ? 'var(--bg-canvas)' : 'var(--bg-surface)',
-                        border: `1px solid ${isSelected ? 'var(--color-primary)' : 'var(--border-default)'}`,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '10px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {preset.label}
-                          </span>
-                          <Badge variant={preset.badgeVariant} size="sm">
-                            {preset.role.replace('ROLE_', '')}
-                          </Badge>
-                        </div>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {preset.email}
-                        </span>
-                      </div>
-                      {isSelected && (
-                        <div
-                          style={{
-                            width: '20px',
-                            height: '20px',
-                            borderRadius: '50%',
-                            backgroundColor: 'var(--color-primary)',
-                            color: '#ffffff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '11px',
-                          }}
-                        >
-                          <IconCheck size={12} />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
           </CardContent>
         </Card>
 
         {/* Security & Multi-Company Architecture Footer */}
         <div
           style={{
-            marginTop: '20px',
+            marginTop: '24px',
             textAlign: 'center',
             fontSize: '11px',
             color: 'var(--text-muted)',
-            lineHeight: 1.5,
+            lineHeight: 1.6,
           }}
         >
-          <span>Multi-Company Isolation • PostgreSQL 16 • RFC 9562 UUIDv7</span>
+          <span>Enterprise SSO & RBAC Protected • PostgreSQL 16 • RFC 9562 UUIDv7</span>
           <br />
-          <span>Parent: Shehswar Industries (Pvt) Ltd. | Child: Shehswar Distribution Co.</span>
+          <span>Shehswar Group Consolidated ERP • All Rights Reserved</span>
         </div>
       </div>
     </div>

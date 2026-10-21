@@ -1,25 +1,26 @@
 /**
- * SHEHSWAR ONE360 - Admin Credentials Seed Script
+ * SHEHSWAR ONE360 - Production Core Credentials Seed Script
  *
- * Ensures the primary platform Administrator account is seeded, active,
- * unlocked, and assigned full Super Admin privileges.
+ * Seeds strictly:
+ *   1. Super Administrator (admin@shehswar.com)
+ *   2. Sales Officer (sales.officer@shehswar.com)
  *
  * Credentials:
- *   Email:    admin@shehswar.com
- *   Password: Password123!
+ *   Admin:         admin@shehswar.com          / Shehswar@2026!
+ *   Sales Officer: sales.officer@shehswar.com  / Shehswar@2026!
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { v7 as uuidv7 } from 'uuid';
 
 const prisma = new PrismaClient();
 
 export async function seedAdmin() {
-  console.log('🔐 Seeding Administrator credentials for Shehswar ONE360...');
+  console.log('🔐 Seeding Production Credentials (Admin & Sales Officer)...');
 
-  const email = 'admin@shehswar.com';
-  const plainPassword = 'Password123!';
-  const passwordHash = await bcrypt.hash(plainPassword, 10);
+  const defaultPassword = 'Shehswar@2026!';
+  const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
   let org = await prisma.organization.findFirst({
     where: { code: 'ORG-SHEHSWAR-GRP' },
@@ -29,7 +30,7 @@ export async function seedAdmin() {
   });
 
   if (!org || !company) {
-    console.log('⚡ Initial organization not found. Automatically running system and client seeds...');
+    console.log('⚡ Initial organization not found. Bootstrapping foundational schema...');
     const { seedSystem } = await import('./seeds/system.seed');
     const { seedClient } = await import('./seeds/client.seed');
     await seedSystem(prisma);
@@ -47,7 +48,7 @@ export async function seedAdmin() {
     }
   }
 
-  // 2. Resolve or create Super Admin Role
+  // 1. Super Admin Role
   let superAdminRole = await prisma.role.findFirst({
     where: { organizationId: org.id, code: 'ROLE_SUPER_ADMIN' },
   });
@@ -55,6 +56,7 @@ export async function seedAdmin() {
   if (!superAdminRole) {
     superAdminRole = await prisma.role.create({
       data: {
+        id: uuidv7(),
         organizationId: org.id,
         code: 'ROLE_SUPER_ADMIN',
         name: 'Super Administrator',
@@ -64,15 +66,49 @@ export async function seedAdmin() {
     });
   }
 
-  // 3. Upsert Admin User
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
+  // 2. Sales Officer Role
+  let salesOfficerRole = await prisma.role.findFirst({
+    where: { organizationId: org.id, code: 'ROLE_SALES_OFFICER' },
   });
 
-  let adminUser;
-  if (existingUser) {
+  if (!salesOfficerRole) {
+    salesOfficerRole = await prisma.role.create({
+      data: {
+        id: uuidv7(),
+        organizationId: org.id,
+        code: 'ROLE_SALES_OFFICER',
+        name: 'Sales Officer / Field Officer',
+        description: 'Field execution: Dealer order booking, visit logging, territory performance',
+        isSystem: false,
+      },
+    });
+  }
+
+  // Attach relevant permissions to Sales Officer
+  const permissions = await prisma.permission.findMany();
+  const soPermCodes = [
+    'dealer:view', 'dealer:create', 'dealer:edit', 'dealer:export',
+    'sales_order:view', 'sales_order:create', 'sales_order:edit', 'sales_order:submit', 'sales_order:export',
+    'dealer_payment:view', 'dealer_payment:create',
+    'financial_transaction:view', 'financial_transaction:create',
+    'provisional_receipt:view', 'provisional_receipt:create',
+    'credit_limit:view', 'credit_limit:check'
+  ];
+  const matchingPerms = permissions.filter((p) => soPermCodes.includes(p.code));
+  for (const perm of matchingPerms) {
+    await prisma.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: salesOfficerRole.id, permissionId: perm.id } },
+      update: {},
+      create: { roleId: salesOfficerRole.id, permissionId: perm.id },
+    });
+  }
+
+  // 3. Upsert Admin User
+  const adminEmail = 'admin@shehswar.com';
+  let adminUser = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (adminUser) {
     adminUser = await prisma.user.update({
-      where: { email },
+      where: { email: adminEmail },
       data: {
         passwordHash,
         firstName: 'System',
@@ -84,13 +120,14 @@ export async function seedAdmin() {
         lockedUntil: null,
       },
     });
-    console.log(`✅ Admin user [${email}] updated and unlocked.`);
+    console.log(`✅ Admin user [${adminEmail}] updated and active.`);
   } else {
     adminUser = await prisma.user.create({
       data: {
+        id: uuidv7(),
         organizationId: org.id,
         companyId: company.id,
-        email,
+        email: adminEmail,
         passwordHash,
         firstName: 'System',
         lastName: 'Administrator',
@@ -100,40 +137,69 @@ export async function seedAdmin() {
         failedLoginAttempts: 0,
       },
     });
-    console.log(`✅ Admin user [${email}] created.`);
+    console.log(`✅ Admin user [${adminEmail}] created.`);
   }
 
-  // 4. Ensure UserRole mapping
-  const existingUserRole = await prisma.userRole.findFirst({
-    where: {
-      userId: adminUser.id,
-      roleId: superAdminRole.id,
-    },
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: adminUser.id, roleId: superAdminRole.id } },
+    update: { companyId: company.id },
+    create: { userId: adminUser.id, roleId: superAdminRole.id, companyId: company.id },
   });
 
-  if (!existingUserRole) {
-    await prisma.userRole.create({
+  // 4. Upsert Sales Officer User
+  const soEmail = 'sales.officer@shehswar.com';
+  let soUser = await prisma.user.findUnique({ where: { email: soEmail } });
+  if (soUser) {
+    soUser = await prisma.user.update({
+      where: { email: soEmail },
       data: {
-        userId: adminUser.id,
-        roleId: superAdminRole.id,
+        passwordHash,
+        firstName: 'Sales',
+        lastName: 'Officer',
+        isSuperAdmin: false,
+        isActive: true,
+        status: 'ACTIVE',
+        failedLoginAttempts: 0,
+        lockedUntil: null,
       },
     });
-    console.log(`✅ Super Admin role assigned to [${email}].`);
+    console.log(`✅ Sales Officer user [${soEmail}] updated and active.`);
+  } else {
+    soUser = await prisma.user.create({
+      data: {
+        id: uuidv7(),
+        organizationId: org.id,
+        companyId: company.id,
+        email: soEmail,
+        passwordHash,
+        firstName: 'Sales',
+        lastName: 'Officer',
+        isSuperAdmin: false,
+        isActive: true,
+        status: 'ACTIVE',
+        failedLoginAttempts: 0,
+      },
+    });
+    console.log(`✅ Sales Officer user [${soEmail}] created.`);
   }
 
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: soUser.id, roleId: salesOfficerRole.id } },
+    update: { companyId: company.id },
+    create: { userId: soUser.id, roleId: salesOfficerRole.id, companyId: company.id },
+  });
+
   console.log('\n======================================================');
-  console.log('🔑 SHEHSWAR ONE360 - PRIMARY ADMIN CREDENTIALS');
+  console.log('🔑 PRODUCTION USERS SEEDED');
   console.log('======================================================');
-  console.log(`   Email:    ${email}`);
-  console.log(`   Password: ${plainPassword}`);
-  console.log(`   Role:     Super Administrator (Full System Scope)`);
-  console.log(`   Status:   ACTIVE / UNLOCKED`);
+  console.log(`1. Super Admin:   ${adminEmail}         | ${defaultPassword}`);
+  console.log(`2. Sales Officer: ${soEmail} | ${defaultPassword}`);
   console.log('======================================================\n');
 }
 
 seedAdmin()
   .catch((e) => {
-    console.error('❌ Failed to seed admin credentials:', e);
+    console.error('❌ Failed to seed production credentials:', e);
     process.exit(1);
   })
   .finally(async () => {
