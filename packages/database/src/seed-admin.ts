@@ -22,30 +22,60 @@ export async function seedAdmin() {
   const defaultPassword = process.env.INITIAL_ADMIN_PASSWORD || 'Shehswar@2026!';
   const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
+  // 1. Ensure Foundational Tenant, Organization & Primary Company (Shehswar Parent ONLY)
+  let tenant = await prisma.platformTenant.findFirst({
+    where: { code: 'TENANT-SHEHSWAR' },
+  });
+  if (!tenant) {
+    tenant = await prisma.platformTenant.create({
+      data: {
+        code: 'TENANT-SHEHSWAR',
+        name: 'Shehswar Enterprise Platform Tenant',
+        isActive: true,
+      },
+    });
+  }
+
   let org = await prisma.organization.findFirst({
     where: { code: 'ORG-SHEHSWAR-GRP' },
   });
+  if (!org) {
+    org = await prisma.organization.create({
+      data: {
+        tenantId: tenant.id,
+        code: 'ORG-SHEHSWAR-GRP',
+        name: 'Shehswar Group',
+        legalName: 'Shehswar Group of Companies (Pvt) Ltd',
+        taxId: '3124567-9',
+        currency: 'PKR',
+        country: 'Pakistan',
+        isActive: true,
+      },
+    });
+  }
+
   let company = await prisma.company.findFirst({
     where: { code: 'COMP-SHEHSWAR' },
   });
+  if (!company) {
+    company = await prisma.company.create({
+      data: {
+        organizationId: org.id,
+        code: 'COMP-SHEHSWAR',
+        name: 'Shehswar Group (Parent)',
+        currency: 'PKR',
+        country: 'Pakistan',
+        isParent: true,
+        isActive: true,
+      },
+    });
+  }
 
-  if (!org || !company) {
-    console.log('⚡ Initial organization not found. Bootstrapping foundational schema...');
+  // Ensure system permissions exist without seeding any dummy client data
+  const permCount = await prisma.permission.count();
+  if (permCount === 0) {
     const { seedSystem } = await import('./seeds/system.seed');
-    const { seedClient } = await import('./seeds/client.seed');
     await seedSystem(prisma);
-    await seedClient(prisma);
-
-    org = await prisma.organization.findFirst({
-      where: { code: 'ORG-SHEHSWAR-GRP' },
-    });
-    company = await prisma.company.findFirst({
-      where: { code: 'COMP-SHEHSWAR' },
-    });
-
-    if (!org || !company) {
-      throw new Error('Failed to bootstrap organization or company.');
-    }
   }
 
   // 1. Super Admin Role

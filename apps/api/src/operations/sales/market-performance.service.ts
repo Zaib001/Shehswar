@@ -330,6 +330,10 @@ export class MarketPerformanceService {
           salesOfficer: {
             select: { id: true, firstName: true, lastName: true, phone: true },
           },
+          dealers: {
+            where: { status: 'ACTIVE' },
+            select: { id: true },
+          },
         },
       }),
     ]);
@@ -366,8 +370,9 @@ export class MarketPerformanceService {
       const data = terrMap.get(t.id) || { revenue: 0, qty: 0, orderCount: 0, dealers: new Set() };
       const target = 5000000; // 5M territory target
       const achievement = target > 0 ? (data.revenue / target) * 100 : 0;
-      const activeDealers = data.dealers.size;
-      const avgDealerSales = activeDealers > 0 ? data.revenue / activeDealers : 0;
+      const assignedCount = t.dealers?.length || 0;
+      const activeDealers = data.dealers.size > 0 ? data.dealers.size : assignedCount;
+      const avgDealerSales = data.dealers.size > 0 ? data.revenue / data.dealers.size : 0;
 
       return {
         territoryId: t.id,
@@ -380,6 +385,7 @@ export class MarketPerformanceService {
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
         activeDealers,
+        assignedDealers: assignedCount,
         averageDealerSales: Math.round(avgDealerSales),
       };
     });
@@ -424,7 +430,13 @@ export class MarketPerformanceService {
         include: {
           zone: { include: { region: true } },
           salesOfficer: true,
-          dealers: true,
+          dealers: { where: { status: 'ACTIVE' } },
+          userMarketAssignments: {
+            where: { status: 'ACTIVE' },
+            include: {
+              user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+            },
+          },
         },
       }),
       this.prisma.salesInvoice.findMany({
@@ -451,6 +463,21 @@ export class MarketPerformanceService {
     // Aggregate by Sales Officer
     const officerMap = new Map<string, { officerName: string; revenue: number; qty: number; orderCount: number; dealers: Set<string> }>();
 
+    // Pre-populate assigned primary sales officer
+    if (territory.salesOfficer) {
+      const soId = territory.salesOfficer.id;
+      const soName = `${territory.salesOfficer.firstName || ''} ${territory.salesOfficer.lastName || ''}`.trim() || 'Sales Officer';
+      officerMap.set(soId, { officerName: soName, revenue: 0, qty: 0, orderCount: 0, dealers: new Set() });
+    }
+
+    // Pre-populate market assignments
+    for (const uma of (territory as any).userMarketAssignments || []) {
+      if (uma.user && !officerMap.has(uma.user.id)) {
+        const uName = `${uma.user.firstName || ''} ${uma.user.lastName || ''}`.trim() || 'Sales Officer';
+        officerMap.set(uma.user.id, { officerName: uName, revenue: 0, qty: 0, orderCount: 0, dealers: new Set() });
+      }
+    }
+
     for (const inv of invoices) {
       const net = Number(inv.netAmount || 0);
       totalRevenue += net;
@@ -475,7 +502,8 @@ export class MarketPerformanceService {
     const officers = Array.from(officerMap.entries()).map(([officerId, data]) => {
       const target = 2500000; // 2.5M SO target
       const achievement = target > 0 ? (data.revenue / target) * 100 : 0;
-      const activeDealers = data.dealers.size;
+      const assignedCount = territory.dealers?.length || 0;
+      const activeDealers = data.dealers.size > 0 ? data.dealers.size : assignedCount;
 
       return {
         officerId,
@@ -486,12 +514,13 @@ export class MarketPerformanceService {
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
         activeDealers,
-        averageDealerSales: activeDealers > 0 ? Math.round(data.revenue / activeDealers) : 0,
+        assignedDealers: assignedCount,
+        averageDealerSales: data.dealers.size > 0 ? Math.round(data.revenue / data.dealers.size) : 0,
       };
     });
 
     const territoryTarget = 5000000;
-    const activeDealersCount = activeDealersSet.size;
+    const activeDealersCount = activeDealersSet.size > 0 ? activeDealersSet.size : (territory.dealers?.length || 0);
 
     return {
       scope: 'TERRITORY',
@@ -508,7 +537,7 @@ export class MarketPerformanceService {
         totalQuantity: totalQty,
         totalOrders: invoices.length,
         activeDealers: activeDealersCount,
-        averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
+        averageDealerSales: activeDealersCount > 0 && totalRevenue > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: territoryTarget,
         achievementPercent: Number(((totalRevenue / territoryTarget) * 100).toFixed(2)),
       },
@@ -545,8 +574,15 @@ export class MarketPerformanceService {
         },
       }),
       this.prisma.dealer.findMany({
-        where: { companyId, assignedFieldOfficerId: officerId },
-        select: { id: true, code: true, name: true, city: true, annualAgreementTarget: true, monthlySalesTarget: true },
+        where: {
+          companyId,
+          OR: [
+            { assignedFieldOfficerId: officerId },
+            { officerAssignments: { some: { userId: officerId } } },
+            ...(filter?.territoryId ? [{ territoryId: filter.territoryId }] : []),
+          ],
+        },
+        select: { id: true, code: true, name: true, city: true, annualAgreementTarget: true, monthlySalesTarget: true, territoryId: true },
       }),
       this.prisma.userMarketAssignment.findMany({
         where: { userId: officerId, status: 'ACTIVE' },
@@ -603,7 +639,7 @@ export class MarketPerformanceService {
     });
 
     const officerTarget = 2500000;
-    const activeDealersCount = dealers.filter((d) => d.actualSales > 0).length;
+    const activeDealersCount = dealers.filter((d) => d.actualSales > 0).length || dealers.length;
 
     // FO Salary Justification Ratio (e.g. 50k monthly FO cost)
     const assumedFoSalaryCost = 50000;

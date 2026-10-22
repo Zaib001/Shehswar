@@ -328,6 +328,114 @@ const extractArray = (res: any): any[] => {
     setAllocationRows((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  // Auto-fetch Officer -> Dealer, Region, Territory when user/officer is chosen
+  const handleHeaderOfficerSelect = (val: string) => {
+    if (!val) {
+      setPrForm((prev) => ({
+        ...prev,
+        salesOfficerId: '',
+      }));
+      return;
+    }
+
+    const u = (usersMaster || []).find((x) => x.id === val);
+    const officerName = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
+
+    // Check user's market assignment (Region & Territory)
+    const ma = (u?.marketAssignments || [])[0];
+    let autoRegionId = ma?.regionId || ma?.region?.id || '';
+    let autoTerritoryId = ma?.territoryId || ma?.territory?.id || '';
+    const autoCompanyId = u?.companyId || prForm.companyId;
+
+    // Check dealers assigned to this sales officer
+    const dlrs = Array.isArray(dealers) ? dealers : [];
+    const officerDealers = dlrs.filter(
+      (d: any) =>
+        d.assignedFieldOfficerId === val ||
+        d.officerAssignments?.some((oa: any) => oa.userId === val || oa.user?.id === val)
+    );
+
+    let assignedPartyDealerId = '';
+    let assignedPartyCode = '';
+    let assignedReceivedFrom = officerName ? `${officerName} (Sales Officer)` : '';
+
+    if (officerDealers.length > 0) {
+      const primaryDealer = officerDealers[0];
+      assignedPartyDealerId = primaryDealer.id;
+      assignedPartyCode = primaryDealer.code || '';
+      assignedReceivedFrom = `${primaryDealer.name} (${primaryDealer.code})`;
+
+      if (primaryDealer.territoryId) {
+        autoTerritoryId = primaryDealer.territoryId;
+      }
+      if (primaryDealer.territory?.zone?.regionId) {
+        autoRegionId = primaryDealer.territory.zone.regionId;
+      }
+    } else if (autoTerritoryId) {
+      const terrDealer = dlrs.find((d: any) => d.territoryId === autoTerritoryId);
+      if (terrDealer) {
+        assignedPartyDealerId = terrDealer.id;
+        assignedPartyCode = terrDealer.code || '';
+        assignedReceivedFrom = `${terrDealer.name} (${terrDealer.code})`;
+      }
+    }
+
+    // Auto-generate clean PR number if empty
+    const autoPrNum = prForm.prNumber?.trim()
+      ? prForm.prNumber
+      : `PR-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    setPrForm((prev) => ({
+      ...prev,
+      companyId: autoCompanyId || prev.companyId,
+      salesOfficerId: val,
+      receivedFrom: assignedReceivedFrom || prev.receivedFrom,
+      partyDealerId: assignedPartyDealerId || prev.partyDealerId,
+      partyCode: assignedPartyCode || prev.partyCode,
+      regionId: autoRegionId || prev.regionId,
+      territoryId: autoTerritoryId || prev.territoryId,
+      prNumber: autoPrNum,
+    }));
+
+    if (officerDealers.length > 0) {
+      notify(`Auto-fetched ${officerName}: Dealer "${officerDealers[0].name}", Region & Territory populated`, 'info');
+    } else {
+      notify(`Auto-fetched ${officerName}: Territory & Region synchronized`, 'info');
+    }
+  };
+
+  // Auto-fetch Dealer -> Officer, Territory, Region when dealer is chosen
+  const handleHeaderDealerSelect = (val: string) => {
+    const dlrs = Array.isArray(dealers) ? dealers : [];
+    const d = dlrs.find((x) => x.id === val);
+
+    if (!val || !d) {
+      setPrForm((prev) => ({
+        ...prev,
+        partyDealerId: '',
+        partyCode: '',
+      }));
+      return;
+    }
+
+    const regId = d?.territory?.zone?.regionId || d?.regionId || prForm.regionId;
+    const terrId = d?.territoryId || prForm.territoryId;
+    const officerId = d?.assignedFieldOfficerId || prForm.salesOfficerId;
+
+    setPrForm((prev) => ({
+      ...prev,
+      partyDealerId: val,
+      partyCode: d.code || '',
+      receivedFrom: `${d.name} (${d.code})`,
+      regionId: regId || prev.regionId,
+      territoryId: terrId || prev.territoryId,
+      salesOfficerId: officerId || prev.salesOfficerId,
+      companyId: d.companyId || prev.companyId,
+    }));
+
+    notify(`Auto-filled Region & Territory for Dealer ${d.name}`, 'info');
+  };
+
   // Handle Dealer Select in Allocation
   const handleDealerSelect = (idx: number, dealerId: string) => {
     const dealer = dealers.find((d) => d.id === dealerId);
@@ -823,20 +931,22 @@ const extractArray = (res: any): any[] => {
                   value={prForm.salesOfficerId}
                   onChange={(valOrEvent) => {
                     const val = valOrEvent?.target?.value ?? valOrEvent;
-                    const u = (usersMaster || []).find((x) => x.id === val);
-                    const officerName = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
-                    setPrForm((prev) => ({
-                      ...prev,
-                      salesOfficerId: val,
-                      receivedFrom: officerName ? `${officerName} (Sales Officer)` : prev.receivedFrom,
-                    }));
+                    handleHeaderOfficerSelect(val);
                   }}
                   options={[
                     { label: '-- Select Collecting Officer (Optional) --', value: '' },
-                    ...(Array.isArray(usersMaster) ? usersMaster : []).map((u) => ({
-                      label: `${u.firstName || ''} ${u.lastName || ''}`.trim() + ` (${u.email})`,
-                      value: u.id,
-                    })),
+                    ...(Array.isArray(usersMaster) ? usersMaster : []).map((u) => {
+                      const officerDealers = (dealers || []).filter(
+                        (d: any) =>
+                          d.assignedFieldOfficerId === u.id ||
+                          d.officerAssignments?.some((oa: any) => oa.userId === u.id || oa.user?.id === u.id)
+                      );
+                      const dealerCount = officerDealers.length;
+                      return {
+                        label: `${u.firstName || ''} ${u.lastName || ''}`.trim() + ` (${u.email})${dealerCount > 0 ? ` [${dealerCount} Dealers]` : ''}`,
+                        value: u.id,
+                      };
+                    }),
                   ]}
                 />
               </div>
@@ -857,24 +967,34 @@ const extractArray = (res: any): any[] => {
                   value={prForm.partyDealerId}
                   onChange={(valOrEvent) => {
                     const val = valOrEvent?.target?.value ?? valOrEvent;
-                    const dlrs = Array.isArray(dealers) ? dealers : [];
-                    const d = dlrs.find((x) => x.id === val);
-                    setPrForm((prev) => ({
-                      ...prev,
-                      partyDealerId: val,
-                      partyCode: d?.code || '',
-                      receivedFrom: d ? `${d.name} (${d.code})` : prev.receivedFrom,
-                      regionId: d?.territory?.zone?.regionId || prev.regionId,
-                      territoryId: d?.territoryId || prev.territoryId,
-                    }));
+                    handleHeaderDealerSelect(val);
                   }}
                   options={[
                     { label: '-- Select Dealer (Optional) --', value: '' },
-                    ...(Array.isArray(dealers) ? dealers : []).map((d) => ({
-                      label: `${d.code} - ${d.name}`,
-                      value: d.id,
-                      subtext: d.city ? `City: ${d.city}` : undefined,
-                    })),
+                    ...(() => {
+                      const dlrs = Array.isArray(dealers) ? dealers : [];
+                      // If officer is selected, sort their assigned dealers first
+                      return [...dlrs]
+                        .sort((a, b) => {
+                          if (!prForm.salesOfficerId) return 0;
+                          const aAssigned = a.assignedFieldOfficerId === prForm.salesOfficerId || a.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId);
+                          const bAssigned = b.assignedFieldOfficerId === prForm.salesOfficerId || b.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId);
+                          if (aAssigned && !bAssigned) return -1;
+                          if (!aAssigned && bAssigned) return 1;
+                          return 0;
+                        })
+                        .map((d) => {
+                          const isAssigned = prForm.salesOfficerId && (
+                            d.assignedFieldOfficerId === prForm.salesOfficerId ||
+                            d.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId || oa.user?.id === prForm.salesOfficerId)
+                          );
+                          return {
+                            label: `${isAssigned ? '★ ' : ''}${d.code} - ${d.name}${isAssigned ? ' (Assigned)' : ''}`,
+                            value: d.id,
+                            subtext: d.city ? `City: ${d.city}` : undefined,
+                          };
+                        });
+                    })(),
                   ]}
                 />
               </div>
@@ -903,7 +1023,13 @@ const extractArray = (res: any): any[] => {
                   value={prForm.territoryId}
                   onChange={(valOrEvent) => {
                     const val = valOrEvent?.target?.value ?? valOrEvent;
-                    setPrForm((prev) => ({ ...prev, territoryId: val }));
+                    const terr = (territories || []).find((t: any) => t.id === val);
+                    setPrForm((prev) => ({
+                      ...prev,
+                      territoryId: val,
+                      regionId: terr?.zone?.regionId || prev.regionId,
+                      salesOfficerId: terr?.managerId || prev.salesOfficerId,
+                    }));
                   }}
                   options={[
                     { label: '-- Select Territory --', value: '' },
