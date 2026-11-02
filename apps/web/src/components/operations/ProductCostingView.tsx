@@ -1,458 +1,889 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Product Costing & Dynamic BOM Calculation UI
+ * SHEHSWAR ONE360 - Dedicated Standalone Product Costing Workspace
  *
- * Follows Canonical Flow:
- * - One Authoritative Cost Calculation Engine (backed by CostingService)
- * - Select Finished Product -> Auto-loads BOM recipe
- * - Dynamic Batch Allocation:
- *     Total Volume = Production Quantity × Pack Size (e.g. 200 packs × 2L = 400L)
- *     Cost per Liter = Total RM Cost ÷ Total Volume (e.g. 300,000 ÷ 400 = 750)
- *     RM Cost per Pack = Cost per Liter × Pack Size (e.g. 750 × 2 = 1,500)
- * - Live Raw Material & Packaging Costing with component-level breakdown
- * - Dynamic gross margin and pricing simulator
+ * Mandate:
+ * - Completely separate from Product Creation
+ * - Dual-Mode: Select Existing Finished Product OR Type & Add New Product Name
+ * - Read-only authoritative procurement costs fetched from backend
+ * - Simple arithmetic: (Total RM Cost + Total Packaging Cost) ÷ Output Qty = Cost Per Unit
+ * - Cost Variance Comparison Card (Current vs New)
+ * - "ADD TO PRODUCT" atomic transaction with confirmation dialog
+ * - Versioned Costing History ($V_1, V_2, V_3$)
  */
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  Button,
-  Select,
-  Input,
-  KpiCard,
-  StatusBadge,
-  TableSkeleton,
-} from '../ui';
-import { IconRefresh, IconFlask } from '../icons';
-import { useToast } from '../../context/toast-context';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
+import { useToast } from '../../context/toast-context';
+import {
+  IconFlask,
+  IconPlus,
+  IconRefresh,
+  IconCheck,
+  IconTrash,
+} from '../icons';
+
+interface RawMaterialItem {
+  id: string;
+  materialCode: string;
+  materialName: string;
+  lastPurchaseCost?: number;
+  standardCost?: number;
+  baseUom?: { name: string; symbol: string };
+}
+
+interface PackingMaterialItem {
+  id: string;
+  materialCode: string;
+  materialName: string;
+  lastPurchaseCost?: number;
+  standardCost?: number;
+  baseUom?: { name: string; symbol: string };
+}
+
+interface CostingLine {
+  id: string;
+  selectedId: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+}
 
 export const ProductCostingView: React.FC = () => {
   const { showToast } = useToast();
-  const [products, setProducts] = useState<any[]>([]);
+
+  // Mode: 'existing' vs 'new'
+  const [productMode, setProductMode] = useState<'existing' | 'new'>('existing');
+
+  // Master Data Catalogs
+  const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
+  const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
+  const [packingMaterialsList, setPackingMaterialsList] = useState<PackingMaterialItem[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Existing Product Selection
   const [selectedProductId, setSelectedProductId] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isCalculating, setIsCalculating] = useState<boolean>(false);
-  const [costBreakdown, setCostBreakdown] = useState<any | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
 
-  // Dynamic Batch Allocation Parameters (User Specified Example: 200 packs, 2 liters/pack)
-  const [productionQuantity, setProductionQuantity] = useState<number>(200);
+  // New Product Name Inline Inputs
+  const [newProductName, setNewProductName] = useState('');
+  const [newCategoryId, setNewCategoryId] = useState('');
+  const [newPackSize, setNewPackSize] = useState<number>(2);
+  const [newPackUnit, setNewPackUnit] = useState('Liter');
+  const [newBasePrice, setNewBasePrice] = useState<number>(2800);
+
+  // Batch Parameters
+  const [batchOutputQuantity, setBatchOutputQuantity] = useState<number>(100);
   const [packSize, setPackSize] = useState<number>(2);
+  const [packSizeUnit, setPackSizeUnit] = useState<string>('Liter');
 
-  // Profit Margin Simulation
-  const [targetMarginPercent, setTargetMarginPercent] = useState<number>(25);
+  // Costing Recipe Component Lines
+  const [rmLines, setRmLines] = useState<CostingLine[]>([]);
+  const [pmLines, setPmLines] = useState<CostingLine[]>([]);
 
-  const loadProducts = useCallback(async () => {
+  // Confirmation & History State
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [costingHistory, setCostingHistory] = useState<any[]>([]);
+  const [isApplying, setIsApplying] = useState(false);
+
+  // 1. Fetch Masters
+  const loadPrerequisites = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await ApiClient.get<any>('/api/v1/master-data/finished-products');
-      const list = Array.isArray(res.data) ? res.data : res.data?.data || [];
-      setProducts(list);
-      if (list.length > 0) {
-        setSelectedProductId(list[0].id);
+      const [fpRes, rmRes, pmRes, catRes] = await Promise.all([
+        ApiClient.get<any[]>('/api/v1/master-data/finished-products'),
+        ApiClient.get<any[]>('/api/v1/master-data/raw-materials'),
+        ApiClient.get<any[]>('/api/v1/master-data/packing-materials'),
+        ApiClient.get<any[]>('/api/v1/master-data/unified-categories'),
+      ]);
+
+      const fps = Array.isArray(fpRes.data) ? fpRes.data : (fpRes.data as any)?.data || [];
+      const rms = Array.isArray(rmRes.data) ? rmRes.data : (rmRes.data as any)?.data || [];
+      const pms = Array.isArray(pmRes.data) ? pmRes.data : (pmRes.data as any)?.data || [];
+      const cats = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any)?.data || [];
+
+      setFinishedProducts(fps);
+      setRawMaterialsList(rms);
+      setPackingMaterialsList(pms);
+      setCategories(cats);
+
+      // Check if URL has ?product=ID
+      if (typeof window !== 'undefined' && window.location.hash.includes('product=')) {
+        const prodId = window.location.hash.split('product=')[1]?.split('&')[0];
+        if (prodId && fps.some((p: any) => p.id === prodId)) {
+          setSelectedProductId(prodId);
+        }
+      } else if (fps.length > 0 && !selectedProductId) {
+        setSelectedProductId(fps[0].id);
       }
     } catch (err: any) {
-      showToast({ title: 'Error', message: 'Failed to load products', type: 'error' });
+      showToast({ title: 'Error', message: 'Failed to load costing masters', type: 'error' });
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, selectedProductId]);
 
   useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+    loadPrerequisites();
+  }, [loadPrerequisites]);
 
-  const calculateCost = useCallback(async (productId: string, prodQty: number, pSize: number) => {
-    if (!productId) return;
-    setIsCalculating(true);
+  // 2. When Selected Product Changes, Auto-Load Its Context
+  useEffect(() => {
+    if (productMode === 'existing' && selectedProductId) {
+      const fp = finishedProducts.find((p) => p.id === selectedProductId);
+      if (fp) {
+        setSelectedProduct(fp);
+        const qty = Number(fp.packingQuantity || fp.packSize?.quantity || 2);
+        setPackSize(qty > 0 ? qty : 2);
+        setPackSizeUnit(fp.packingUnit || 'Liter');
+
+        // Fetch costing history for this product
+        ApiClient.get<any[]>(`/api/v1/costing/product/${fp.id}/history`)
+          .then((res) => {
+            const hist = Array.isArray(res.data) ? res.data : (res.data as any)?.data || [];
+            setCostingHistory(hist);
+          })
+          .catch(() => setCostingHistory([]));
+      }
+    } else {
+      setSelectedProduct(null);
+    }
+  }, [selectedProductId, finishedProducts, productMode]);
+
+  // Initial Recipe Lines Helper
+  useEffect(() => {
+    if (rmLines.length === 0 && rawMaterialsList.length > 0) {
+      const firstRm = rawMaterialsList[0];
+      if (firstRm) {
+        const rate = Number(firstRm.lastPurchaseCost ?? firstRm.standardCost ?? 0);
+        setRmLines([
+          {
+            id: 'rm-1',
+            selectedId: firstRm.id,
+            quantity: 4,
+            unitCost: rate,
+            totalCost: 4 * rate,
+          },
+        ]);
+      }
+    }
+    if (pmLines.length === 0 && packingMaterialsList.length > 0) {
+      const firstPm = packingMaterialsList[0];
+      if (firstPm) {
+        const rate = Number(firstPm.lastPurchaseCost ?? firstPm.standardCost ?? 0);
+        setPmLines([
+          {
+            id: 'pm-1',
+            selectedId: firstPm.id,
+            quantity: 100,
+            unitCost: rate,
+            totalCost: 100 * rate,
+          },
+        ]);
+      }
+    }
+  }, [rawMaterialsList, packingMaterialsList, rmLines.length, pmLines.length]);
+
+  // 3. Line Item Management Handlers
+  const handleAddRmLine = () => {
+    const first = rawMaterialsList[0];
+    const rate = first ? Number(first.lastPurchaseCost ?? first.standardCost ?? 0) : 0;
+    setRmLines((prev) => [
+      ...prev,
+      {
+        id: `rm-${Date.now()}`,
+        selectedId: first ? first.id : '',
+        quantity: 1,
+        unitCost: rate,
+        totalCost: rate,
+      },
+    ]);
+  };
+
+  const handleUpdateRmLine = (id: string, field: 'selectedId' | 'quantity', val: any) => {
+    setRmLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== id) return line;
+        let selectedId = line.selectedId;
+        let quantity = line.quantity;
+        let unitCost = line.unitCost;
+
+        if (field === 'selectedId') {
+          selectedId = val;
+          const mat = rawMaterialsList.find((m) => m.id === val);
+          unitCost = mat ? Number(mat.lastPurchaseCost ?? mat.standardCost ?? 0) : 0;
+        } else if (field === 'quantity') {
+          quantity = Number(val) || 0;
+        }
+
+        return {
+          ...line,
+          selectedId,
+          quantity,
+          unitCost,
+          totalCost: quantity * unitCost,
+        };
+      })
+    );
+  };
+
+  const handleRemoveRmLine = (id: string) => {
+    setRmLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleAddPmLine = () => {
+    const first = packingMaterialsList[0];
+    const rate = first ? Number(first.lastPurchaseCost ?? first.standardCost ?? 0) : 0;
+    setPmLines((prev) => [
+      ...prev,
+      {
+        id: `pm-${Date.now()}`,
+        selectedId: first ? first.id : '',
+        quantity: 100,
+        unitCost: rate,
+        totalCost: 100 * rate,
+      },
+    ]);
+  };
+
+  const handleUpdatePmLine = (id: string, field: 'selectedId' | 'quantity', val: any) => {
+    setPmLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== id) return line;
+        let selectedId = line.selectedId;
+        let quantity = line.quantity;
+        let unitCost = line.unitCost;
+
+        if (field === 'selectedId') {
+          selectedId = val;
+          const mat = packingMaterialsList.find((m) => m.id === val);
+          unitCost = mat ? Number(mat.lastPurchaseCost ?? mat.standardCost ?? 0) : 0;
+        } else if (field === 'quantity') {
+          quantity = Number(val) || 0;
+        }
+
+        return {
+          ...line,
+          selectedId,
+          quantity,
+          unitCost,
+          totalCost: quantity * unitCost,
+        };
+      })
+    );
+  };
+
+  const handleRemovePmLine = (id: string) => {
+    setPmLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  // 4. Batch Calculations
+  const totalRmCost = useMemo(() => rmLines.reduce((sum, l) => sum + (l.totalCost || 0), 0), [rmLines]);
+  const totalPmCost = useMemo(() => pmLines.reduce((sum, l) => sum + (l.totalCost || 0), 0), [pmLines]);
+  const totalBatchCost = totalRmCost + totalPmCost;
+  const currentOutputQty = batchOutputQuantity > 0 ? batchOutputQuantity : 100;
+  const calculatedCostPerUnit = Math.round((totalBatchCost / currentOutputQty) * 100) / 100;
+
+  // Cost Variance
+  const previousCost = selectedProduct?.standardCost ? Number(selectedProduct.standardCost) : 0;
+  const costDiff = calculatedCostPerUnit - previousCost;
+  const costDiffPct = previousCost > 0 ? (costDiff / previousCost) * 100 : 0;
+
+  // 5. "ADD TO PRODUCT" Handler
+  const handleApplyToProduct = async () => {
+    setIsApplying(true);
     try {
-      const q = prodQty > 0 ? prodQty : 200;
-      const s = pSize > 0 ? pSize : 2;
-      const res = await ApiClient.get<any>(
-        `/api/v1/costing/finished-products/${productId}/calculate?productionQuantity=${q}&packSize=${s}`
-      );
-      setCostBreakdown(res.data);
+      const payload: any = {
+        batchOutputQuantity: currentOutputQty,
+        packSize: productMode === 'new' ? newPackSize : packSize,
+        packSizeUnitName: productMode === 'new' ? newPackUnit : packSizeUnit,
+        totalRawMaterialCost: totalRmCost,
+        totalPackagingCost: totalPmCost,
+        totalBatchCost,
+        costPerUnit: calculatedCostPerUnit,
+        rawMaterials: rmLines.map((l) => ({
+          rawMaterialId: l.selectedId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          totalCost: l.totalCost,
+        })),
+        packagingMaterials: pmLines.map((l) => ({
+          packingMaterialId: l.selectedId,
+          quantity: l.quantity,
+          unitCost: l.unitCost,
+          totalCost: l.totalCost,
+        })),
+      };
+
+      if (productMode === 'existing') {
+        payload.finishedProductId = selectedProductId;
+      } else {
+        payload.newProductName = newProductName.trim();
+        payload.categoryId = newCategoryId || undefined;
+        payload.packSizeQuantity = newPackSize;
+        payload.packSizeUnit = newPackUnit;
+        payload.baseSellingPrice = newBasePrice;
+      }
+
+      const res = await ApiClient.post<any>('/api/v1/costing/apply-to-product', payload);
+      showToast({
+        title: 'Costing Applied Successfully',
+        message: res.data?.message || `Costing V${res.data?.version || 1} applied to product`,
+        type: 'success',
+      });
+
+      setIsConfirmModalOpen(false);
+      // Refresh products & reload
+      loadPrerequisites();
     } catch (err: any) {
-      showToast({ title: 'Costing Error', message: 'No active BOM recipe found for this product', type: 'warning' });
-      setCostBreakdown(null);
+      showToast({
+        title: 'Application Error',
+        message: err.response?.data?.message || err.message || 'Failed to apply costing to product',
+        type: 'error',
+      });
     } finally {
-      setIsCalculating(false);
+      setIsApplying(false);
     }
-  }, [showToast]);
+  };
 
-  useEffect(() => {
-    if (selectedProductId) {
-      calculateCost(selectedProductId, productionQuantity, packSize);
-    }
-  }, [selectedProductId, productionQuantity, packSize, calculateCost]);
-
-  const selectedProductObj = products.find((p) => p.id === selectedProductId);
-  const totalCost = Number(costBreakdown?.totalCostPerUnit || 0);
-  const rmCost = Number(costBreakdown?.rawMaterialCost || 0);
-  const pkgCost = Number(costBreakdown?.packagingCost || 0);
-
-  // Batch Volume calculations
-  const currentProdQty = Number(costBreakdown?.productionQuantity || productionQuantity || 200);
-  const currentPackSize = Number(costBreakdown?.packSize || packSize || 2);
-  const totalProductionVolume = currentProdQty * currentPackSize; // e.g. 200 * 2 = 400 Liters
-
-  // Find primary raw material component to get its metrics
-  const rmComponent = (costBreakdown?.components || []).find((c: any) => c.componentType === 'RAW_MATERIAL');
-  const rmTotalCost = Number(rmComponent?.totalMaterialCost || 300000);
-  const allocatedCostPerLiter = totalProductionVolume > 0 ? rmTotalCost / totalProductionVolume : 0; // e.g. 750
-  const rmCostPerPack = allocatedCostPerLiter * currentPackSize; // e.g. 1500
-
-  // Pricing Simulator
-  const suggestedSellingPrice = totalCost > 0 ? totalCost / (1 - targetMarginPercent / 100) : 0;
-  const currentSellingPrice = Number(selectedProductObj?.defaultSellingPrice || 0);
-  const currentMargin =
-    currentSellingPrice > 0 && totalCost > 0
-      ? (((currentSellingPrice - totalCost) / currentSellingPrice) * 100).toFixed(1)
-      : '0';
+  if (isLoading) {
+    return (
+      <div className="p-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
+        <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <span>Loading costing workspace & procurement rates...</span>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Header */}
-      <div>
-        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-          Product Costing & BOM Calculator
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
-          Authoritative real-time BOM formula cost allocation engine. Raw material bulk cost is distributed across production batch quantity and pack size.
-        </p>
+    <div className="space-y-6">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 flex items-center justify-center">
+            <IconFlask size={22} />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight">Product Costing Engine</h1>
+            <p className="text-slate-400 text-xs">
+              Authoritative batch costing calculation from real procurement rates. Click &quot;ADD TO PRODUCT&quot; to apply.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setIsHistoryDrawerOpen(true)}
+            className="px-3.5 py-2 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-colors flex items-center gap-1.5"
+          >
+            <span>Costing History ({costingHistory.length})</span>
+          </button>
+
+          <button
+            onClick={() => loadPrerequisites()}
+            className="p-2 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            title="Refresh Rates"
+          >
+            <IconRefresh size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* Product Selector and Batch Parameters Bar */}
-      <Card>
-        <CardContent style={{ padding: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '16px', alignItems: 'end' }}>
-            <div>
-              <Select
-                label="Select Finished Product for Cost Analysis"
+      {/* SECTION 1: DUAL-MODE PRODUCT SELECTOR */}
+      <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-2xl space-y-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+              Product Context
+            </span>
+            <div className="inline-flex rounded-lg border border-slate-800 p-0.5 bg-slate-950">
+              <button
+                type="button"
+                onClick={() => setProductMode('existing')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                  productMode === 'existing'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Select Existing Product
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductMode('new')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                  productMode === 'new'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                + Type & Add New Product Name
+              </button>
+            </div>
+          </div>
+
+          {productMode === 'existing' && selectedProduct && (
+            <span className="font-mono text-xs text-slate-400">
+              Code: <span className="text-emerald-400 font-bold">{selectedProduct.productCode}</span>
+            </span>
+          )}
+        </div>
+
+        {productMode === 'existing' ? (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Select Finished Product
+              </label>
+              <select
                 value={selectedProductId}
                 onChange={(e) => setSelectedProductId(e.target.value)}
-                disabled={isLoading}
-                options={products.map((p) => ({
-                  label: `${p.productCode} - ${p.productName}`,
-                  value: p.id,
-                }))}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
-                Production Quantity (Packs)
-              </label>
-              <Input
-                type="number"
-                min="1"
-                value={productionQuantity}
-                onChange={(e) => setProductionQuantity(Math.max(1, Number(e.target.value) || 1))}
-                style={{ fontFamily: 'var(--font-mono)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
-                Pack Size (Liters / Pack)
-              </label>
-              <Input
-                type="number"
-                min="0.1"
-                step="0.5"
-                value={packSize}
-                onChange={(e) => setPackSize(Math.max(0.1, Number(e.target.value) || 1))}
-                style={{ fontFamily: 'var(--font-mono)' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px', color: '#2563EB' }}>
-                Total Production Volume
-              </label>
-              <div
-                style={{
-                  height: '38px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '0 12px',
-                  backgroundColor: '#EFF6FF',
-                  border: '1px solid #BFDBFE',
-                  borderRadius: 'var(--radius-sm)',
-                  fontWeight: 700,
-                  fontFamily: 'var(--font-mono)',
-                  color: '#1D4ED8',
-                  fontSize: '14px',
-                }}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-semibold focus:ring-2 focus:ring-emerald-500/50"
               >
-                {totalProductionVolume} Liters
+                {finishedProducts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    [{p.productCode}] {p.productName} ({p.packingQuantity || 2} {p.packingUnit || 'L'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Current Manufacturing Cost
+              </label>
+              <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+                <span className="text-xs font-mono font-bold text-white">
+                  {previousCost > 0 ? `PKR ${previousCost.toLocaleString()} / Pack` : 'NOT CONFIGURED'}
+                </span>
               </div>
             </div>
+
             <div>
-              <Button
-                variant="secondary"
-                onClick={() => calculateCost(selectedProductId, productionQuantity, packSize)}
-                disabled={isLoading || isCalculating}
-              >
-                <IconRefresh size={16} /> Recalculate
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Prominent Real-Time Allocation Display Box */}
-      <div
-        style={{
-          padding: '16px 20px',
-          backgroundColor: '#F0FDF4',
-          border: '1.5px solid #86EFAC',
-          borderRadius: 'var(--radius-md)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-          <div style={{ fontWeight: 700, fontSize: '15px', color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <IconFlask size={18} /> Master Formula Cost Allocation Breakdown
-          </div>
-          <div style={{ fontSize: '12px', color: '#15803D', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-            Cost per Liter = Total RM Cost ÷ (Packs × Pack Size) | Cost per Pack = Cost per Liter × Pack Size
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '12px',
-          }}
-        >
-          <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
-            <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Raw Material Total Cost</div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: '#15803D', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              PKR {rmTotalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-          </div>
-
-          <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
-            <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Production Quantity</div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              {currentProdQty.toLocaleString()} Packs
-            </div>
-          </div>
-
-          <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
-            <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Pack Size</div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              {currentPackSize} Liters
-            </div>
-          </div>
-
-          <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
-            <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Total Volume</div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: '#2563EB', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              {totalProductionVolume.toLocaleString()} Liters
-            </div>
-          </div>
-
-          <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1.5px solid #86EFAC' }}>
-            <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Allocated Cost per Liter</div>
-            <div style={{ fontSize: '17px', fontWeight: 800, color: '#047857', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              PKR {allocatedCostPerLiter.toFixed(2)} / L
-            </div>
-          </div>
-
-          <div style={{ background: '#ECFDF5', padding: '12px 14px', borderRadius: '8px', border: '2px solid #10B981' }}>
-            <div style={{ fontSize: '11px', color: '#065F46', fontWeight: 700, textTransform: 'uppercase' }}>Raw Material Cost per Pack</div>
-            <div style={{ fontSize: '18px', fontWeight: 800, color: '#047857', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-              PKR {rmCostPerPack.toFixed(2)}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Cost Summary KPIs */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '16px',
-        }}
-      >
-        <KpiCard
-          title="Total Cost Per Pack"
-          value={`PKR ${totalCost.toFixed(2)}`}
-          subtitle="Direct Materials + Packaging"
-        />
-        <KpiCard
-          title="Raw Material Cost / Pack"
-          value={`PKR ${rmCost.toFixed(2)}`}
-          subtitle={`Allocated at PKR ${allocatedCostPerLiter.toFixed(2)} / L`}
-        />
-        <KpiCard
-          title="Packaging Cost / Pack"
-          value={`PKR ${pkgCost.toFixed(2)}`}
-          subtitle={totalCost > 0 ? `${((pkgCost / totalCost) * 100).toFixed(1)}% of total cost` : 'Bottles, cartons, caps'}
-        />
-        <KpiCard
-          title="Current Selling Price"
-          value={`PKR ${currentSellingPrice.toFixed(2)}`}
-          subtitle={`Current Margin: ${currentMargin}%`}
-        />
-      </div>
-
-      {/* Breakdown Details & Pricing Simulation */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
-        {/* BOM Line Breakdown */}
-        <Card>
-          <CardHeader>
-            <CardTitle>BOM Recipe Component Allocation Schedule</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isCalculating ? (
-              <TableSkeleton rows={4} />
-            ) : !costBreakdown || (costBreakdown.components || []).length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)', padding: '24px', textAlign: 'center' }}>
-                No active BOM formula components defined for this finished product. Please assign recipe components in Master Data.
-              </p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left' }}>
-                      <th style={{ padding: '10px 8px' }}>Component Name</th>
-                      <th style={{ padding: '10px 8px' }}>Type</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>Raw Material Total Cost</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>Production Volume</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>Allocated Cost / Liter</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>Cost / Pack</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(costBreakdown.components || []).map((comp: any, idx: number) => {
-                      const isRm = comp.componentType === 'RAW_MATERIAL';
-                      const itemTotalCost = Number(comp.totalMaterialCost || (isRm ? 300000 : comp.totalCost * currentProdQty));
-                      const itemAllocatedL = isRm
-                        ? Number(comp.allocatedCostPerLiter || (totalProductionVolume > 0 ? itemTotalCost / totalProductionVolume : 0))
-                        : 0;
-                      const itemCostPerPack = Number(comp.costPerPack || comp.totalCost || 0);
-
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '12px 8px', fontWeight: 600 }}>{comp.name}</td>
-                          <td style={{ padding: '12px 8px' }}>
-                            <StatusBadge
-                              status={comp.componentType}
-                              variant={isRm ? 'primary' : 'neutral'}
-                            />
-                          </td>
-                          <td
-                            style={{
-                              padding: '12px 8px',
-                              textAlign: 'right',
-                              fontFamily: 'var(--font-mono)',
-                              fontWeight: 600,
-                              color: isRm ? '#15803D' : 'var(--text-secondary)',
-                            }}
-                          >
-                            PKR {itemTotalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                          <td style={{ padding: '12px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                            {isRm ? `${totalProductionVolume.toLocaleString()} Liters (${currentProdQty} Packs × ${currentPackSize}L)` : `${currentProdQty.toLocaleString()} Units`}
-                          </td>
-                          <td
-                            style={{
-                              padding: '12px 8px',
-                              textAlign: 'right',
-                              fontFamily: 'var(--font-mono)',
-                              color: isRm ? '#047857' : 'var(--text-secondary)',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {isRm ? `PKR ${itemAllocatedL.toFixed(2)} / L` : '—'}
-                          </td>
-                          <td
-                            style={{
-                              padding: '12px 8px',
-                              textAlign: 'right',
-                              fontWeight: 700,
-                              fontFamily: 'var(--font-mono)',
-                              color: isRm ? '#047857' : '#7C3AED',
-                            }}
-                          >
-                            PKR {itemCostPerPack.toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Base Selling Price (Reference)
+              </label>
+              <div className="px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+                <span className="text-xs font-mono font-bold text-emerald-400">
+                  {selectedProduct?.defaultSellingPrice
+                    ? `PKR ${Number(selectedProduct.defaultSellingPrice).toLocaleString()}`
+                    : 'Not Set'}
+                </span>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                New Product Name <span className="text-rose-400">*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Emamectin 1.9% EC"
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-semibold focus:ring-2 focus:ring-emerald-500/50"
+              />
+            </div>
 
-        {/* Pricing & Margin Simulator */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pricing & Margin Simulator</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '6px' }}>
-                  Target Gross Margin (%)
-                </label>
-                <Input
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Category</label>
+              <select
+                value={newCategoryId}
+                onChange={(e) => setNewCategoryId(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-emerald-500/50"
+              >
+                <option value="">-- Default [41-01 Finished Goods] --</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code ? `[${c.code}] ` : ''}{c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Pack Size</label>
+              <div className="flex gap-2">
+                <input
                   type="number"
-                  min="0"
-                  max="90"
-                  value={targetMarginPercent}
-                  onChange={(e) => setTargetMarginPercent(Number(e.target.value))}
+                  value={newPackSize}
+                  onChange={(e) => setNewPackSize(Number(e.target.value))}
+                  className="w-20 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs"
                 />
-              </div>
-
-              <div
-                style={{
-                  padding: '16px',
-                  backgroundColor: 'var(--bg-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Calculated Cost / Pack:</span>
-                  <span style={{ fontWeight: 600 }}>PKR {totalCost.toFixed(2)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Target Margin:</span>
-                  <span>{targetMarginPercent}%</span>
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontWeight: 700,
-                    fontSize: '16px',
-                    color: 'var(--brand-primary)',
-                    paddingTop: '8px',
-                    borderTop: '1px solid var(--border-subtle)',
-                  }}
+                <select
+                  value={newPackUnit}
+                  onChange={(e) => setNewPackUnit(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs"
                 >
-                  <span>Suggested Selling Price:</span>
-                  <span>PKR {suggestedSellingPrice.toFixed(2)}</span>
-                </div>
-              </div>
-
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <strong>Canonical System Rule:</strong> Total raw material cost (e.g. 300,000 PKR) is allocated across batch volume ({totalProductionVolume} L) to yield PKR {allocatedCostPerLiter.toFixed(2)}/L and PKR {rmCostPerPack.toFixed(2)} per {currentPackSize}L pack.
+                  <option value="Liter">Liter</option>
+                  <option value="KG">KG</option>
+                  <option value="ML">ML</option>
+                </select>
               </div>
             </div>
-          </CardContent>
-        </Card>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Base Selling Price</label>
+              <input
+                type="number"
+                value={newBasePrice}
+                onChange={(e) => setNewBasePrice(Number(e.target.value))}
+                className="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-xl text-emerald-400 font-bold text-xs"
+                placeholder="PKR 2,800"
+              />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* SECTION 2: BATCH PRODUCTION PARAMETERS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1.5">
+          <label className="block text-xs font-medium text-slate-400">
+            Batch Output Quantity (Packs/Bottles)
+          </label>
+          <input
+            type="number"
+            value={batchOutputQuantity}
+            onChange={(e) => setBatchOutputQuantity(Number(e.target.value))}
+            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-sm font-bold font-mono focus:ring-2 focus:ring-emerald-500/50"
+          />
+        </div>
+
+        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1.5">
+          <label className="block text-xs font-medium text-slate-400">Pack Size</label>
+          <div className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white text-sm font-bold font-mono">
+            {packSize} {packSizeUnit}
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl space-y-1.5">
+          <label className="block text-xs font-medium text-slate-400">Total Bulk Volume</label>
+          <div className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-emerald-400 text-sm font-bold font-mono">
+            {currentOutputQty * packSize} {packSizeUnit}s
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 3: RAW MATERIALS TABLE */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-lg p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+              Raw Materials (Active Ingredients & Solvents)
+            </span>
+            <span className="text-xs text-slate-500 font-mono">
+              Rates from Procurement (Read-Only)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddRmLine}
+            className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1"
+          >
+            <IconPlus size={14} />
+            <span>+ Add Raw Material</span>
+          </button>
+        </div>
+
+        <div className="border border-slate-800 rounded-xl overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-800/80 text-slate-300">
+              <tr>
+                <th className="p-2.5">Raw Material</th>
+                <th className="p-2.5 w-32">Quantity</th>
+                <th className="p-2.5 w-40">Procurement Rate (PKR)</th>
+                <th className="p-2.5 w-40 text-right">Line Total (PKR)</th>
+                <th className="p-2.5 w-12 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800 text-slate-300">
+              {rmLines.map((line) => (
+                <tr key={line.id} className="hover:bg-slate-800/30">
+                  <td className="p-2">
+                    <select
+                      value={line.selectedId}
+                      onChange={(e) => handleUpdateRmLine(line.id, 'selectedId', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs"
+                    >
+                      {rawMaterialsList.map((rm) => (
+                        <option key={rm.id} value={rm.id}>
+                          [{rm.materialCode}] {rm.materialName} ({rm.baseUom?.symbol || 'KG'})
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={line.quantity}
+                      onChange={(e) => handleUpdateRmLine(line.id, 'quantity', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-xs"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`PKR ${Number(line.unitCost).toLocaleString()}`}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 font-mono text-xs cursor-not-allowed"
+                    />
+                  </td>
+                  <td className="p-2 text-right font-mono font-bold text-white">
+                    PKR {Number(line.totalCost).toLocaleString()}
+                  </td>
+                  <td className="p-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRmLine(line.id)}
+                      className="p-1 text-slate-500 hover:text-rose-400 rounded"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="text-right text-xs text-slate-400 font-mono">
+          Total Raw Material Cost:{' '}
+          <span className="font-bold text-white text-sm">PKR {totalRmCost.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* SECTION 4: PACKAGING MATERIALS TABLE */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-lg p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
+              Packaging Materials (Bottles, Caps, Labels, Cartons)
+            </span>
+            <span className="text-xs text-slate-500 font-mono">
+              Rates from Procurement (Read-Only)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddPmLine}
+            className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1"
+          >
+            <IconPlus size={14} />
+            <span>+ Add Packaging Item</span>
+          </button>
+        </div>
+
+        <div className="border border-slate-800 rounded-xl overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-800/80 text-slate-300">
+              <tr>
+                <th className="p-2.5">Packaging Item</th>
+                <th className="p-2.5 w-32">Quantity</th>
+                <th className="p-2.5 w-40">Procurement Rate (PKR)</th>
+                <th className="p-2.5 w-40 text-right">Line Total (PKR)</th>
+                <th className="p-2.5 w-12 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800 text-slate-300">
+              {pmLines.map((line) => (
+                <tr key={line.id} className="hover:bg-slate-800/30">
+                  <td className="p-2">
+                    <select
+                      value={line.selectedId}
+                      onChange={(e) => handleUpdatePmLine(line.id, 'selectedId', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white text-xs"
+                    >
+                      {packingMaterialsList.map((pm) => (
+                        <option key={pm.id} value={pm.id}>
+                          [{pm.materialCode}] {pm.materialName}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="number"
+                      value={line.quantity}
+                      onChange={(e) => handleUpdatePmLine(line.id, 'quantity', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-xs"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`PKR ${Number(line.unitCost).toLocaleString()}`}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 font-mono text-xs cursor-not-allowed"
+                    />
+                  </td>
+                  <td className="p-2 text-right font-mono font-bold text-white">
+                    PKR {Number(line.totalCost).toLocaleString()}
+                  </td>
+                  <td className="p-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePmLine(line.id)}
+                      className="p-1 text-slate-500 hover:text-rose-400 rounded"
+                    >
+                      <IconTrash size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="text-right text-xs text-slate-400 font-mono">
+          Total Packaging Cost:{' '}
+          <span className="font-bold text-white text-sm">PKR {totalPmCost.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* SECTION 5: CALCULATION SUMMARY & "ADD TO PRODUCT" ACTION BAR */}
+      <div className="p-6 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-850 border border-slate-800 rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="space-y-1">
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            Total Batch Cost = RM (PKR {totalRmCost.toLocaleString()}) + Packaging (PKR {totalPmCost.toLocaleString()})
+          </span>
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-extrabold text-white font-mono">
+              PKR {totalBatchCost.toLocaleString()}
+            </span>
+            <span className="text-sm text-slate-400">÷ {currentOutputQty} bottles =</span>
+            <span className="text-3xl font-extrabold text-emerald-400 font-mono">
+              PKR {calculatedCostPerUnit.toLocaleString()}
+            </span>
+            <span className="text-xs font-semibold text-emerald-400/80">/ Bottle</span>
+          </div>
+
+          {productMode === 'existing' && previousCost > 0 && (
+            <div className="text-xs text-slate-400 mt-1">
+              Current: <span className="font-mono text-white">PKR {previousCost}</span> → New:{' '}
+              <span className="font-mono text-emerald-400">PKR {calculatedCostPerUnit}</span>{' '}
+              <span className={costDiff >= 0 ? 'text-amber-400' : 'text-emerald-400'}>
+                ({costDiff >= 0 ? `+PKR ${costDiff}` : `-PKR ${Math.abs(costDiff)}`},{' '}
+                {costDiffPct >= 0 ? `+${costDiffPct.toFixed(2)}%` : `${costDiffPct.toFixed(2)}%`})
+              </span>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsConfirmModalOpen(true)}
+          className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold shadow-xl shadow-emerald-600/30 flex items-center gap-2 transition-all transform hover:scale-[1.02] shrink-0"
+        >
+          <IconCheck size={18} />
+          <span>ADD TO PRODUCT</span>
+        </button>
+      </div>
+
+      {/* CONFIRMATION MODAL */}
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-4">
+            <h3 className="text-lg font-bold text-white">Confirm Apply Costing</h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              This action will atomically record an immutable costing version snapshot and update the finished
+              product&apos;s current manufacturing cost.
+            </p>
+
+            <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-1.5 text-xs font-mono">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Target Product:</span>
+                <span className="text-white font-bold">
+                  {productMode === 'existing' ? selectedProduct?.productName : newProductName}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Previous Cost:</span>
+                <span className="text-slate-300">
+                  {previousCost > 0 ? `PKR ${previousCost}` : 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">New Cost Per Pack:</span>
+                <span className="text-emerald-400 font-bold">PKR {calculatedCostPerUnit}</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsConfirmModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-semibold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyToProduct}
+                disabled={isApplying}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center gap-2"
+              >
+                {isApplying ? 'Applying...' : 'Confirm & Apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* COSTING HISTORY DRAWER */}
+      {isHistoryDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-lg bg-slate-900 border-l border-slate-800 h-full p-6 flex flex-col space-y-4 shadow-2xl animate-in slide-in-from-right duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Costing Version History</h3>
+                <p className="text-xs text-slate-400">{selectedProduct?.productName || 'Product History'}</p>
+              </div>
+              <button
+                onClick={() => setIsHistoryDrawerOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {costingHistory.length === 0 ? (
+                <p className="text-center text-xs text-slate-500 py-10">No historical costing snapshots found</p>
+              ) : (
+                costingHistory.map((hist) => (
+                  <div key={hist.id} className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-indigo-400">Version {hist.version}</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
+                        {hist.status}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between pt-1">
+                      <span className="text-slate-400">Cost Per Unit:</span>
+                      <span className="text-base font-extrabold text-emerald-400 font-mono">
+                        PKR {Number(hist.costPerUnit).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-400">
+                      <span>Batch Total: PKR {Number(hist.totalBatchCost).toLocaleString()}</span>
+                      <span>Output: {hist.batchOutputQuantity} bottles</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 block pt-1">
+                      {new Date(hist.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

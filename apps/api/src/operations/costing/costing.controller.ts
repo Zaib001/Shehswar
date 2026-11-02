@@ -5,17 +5,46 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Param,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
-import { CostingService, CostingMethod } from './costing.service';
+import { CostingService, CostingMethod, BatchCostCalculationInput, ApplyCostingInput } from './costing.service';
+import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentContext } from '../../core/decorators/current-context.decorator';
+import { AuthUser, SecurityContext } from '@shehswar/types';
 
 @Controller('api/v1/costing')
 @UseGuards(JwtAuthGuard)
 export class CostingController {
   constructor(private readonly costingService: CostingService) {}
+
+  @Post('calculate')
+  async calculateBatchCost(@Body() input: BatchCostCalculationInput) {
+    return this.costingService.calculateCostBatch(input);
+  }
+
+  @Post('apply-to-product')
+  async applyCostingToProduct(
+    @Body() input: ApplyCostingInput,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+  ) {
+    const enrichedUser: AuthUser = {
+      ...user,
+      companyId: input.companyId || ctx?.companyId || user?.companyId,
+      organizationId: ctx?.organizationId || user?.organizationId,
+    };
+    return this.costingService.applyCostingToProduct(input, enrichedUser);
+  }
+
+  @Get('product/:id/history')
+  async getCostingHistory(@Param('id') id: string) {
+    return this.costingService.getProductCostingHistory(id);
+  }
 
   @Get('finished-products/:id/calculate')
   async calculateCost(

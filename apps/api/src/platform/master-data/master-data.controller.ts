@@ -13,6 +13,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { MasterDataService } from './master-data.service';
+import { CategoryRouterService } from './category-router.service';
+import { UnifiedItemsService } from './unified-items.service';
+import { ProductImportService } from './product-import.service';
+import { CodeGenerationService, EntityCodeType } from '../code-generation/code-generation.service';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import { CurrentContext } from '../../core/decorators/current-context.decorator';
 import { AuthUser, SecurityContext } from '@shehswar/types';
@@ -47,7 +51,120 @@ import {
 
 @Controller('api/v1/master-data')
 export class MasterDataController {
-  constructor(private readonly masterDataService: MasterDataService) {}
+  constructor(
+    private readonly masterDataService: MasterDataService,
+    private readonly categoryRouter: CategoryRouterService,
+    private readonly unifiedItemsService: UnifiedItemsService,
+    private readonly productImportService: ProductImportService,
+    private readonly codeGen: CodeGenerationService,
+  ) {}
+
+  // ==========================================
+  // UNIFIED ITEM MANAGEMENT & CATEGORY ROUTING
+  // ==========================================
+
+  @Get('unified-categories')
+  async getUnifiedCategories(
+    @CurrentContext() ctx: SecurityContext,
+    @CurrentUser() user: AuthUser,
+    @Query('organizationId') orgId?: string,
+  ) {
+    const organizationId = orgId || ctx?.organizationId || user?.organizationId;
+    return this.categoryRouter.getUnifiedCategories(organizationId);
+  }
+
+  @Get('category-router/:categoryId')
+  async resolveCategoryRouter(@Param('categoryId') categoryId: string) {
+    return this.categoryRouter.resolveCategory(categoryId);
+  }
+
+  @Post('unified-items')
+  async createUnifiedItem(
+    @Body() dto: any,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+  ) {
+    const enrichedUser: AuthUser = {
+      ...user,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+    };
+    return this.unifiedItemsService.createUnifiedItem(dto, enrichedUser);
+  }
+
+  @Get('check-duplicate-item')
+  async checkDuplicateItem(
+    @Query('name') name: string,
+    @Query('entityType') entityType: any,
+    @Query('companyId') companyId?: string,
+    @CurrentContext() ctx?: SecurityContext,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    const targetCompanyId = companyId || ctx?.companyId || user?.companyId || '';
+    return this.unifiedItemsService.checkDuplicate({
+      companyId: targetCompanyId,
+      itemName: name,
+      targetEntity: entityType,
+    });
+  }
+
+  @Get('products/lookup/:code')
+  async lookupProductByCode(
+    @Param('code') code: string,
+    @Query('companyId') companyId?: string,
+    @CurrentContext() ctx?: SecurityContext,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    const targetCompanyId = companyId || ctx?.companyId || user?.companyId;
+    return this.unifiedItemsService.lookupByCode(code, targetCompanyId);
+  }
+
+  @Post('products/import-preview')
+  async generateImportPreview(
+    @Body() body: { content: string; fileName: string; companyId?: string },
+    @CurrentContext() ctx: SecurityContext,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const targetCompanyId = body.companyId || ctx?.companyId || user?.companyId;
+    return this.productImportService.generateImportPreview(
+      body.content,
+      body.fileName || 'imported-products.csv',
+      targetCompanyId,
+    );
+  }
+
+  @Post('products/import-confirm')
+  async confirmProductImport(
+    @Body() body: { records: any[]; categoryId: string; companyId?: string },
+    @CurrentContext() ctx: SecurityContext,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const enrichedUser: AuthUser = {
+      ...user,
+      companyId: body.companyId || ctx?.companyId || user?.companyId,
+      organizationId: ctx?.organizationId || user?.organizationId,
+    };
+    return this.productImportService.confirmImport(
+      body.records,
+      body.categoryId,
+      enrichedUser,
+    );
+  }
+
+  @Get('next-code')
+  async getNextCodePreview(
+    @Query('entityType') entityType: EntityCodeType,
+    @Query('companyId') companyId?: string,
+    @CurrentContext() ctx?: SecurityContext,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    const targetCompanyId = companyId || ctx?.companyId || user?.companyId || '';
+    const nextCode = await this.codeGen.previewNextCode({
+      companyId: targetCompanyId,
+      entityType: entityType || 'FINISHED_PRODUCT',
+    });
+    return { entityType, nextCode };
+  }
 
   // 1. ORGANIZATIONS
   @Get('organizations')

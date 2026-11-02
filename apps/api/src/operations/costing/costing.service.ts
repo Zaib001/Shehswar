@@ -13,11 +13,43 @@
  * The active method is determined by system settings.
  * Do NOT calculate cost independently inside UI or other services.
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@shehswar/database';
+import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
+import { AuthUser } from '@shehswar/types';
 
 export type CostingMethod = 'LATEST_PURCHASE' | 'WEIGHTED_AVERAGE' | 'STANDARD';
+
+export interface BatchCostCalculationInput {
+  finishedProductId?: string;
+  batchOutputQuantity: number;
+  packSize: number;
+  packSizeUnit?: string;
+  rawMaterials: { rawMaterialId: string; quantity: number }[];
+  packagingMaterials: { packingMaterialId: string; quantity: number }[];
+}
+
+export interface ApplyCostingInput {
+  companyId?: string;
+  finishedProductId?: string;
+  newProductName?: string;
+  categoryId?: string;
+  packagingMaterialId?: string;
+  packSizeQuantity?: number;
+  packSizeUnit?: string;
+  baseSellingPrice?: number;
+  batchOutputQuantity: number;
+  packSize: number;
+  packSizeUnitName?: string;
+  totalRawMaterialCost: number;
+  totalPackagingCost: number;
+  totalBatchCost: number;
+  costPerUnit: number;
+  notes?: string;
+  rawMaterials: { rawMaterialId: string; quantity: number; unitCost: number; totalCost: number; uomName?: string }[];
+  packagingMaterials: { packingMaterialId: string; quantity: number; unitCost: number; totalCost: number; uomName?: string }[];
+}
 
 @Injectable()
 export class CostingService {
@@ -25,7 +57,10 @@ export class CostingService {
   // Default method — can be overridden by SystemSetting
   private readonly defaultMethod: CostingMethod = 'WEIGHTED_AVERAGE';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly codeGen: CodeGenerationService,
+  ) {}
 
   /**
    * Get unit cost for a raw material using configured costing method.
@@ -308,5 +343,267 @@ export class CostingService {
         },
       });
     }
+  }
+
+  /**
+   * Transparent Batch Cost Calculation
+   * Formula:
+   *  Total RM Cost + Total Packaging Cost = Total Batch Cost
+   *  Total Batch Cost / Output Quantity = Cost Per Unit (Bottle / Pack)
+   */
+  async calculateCostBatch(input: BatchCostCalculationInput) {
+    const outputQty = Number(input.batchOutputQuantity) > 0 ? Number(input.batchOutputQuantity) : 100;
+    const packSize = Number(input.packSize) > 0 ? Number(input.packSize) : 1;
+    const totalVolume = outputQty * packSize;
+
+    // 1. Calculate Raw Materials
+    const rmComponents: any[] = [];
+    let totalRawMaterialCost = 0;
+
+    for (const rmItem of input.rawMaterials || []) {
+      if (!rmItem.rawMaterialId) continue;
+      const mat = await this.prisma.rawMaterial.findUnique({
+        where: { id: rmItem.rawMaterialId },
+        include: { baseUom: true },
+      });
+      if (!mat) continue;
+
+      const rate = Number(mat.lastPurchaseCost ?? mat.standardCost ?? mat.averageCost ?? 0);
+      const qty = Number(rmItem.quantity) || 0;
+      const total = qty * rate;
+      totalRawMaterialCost += total;
+
+      rmComponents.push({
+        rawMaterialId: mat.id,
+        name: mat.materialName,
+        code: mat.materialCode,
+        uom: mat.baseUom?.name ?? 'KG',
+        quantity: qty,
+        unitCost: rate,
+        totalCost: total,
+      });
+    }
+
+    // 2. Calculate Packaging Materials
+    const pmComponents: any[] = [];
+    let totalPackagingCost = 0;
+
+    for (const pmItem of input.packagingMaterials || []) {
+      if (!pmItem.packingMaterialId) continue;
+      const mat = await this.prisma.packingMaterial.findUnique({
+        where: { id: pmItem.packingMaterialId },
+        include: { baseUom: true },
+      });
+      if (!mat) continue;
+
+      const rate = Number(mat.lastPurchaseCost ?? mat.standardCost ?? 0);
+      const qty = Number(pmItem.quantity) || 0;
+      const total = qty * rate;
+      totalPackagingCost += total;
+
+      pmComponents.push({
+        packingMaterialId: mat.id,
+        name: mat.materialName,
+        code: mat.materialCode,
+        uom: mat.baseUom?.name ?? 'Nos',
+        quantity: qty,
+        unitCost: rate,
+        totalCost: total,
+      });
+    }
+
+    const totalBatchCost = totalRawMaterialCost + totalPackagingCost;
+    const costPerUnit = outputQty > 0 ? totalBatchCost / outputQty : 0;
+
+    return {
+      outputQuantity: outputQty,
+      packSize,
+      packSizeUnit: input.packSizeUnit || 'Liter',
+      totalVolume,
+      totalRawMaterialCost,
+      totalPackagingCost,
+      totalBatchCost,
+      costPerUnit: Math.round(costPerUnit * 100) / 100,
+      rawMaterials: rmComponents,
+      packagingMaterials: pmComponents,
+    };
+  }
+
+  /**
+   * The "ADD TO PRODUCT" Atomic Transaction Engine
+   * Atomically:
+   * - Saves immutable costing snapshot (V1, V2, ...)
+   * - Updates FinishedProduct.standardCost
+   * - Preserves FinishedProduct.id, productCode, and defaultSellingPrice untouched
+   * - If new product name typed, creates FinishedProduct master with code FG-XXXXXX
+   */
+  async applyCostingToProduct(dto: ApplyCostingInput, user: AuthUser) {
+    const companyId = user.companyId;
+    const organizationId = user.organizationId;
+
+    return this.prisma.$transaction(async (tx) => {
+      let product: any;
+
+      // Case A: Existing Finished Product
+      if (dto.finishedProductId) {
+        product = await tx.finishedProduct.findUnique({
+          where: { id: dto.finishedProductId },
+        });
+        if (!product) throw new NotFoundException('Finished Product not found');
+      }
+      // Case B: New Product Name Added from Costing View
+      else if (dto.newProductName && dto.newProductName.trim()) {
+        const generatedCode = await this.codeGen.generateCode({
+          companyId,
+          organizationId,
+          entityType: 'FINISHED_PRODUCT',
+        });
+
+        // Resolve default Finished Goods category
+        let categoryId = dto.categoryId;
+        if (!categoryId) {
+          const defaultCat = await tx.productCategory.findFirst({
+            where: { organizationId, code: '41-01' },
+          });
+          categoryId = defaultCat?.id;
+        }
+
+        // Default UOM
+        const uom = await tx.unitOfMeasure.findFirst({
+          where: { organizationId, code: 'LITER' },
+        });
+
+        product = await tx.finishedProduct.create({
+          data: {
+            organizationId,
+            companyId,
+            categoryId: categoryId || null,
+            productCode: generatedCode,
+            productName: dto.newProductName.trim(),
+            packagingMaterialId: dto.packagingMaterialId || null,
+            packingQuantity: dto.packSizeQuantity ? Number(dto.packSizeQuantity) : (dto.packSize ? Number(dto.packSize) : 1),
+            packingUnit: dto.packSizeUnit || dto.packSizeUnitName || 'Liter',
+            defaultSellingPrice: dto.baseSellingPrice ? Number(dto.baseSellingPrice) : null,
+            standardCost: dto.costPerUnit,
+            baseUomId: uom?.id || undefined,
+            salesUomId: uom?.id || undefined,
+            status: 'ACTIVE',
+          },
+        });
+      } else {
+        throw new BadRequestException('Please select an existing finished product or enter a product name');
+      }
+
+      // Determine next version
+      const latestCosting = await tx.productCosting.findFirst({
+        where: { companyId: product.companyId, finishedProductId: product.id },
+        orderBy: { version: 'desc' },
+      });
+      const nextVersion = (latestCosting?.version ?? 0) + 1;
+
+      // Mark previous active costing as SUPERSEDED
+      if (latestCosting) {
+        await tx.productCosting.update({
+          where: { id: latestCosting.id },
+          data: { status: 'SUPERSEDED' },
+        });
+      }
+
+      const previousCost = Number(product.standardCost ?? 0);
+      const newCost = Number(dto.costPerUnit);
+      const costDiff = newCost - previousCost;
+      const costDiffPct = previousCost > 0 ? (costDiff / previousCost) * 100 : 0;
+
+      // Create Immutable Costing Snapshot
+      const costingSnapshot = await tx.productCosting.create({
+        data: {
+          organizationId: product.organizationId,
+          companyId: product.companyId,
+          finishedProductId: product.id,
+          version: nextVersion,
+          batchOutputQuantity: dto.batchOutputQuantity,
+          packSize: dto.packSize,
+          packSizeUnit: dto.packSizeUnitName || 'Liter',
+          totalVolume: Number(dto.batchOutputQuantity) * Number(dto.packSize),
+          totalRawMaterialCost: dto.totalRawMaterialCost,
+          totalPackagingCost: dto.totalPackagingCost,
+          totalBatchCost: dto.totalBatchCost,
+          costPerUnit: dto.costPerUnit,
+          previousCost: previousCost > 0 ? previousCost : null,
+          costDifference: previousCost > 0 ? costDiff : null,
+          costDifferencePct: previousCost > 0 ? Math.round(costDiffPct * 100) / 100 : null,
+          notes: dto.notes || `Costing Version ${nextVersion} saved via Product Costing module`,
+          status: 'ACTIVE',
+          createdById: user.id || null,
+          materialLines: {
+            create: (dto.rawMaterials || []).map((rm) => ({
+              rawMaterialId: rm.rawMaterialId,
+              quantity: rm.quantity,
+              unitCost: rm.unitCost,
+              totalCost: rm.totalCost,
+              uomName: rm.uomName || 'KG',
+            })),
+          },
+          packagingLines: {
+            create: (dto.packagingMaterials || []).map((pm) => ({
+              packingMaterialId: pm.packingMaterialId,
+              quantity: pm.quantity,
+              unitCost: pm.unitCost,
+              totalCost: pm.totalCost,
+              uomName: pm.uomName || 'Nos',
+            })),
+          },
+        },
+        include: {
+          materialLines: { include: { rawMaterial: true } },
+          packagingLines: { include: { packingMaterial: true } },
+        },
+      });
+
+      // Update Finished Product current manufacturing cost ONLY
+      // IMPORTANT: defaultSellingPrice is UNTOUCHED! Product ID and Product Code UNTOUCHED!
+      const updatedProduct = await tx.finishedProduct.update({
+        where: { id: product.id },
+        data: {
+          standardCost: dto.costPerUnit,
+        },
+        include: {
+          category: true,
+          packagingMaterial: true,
+          packSize: true,
+          baseUom: true,
+        },
+      });
+
+      return {
+        success: true,
+        product: updatedProduct,
+        costing: costingSnapshot,
+        version: nextVersion,
+        message: `Successfully applied Costing V${nextVersion} (PKR ${dto.costPerUnit}/pack) to "${updatedProduct.productName}"`,
+      };
+    });
+  }
+
+  /**
+   * Retrieves versioned costing history for a product
+   */
+  async getProductCostingHistory(finishedProductId: string) {
+    return this.prisma.productCosting.findMany({
+      where: { finishedProductId },
+      orderBy: { version: 'desc' },
+      include: {
+        materialLines: {
+          include: {
+            rawMaterial: { select: { id: true, materialCode: true, materialName: true } },
+          },
+        },
+        packagingLines: {
+          include: {
+            packingMaterial: { select: { id: true, materialCode: true, materialName: true } },
+          },
+        },
+      },
+    });
   }
 }

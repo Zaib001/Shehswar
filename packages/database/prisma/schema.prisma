@@ -1417,12 +1417,14 @@ model RawMaterial {
   grade                   String?           @db.VarChar(100)
   specifications          String?           @db.Text
   isHazardous             Boolean           @default(false)
+  urduName                String?           @db.VarChar(255)
   standardCost            Decimal?          @db.Decimal(18, 4)   // Reference only — not authoritative
   lastPurchaseCost        Decimal?          @db.Decimal(18, 4)
   averageCost             Decimal?          @db.Decimal(18, 4)
   hsCode                  String?           @db.VarChar(50)
   status                  String            @default("ACTIVE") @db.VarChar(50) // ACTIVE, INACTIVE, BLOCKED, ARCHIVED
   approvalStatus          String            @default("DRAFT") @db.VarChar(50) // DRAFT, PENDING_APPROVAL, APPROVED
+  customFields            Json?
   createdAt               DateTime          @default(now()) @db.Timestamptz(6)
   updatedAt               DateTime          @updatedAt @db.Timestamptz(6)
   deletedAt               DateTime?         @db.Timestamptz(6)
@@ -1434,6 +1436,7 @@ model RawMaterial {
   purchaseUom             UnitOfMeasure?    @relation("RawMatPurchaseUom", fields: [purchaseUomId], references: [id], onDelete: Restrict)
   formulaComponents       FormulaBomComponent[]
   qcSpecifications        QcSpecification[]
+  costingLines            ProductCostingMaterialLine[]
   purchaseInvoiceItems    PurchaseInvoiceItem[]
   purchaseReturnItems     PurchaseReturnItem[]
   warehouseStocks         WarehouseStock[]
@@ -1464,10 +1467,12 @@ model PackingMaterial {
   minimumStock          Decimal?          @db.Decimal(18, 4)
   maximumStock          Decimal?          @db.Decimal(18, 4)
   reorderLevel          Decimal?          @db.Decimal(18, 4)
+  urduName              String?           @db.VarChar(255)
   standardCost          Decimal?          @db.Decimal(18, 4)
   lastPurchaseCost      Decimal?          @db.Decimal(18, 4)
   status                String            @default("ACTIVE") @db.VarChar(50)
   approvalStatus        String            @default("DRAFT") @db.VarChar(50)
+  customFields          Json?
   createdAt             DateTime          @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime          @updatedAt @db.Timestamptz(6)
   deletedAt             DateTime?         @db.Timestamptz(6)
@@ -1478,6 +1483,8 @@ model PackingMaterial {
   baseUom               UnitOfMeasure?    @relation("PackMatBaseUom", fields: [baseUomId], references: [id], onDelete: Restrict)
   purchaseUom           UnitOfMeasure?    @relation("PackMatPurchaseUom", fields: [purchaseUomId], references: [id], onDelete: Restrict)
   formulaComponents     FormulaBomComponent[]
+  finishedProducts      FinishedProduct[] @relation("FpPackagingMaterial")
+  costingLines          ProductCostingPackagingLine[]
   purchaseInvoiceItems  PurchaseInvoiceItem[]
   purchaseReturnItems   PurchaseReturnItem[]
   warehouseStocks       WarehouseStock[]
@@ -1550,10 +1557,17 @@ model FinishedProduct {
   productCode          String          @db.VarChar(100)
   sku                  String?         @db.VarChar(100)
   productName          String          @db.VarChar(255)
+  urduName             String?         @db.VarChar(255)
   brand                String?         @db.VarChar(100)
   grade                String?         @db.VarChar(100)  // A-Grade, Premium, Standard
+  productType          String?         @db.VarChar(100)  // Pesticide, Fertilizer, Micronutrient, etc.
+  mType                String?         @db.VarChar(100)  // Insecticides, Herbicides, Weedicides, Fungicides, Fertilizers, Seeds, PGRs / Nutrients, Others
   fertilizerType       String?         @db.VarChar(100)  // Urea, DAP, NPK, SOP, etc.
   productForm          String?         @db.VarChar(50)   // GRANULAR, POWDER, LIQUID, PRILLED
+  packagingMaterialId  String?         @db.Uuid          // Physical packaging item (e.g. 2L HDPE Bottle)
+  packingQuantity      Decimal?        @db.Decimal(18, 4) // e.g. 2
+  packingUnit          String?         @db.VarChar(50)   // e.g. Liter
+  ppc                  Int?                              // Pack Per Carton
   bagWeight            Decimal?        @db.Decimal(18, 4)
   barcode              String?         @db.VarChar(100)
   batchControlled      Boolean         @default(true)
@@ -1561,11 +1575,12 @@ model FinishedProduct {
   shelfLifeDays        Int?
   minimumStock         Decimal?        @db.Decimal(18, 4)
   reorderLevel         Decimal?        @db.Decimal(18, 4)
-  standardCost         Decimal?        @db.Decimal(18, 4)   // Reference only
-  defaultSellingPrice  Decimal?        @db.Decimal(18, 4)   // Reference only
+  standardCost         Decimal?        @db.Decimal(18, 4)   // Current manufacturing cost per finished unit
+  defaultSellingPrice  Decimal?        @db.Decimal(18, 4)   // Base reference selling price
   hsCode               String?         @db.VarChar(50)
   status               String          @default("ACTIVE") @db.VarChar(50)
   approvalStatus       String          @default("DRAFT") @db.VarChar(50)
+  customFields         Json?
   createdAt            DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt            DateTime        @updatedAt @db.Timestamptz(6)
   deletedAt            DateTime?       @db.Timestamptz(6)
@@ -1574,8 +1589,10 @@ model FinishedProduct {
   company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
   category             ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   packSize             PackSize?       @relation(fields: [packSizeId], references: [id], onDelete: SetNull)
+  packagingMaterial    PackingMaterial? @relation("FpPackagingMaterial", fields: [packagingMaterialId], references: [id], onDelete: SetNull)
   baseUom              UnitOfMeasure?  @relation("FpBaseUom", fields: [baseUomId], references: [id], onDelete: Restrict)
   salesUom             UnitOfMeasure?  @relation("FpSalesUom", fields: [salesUomId], references: [id], onDelete: Restrict)
+  costings             ProductCosting[]
   formulaBoms          FormulaBom[]
   qcSpecifications     QcSpecification[]
   icPricingRules       IntercompanyPricingRule[]
@@ -1592,7 +1609,79 @@ model FinishedProduct {
   @@unique([companyId, productCode])
   @@index([organizationId])
   @@index([companyId])
+  @@index([packagingMaterialId])
   @@map("finished_products")
+}
+
+// ==========================================
+// PRODUCT COSTING ENGINE & VERSION SNAPSHOTS
+// ==========================================
+
+model ProductCosting {
+  id                   String                        @id @default(uuid()) @db.Uuid
+  organizationId       String                        @db.Uuid
+  companyId            String                        @db.Uuid
+  finishedProductId    String                        @db.Uuid
+  version              Int                           @default(1)
+  batchOutputQuantity  Decimal                       @db.Decimal(18, 4) // e.g. 100 bottles
+  packSize             Decimal                       @db.Decimal(18, 4) // e.g. 2 Liters
+  packSizeUnit         String?                       @db.VarChar(50)    // e.g. "Liter"
+  totalVolume          Decimal                       @db.Decimal(18, 4) // Output Qty * Pack Size
+  totalRawMaterialCost Decimal                       @db.Decimal(18, 2) // Sum of RM lines
+  totalPackagingCost   Decimal                       @db.Decimal(18, 2) // Sum of PM lines
+  totalBatchCost       Decimal                       @db.Decimal(18, 2) // RM + PM
+  costPerUnit          Decimal                       @db.Decimal(18, 2) // Total Batch Cost / Output Qty
+  previousCost         Decimal?                      @db.Decimal(18, 2) // Cost before this snapshot
+  costDifference       Decimal?                      @db.Decimal(18, 2) // New - Prev
+  costDifferencePct    Decimal?                      @db.Decimal(5, 2)  // ((New - Prev)/Prev)*100
+  notes                String?                       @db.Text
+  status               String                        @default("ACTIVE") @db.VarChar(50) // ACTIVE | SUPERSEDED | ARCHIVED
+  createdById          String?                       @db.Uuid
+  createdAt            DateTime                      @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime                      @updatedAt @db.Timestamptz(6)
+
+  finishedProduct      FinishedProduct               @relation(fields: [finishedProductId], references: [id], onDelete: Restrict)
+  materialLines        ProductCostingMaterialLine[]
+  packagingLines       ProductCostingPackagingLine[]
+
+  @@unique([companyId, finishedProductId, version])
+  @@index([finishedProductId])
+  @@index([companyId, status])
+  @@map("product_costings")
+}
+
+model ProductCostingMaterialLine {
+  id             String         @id @default(uuid()) @db.Uuid
+  costingId      String         @db.Uuid
+  rawMaterialId  String         @db.Uuid
+  quantity       Decimal        @db.Decimal(18, 4)
+  unitCost       Decimal        @db.Decimal(18, 4) // Procurement rate at time of costing
+  totalCost      Decimal        @db.Decimal(18, 2) // quantity * unitCost
+  uomName        String?        @db.VarChar(50)
+
+  costing        ProductCosting @relation(fields: [costingId], references: [id], onDelete: Cascade)
+  rawMaterial    RawMaterial    @relation(fields: [rawMaterialId], references: [id], onDelete: Restrict)
+
+  @@index([costingId])
+  @@index([rawMaterialId])
+  @@map("product_costing_material_lines")
+}
+
+model ProductCostingPackagingLine {
+  id                String          @id @default(uuid()) @db.Uuid
+  costingId         String          @db.Uuid
+  packingMaterialId String          @db.Uuid
+  quantity          Decimal         @db.Decimal(18, 4)
+  unitCost          Decimal         @db.Decimal(18, 4) // Procurement rate at time of costing
+  totalCost         Decimal         @db.Decimal(18, 2) // quantity * unitCost
+  uomName           String?         @db.VarChar(50)
+
+  costing           ProductCosting  @relation(fields: [costingId], references: [id], onDelete: Cascade)
+  packingMaterial   PackingMaterial @relation(fields: [packingMaterialId], references: [id], onDelete: Restrict)
+
+  @@index([costingId])
+  @@index([packingMaterialId])
+  @@map("product_costing_packaging_lines")
 }
 
 // ==========================================
