@@ -433,9 +433,9 @@ export class PricingService {
   /**
    * Retrieve single Rate List with full version and item details
    */
-  async getRateListById(id: string, companyId: string) {
-    const rateList = await this.prisma.rateList.findFirst({
-      where: { id, companyId },
+  async getRateListById(id: string, companyId?: string) {
+    let rateList = await this.prisma.rateList.findFirst({
+      where: companyId ? { id, companyId } : { id },
       include: {
         scheme: {
           include: { schemeTypeRef: true },
@@ -468,6 +468,43 @@ export class PricingService {
         },
       },
     });
+
+    if (!rateList && companyId) {
+      rateList = await this.prisma.rateList.findFirst({
+        where: { id },
+        include: {
+          scheme: {
+            include: { schemeTypeRef: true },
+          },
+          versions: {
+            orderBy: { versionNumber: 'desc' },
+            include: {
+              items: {
+                include: {
+                  finishedProduct: {
+                    select: {
+                      id: true,
+                      productCode: true,
+                      productName: true,
+                      defaultSellingPrice: true,
+                      standardCost: true,
+                      category: { select: { name: true } },
+                      packagingMaterial: { select: { materialName: true } },
+                      packSize: { select: { name: true } },
+                      salesUom: { select: { code: true } },
+                      packingQuantity: true,
+                      packingUnit: true,
+                    },
+                  },
+                  packSize: { select: { id: true, code: true, name: true } },
+                },
+                orderBy: { finishedProduct: { productName: 'asc' } },
+              },
+            },
+          },
+        },
+      });
+    }
 
     if (!rateList) throw new NotFoundException('Rate list not found');
     return rateList;
@@ -533,7 +570,7 @@ export class PricingService {
       }
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const createdRateList = await this.prisma.$transaction(async (tx) => {
       const rateList = await tx.rateList.create({
         data: {
           id: uuidv7(),
@@ -614,8 +651,10 @@ export class PricingService {
       }
 
       this.logger.log(`Rate list created: ${rateList.code} (${rateList.name}) for scheme ${schemeName || 'None'} by ${actor.email}`);
-      return this.getRateListById(rateList.id, companyId);
+      return rateList;
     });
+
+    return this.getRateListById(createdRateList.id, companyId);
   }
 
   /**
@@ -660,7 +699,7 @@ export class PricingService {
     const effectiveFrom = new Date(dto.effectiveFrom);
     const effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : null;
 
-    return this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // Deactivate older overlapping active versions
       await tx.rateListVersion.updateMany({
         where: { rateListId: rateList.id, status: 'ACTIVE' },
@@ -723,8 +762,9 @@ export class PricingService {
       }
 
       this.logger.log(`Created Version ${nextVersionNumber} for Rate List ${rateList.code}`);
-      return this.getRateListById(rateList.id, actor.companyId);
     });
+
+    return this.getRateListById(rateList.id, actor.companyId);
   }
 
   /**

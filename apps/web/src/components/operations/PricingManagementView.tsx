@@ -717,6 +717,7 @@ export const PricingManagementView: React.FC = () => {
           category: p.category,
           packagingMaterial: p.packagingMaterial,
           packSize: p.packSize,
+          packSizeId: p.packSizeId || null,
           unit: p.unit || 'Unit',
           baseRate,
           schemeRate,
@@ -933,6 +934,7 @@ export const PricingManagementView: React.FC = () => {
         notes: rateListForm.notes,
         items: rateListItems.map((it) => ({
           finishedProductId: it.finishedProductId,
+          packSizeId: it.packSizeId || null,
           baseRate: it.baseRate,
           schemeRate: it.schemeRate,
           discountPercent: it.discountPercent,

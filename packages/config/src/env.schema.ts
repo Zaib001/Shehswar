@@ -27,12 +27,12 @@ export const envSchema = z.object({
     .string()
     .min(32)
     .default('shehswar_enterprise_jwt_access_super_secret_key_2026'),
-  JWT_ACCESS_EXPIRATION: z.string().default('15m'),
+  JWT_ACCESS_EXPIRATION: z.string().default('30d'),
   JWT_REFRESH_SECRET: z
     .string()
     .min(32)
     .default('shehswar_enterprise_jwt_refresh_super_secret_key_2026'),
-  JWT_REFRESH_EXPIRATION: z.string().default('7d'),
+  JWT_REFRESH_EXPIRATION: z.string().default('30d'),
   PASSWORD_SALT_ROUNDS: z.coerce.number().default(12),
 
   // Storage Abstraction (S3 / Cloudflare R2 / MinIO / Local)

@@ -41,6 +41,16 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('expired') === '1') {
+        setIsSessionExpired(true);
+      }
+    }
+  }, []);
 
   // If already authenticated, redirect to root dashboard
   useEffect(() => {
@@ -206,6 +216,27 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent style={{ padding: '0 24px 24px 24px' }}>
+            {isSessionExpired && !errorMessage && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'rgba(234, 179, 8, 0.12)',
+                  border: '1px solid rgba(234, 179, 8, 0.35)',
+                  color: '#eab308',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  marginBottom: '18px',
+                }}
+              >
+                <IconAlertTriangle size={18} style={{ flexShrink: 0 }} />
+                <span>Your session has expired (30-day login period ended). Please sign in again.</span>
+              </div>
+            )}
+
             {errorMessage && (
               <div
                 style={{

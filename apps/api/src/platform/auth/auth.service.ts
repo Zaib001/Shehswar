@@ -121,8 +121,8 @@ export class AuthService {
       ? String(meta.userAgent).slice(0, 490)
       : undefined;
 
-    // Create active session atomically with real unique tokenHash
-    const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    // Create active session atomically with real unique tokenHash (30 days login duration)
+    const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await this.prisma.userSession.create({
       data: {
         id: sessionId,
@@ -146,7 +146,7 @@ export class AuthService {
     }
     const permissions = Array.from(permissionsSet);
 
-    // Sign Access Token (short-lived: 15m)
+    // Sign Access Token (30 days duration)
     const accessPayload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -166,7 +166,7 @@ export class AuthService {
       tokens: {
         accessToken,
         refreshToken,
-        expiresIn: 900, // 15 mins in seconds
+        expiresIn: 30 * 24 * 60 * 60, // 30 days in seconds (2,592,000s)
         tokenType: 'Bearer',
       },
       user: {
@@ -302,20 +302,22 @@ export class AuthService {
       },
     );
 
-    // Update session with new hashed token
+    // Update session with new hashed token and extend expiration by 30 days
     const newTokenHash = await bcrypt.hash(newRefreshToken, 8);
+    const extendedExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await this.prisma.userSession.update({
       where: { id: session.id },
       data: {
         tokenHash: newTokenHash,
         lastActiveAt: new Date(),
+        expiresAt: extendedExpiresAt,
       },
     });
 
     return {
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-      expiresIn: 900,
+      expiresIn: 30 * 24 * 60 * 60, // 30 days in seconds (2,592,000s)
       tokenType: 'Bearer',
     };
   }

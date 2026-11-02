@@ -6,6 +6,31 @@
  */
 import { ApiResponse, PaginatedResponse } from '@shehswar/types';
 
+/**
+ * Checks if a JWT token has reached or passed its expiration timestamp.
+ */
+export function isJwtExpired(token: string | null): boolean {
+  if (!token) return true;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || !parts[1]) return true;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const parsed = JSON.parse(jsonPayload);
+    if (!parsed.exp) return false;
+    // Current time in seconds vs token exp
+    return Math.floor(Date.now() / 1000) >= parsed.exp;
+  } catch {
+    return true;
+  }
+}
+
 export class ApiClient {
   private static get baseUrl(): string {
     const envUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -31,6 +56,25 @@ export class ApiClient {
       : 'http://localhost:4000';
   }
 
+  /**
+   * Cleans invalid/expired credentials and redirects browser to login page
+   */
+  public static handleUnauthorized(path?: string) {
+    if (typeof window === 'undefined') return;
+    if (path && path.includes('/auth/login')) return;
+
+    localStorage.removeItem('shehswar_token');
+    localStorage.removeItem('shehswar_refresh_token');
+    localStorage.removeItem('shehswar_active_company');
+    localStorage.removeItem('shehswar_active_company_name');
+
+    window.dispatchEvent(new CustomEvent('shehswar:auth:expired'));
+
+    if (window.location.pathname !== '/login') {
+      window.location.href = '/login?expired=1';
+    }
+  }
+
   private static getHeaders(customHeaders?: Record<string, string>): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -42,7 +86,11 @@ export class ApiClient {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('shehswar_token');
       if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+        if (isJwtExpired(token)) {
+          this.handleUnauthorized();
+        } else {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
       }
       const activeCompanyId = localStorage.getItem('shehswar_active_company');
       if (activeCompanyId) {
@@ -61,6 +109,9 @@ export class ApiClient {
 
     const body = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(body.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return body;
@@ -79,6 +130,9 @@ export class ApiClient {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(data.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return data;
@@ -97,6 +151,9 @@ export class ApiClient {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(data.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return data;
@@ -115,6 +172,9 @@ export class ApiClient {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(data.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return data;
@@ -131,6 +191,9 @@ export class ApiClient {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(data.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return data;
@@ -147,6 +210,9 @@ export class ApiClient {
 
     const body = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       throw new Error(body.error?.message || `HTTP ${res.status}: ${res.statusText}`);
     }
     return body;
@@ -172,12 +238,18 @@ export class ApiClient {
       data = await res.json();
     } catch {
       if (!res.ok) {
+        if (res.status === 401) {
+          this.handleUnauthorized(path);
+        }
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
       return { success: true, data: undefined as any, meta: {} as any };
     }
 
     if (!res.ok) {
+      if (res.status === 401) {
+        this.handleUnauthorized(path);
+      }
       const errMsg =
         data?.error?.message ||
         data?.message ||
