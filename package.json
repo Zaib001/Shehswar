@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "prisma": "^5.20.0",
-    "turbo": "^2.1.2"
+    "turbo": "^2.1.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

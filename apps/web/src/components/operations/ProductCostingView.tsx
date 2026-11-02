@@ -634,6 +634,19 @@ export const ProductCostingView: React.FC = () => {
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                  Batch Output Quantity (Units) *
+                </label>
+                <Input
+                  type="number"
+                  value={batchOutputQuantity}
+                  onChange={(e) => setBatchOutputQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  placeholder="e.g. 100"
+                  style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                   Base Commercial Price (PKR)
                 </label>
                 <Input
@@ -643,6 +656,13 @@ export const ProductCostingView: React.FC = () => {
                   placeholder="e.g. 2800"
                   style={{ fontFamily: 'var(--font-mono, monospace)' }}
                 />
+              </div>
+
+              <div style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: '0.72rem', color: '#64748B', display: 'block' }}>Total Production Volume:</span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#2563EB', fontFamily: 'var(--font-mono, monospace)' }}>
+                  {totalVolume} {newPackUnit}s
+                </span>
               </div>
             </div>
           )}

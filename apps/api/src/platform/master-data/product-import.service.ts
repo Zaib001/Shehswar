@@ -1,10 +1,13 @@
 /**
  * SHEHSWAR ONE360 - Dynamic Product Import Service
  *
- * Implements flexible document/file import without requiring a fixed rigid template.
- * - Parses CSV, TSV, JSON, or tabular/structured text
- * - Automatically detects headers & records
- * - Normalizes known fields (Name, Code, Type, MType, Pack Size, Unit, Price)
+ * Implements flexible document/file import without requiring a rigid single template.
+ * - Parses CSV, TSV, JSON, Excel (.xlsx/.xls)
+ * - Automatically detects table header row (skips leading blanks/titles)
+ * - Detects inline section headers (e.g. Insecticides, Herbicides, Fungicides, Nutrients)
+ * - Extracts embedded pack sizes from product name (e.g. 1000ml -> 1000 ML, 250gm -> 250 GM)
+ * - Extracts PPC from "1×30", "1x12", etc.
+ * - Extracts commercial seasonal rates/prices
  * - Preserves ALL unknown fields in `customFields` JSON
  * - Pre-import duplicate check with options: SKIP, UPDATE, CREATE_NEW
  */
@@ -12,6 +15,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CodeGenerationService } from '../code-generation/code-generation.service';
 import { AuthUser } from '@shehswar/types';
+import * as XLSX from 'xlsx';
 
 export interface ImportPreviewRecord {
   tempId: string;
@@ -46,7 +50,7 @@ export class ProductImportService {
   ) {}
 
   /**
-   * Parses file content (CSV/TSV/JSON or delimited text) and generates an interactive preview
+   * Parses file content (CSV/TSV/Excel/JSON) and generates an interactive preview
    */
   async generateImportPreview(
     fileContent: string,
@@ -63,12 +67,12 @@ export class ProductImportService {
       throw new BadRequestException('Uploaded file is empty');
     }
 
-    const rows = this.parseRawContent(fileContent);
-    if (rows.length === 0 || !rows[0]) {
-      throw new BadRequestException('No product rows could be detected in the uploaded file');
+    // Convert file content to rows using intelligent parser
+    const { rows, headers } = await this.parseRawContent(fileContent, fileName);
+    if (rows.length === 0) {
+      throw new BadRequestException('No product records could be detected in the uploaded file');
     }
 
-    const detectedHeaders = Object.keys(rows[0] || {});
     const previewRecords: ImportPreviewRecord[] = [];
 
     // Pre-fetch existing finished products for duplicate checking
@@ -88,17 +92,11 @@ export class ProductImportService {
     let duplicateCount = 0;
 
     for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!row) continue;
-      const normalized = this.normalizeRow(row);
+      const rec = rows[i];
+      if (!rec || !rec.productName) continue;
 
-      if (!normalized.productName) {
-        continue; // Skip blank or header rows without a name
-      }
-
-      // Check duplicates by code or name
-      const cleanName = normalized.productName.trim().toLowerCase();
-      const cleanCode = (normalized.productCode || '').trim().toLowerCase();
+      const cleanName = rec.productName.trim().toLowerCase();
+      const cleanCode = (rec.productCode || '').trim().toLowerCase();
 
       let match = cleanCode ? existingCodeMap.get(cleanCode) : undefined;
       if (!match) {
@@ -114,19 +112,19 @@ export class ProductImportService {
         duplicateAction: isDuplicate ? 'SKIP' : 'CREATE_NEW',
         existingRecordId: match?.id,
         existingProductCode: match?.code,
-        productCode: normalized.productCode,
-        productName: normalized.productName,
-        urduName: normalized.urduName,
-        productType: normalized.productType,
-        mType: normalized.mType,
-        packSizeQuantity: normalized.packSizeQuantity,
-        packSizeUnit: normalized.packSizeUnit,
-        ppc: normalized.ppc,
-        baseSellingPrice: normalized.baseSellingPrice,
-        brand: normalized.brand,
-        grade: normalized.grade,
-        unknownFields: normalized.unknownFields,
-        rawRow: row,
+        productCode: rec.productCode,
+        productName: rec.productName,
+        urduName: rec.urduName,
+        productType: rec.productType || 'Standard',
+        mType: rec.mType || 'Insecticides',
+        packSizeQuantity: rec.packSizeQuantity || 1,
+        packSizeUnit: rec.packSizeUnit || 'Liter',
+        ppc: rec.ppc || 1,
+        baseSellingPrice: rec.baseSellingPrice || 0,
+        brand: rec.brand || 'Shehswar Agro',
+        grade: rec.grade || 'Standard',
+        unknownFields: rec.unknownFields || {},
+        rawRow: rec.rawRow || {},
       });
     }
 
@@ -134,21 +132,53 @@ export class ProductImportService {
       fileName,
       totalDetected: previewRecords.length,
       duplicateCount,
-      detectedHeaders,
+      detectedHeaders: headers,
       records: previewRecords,
     };
   }
 
   /**
-   * Confirms import of reviewed records
+   * Confirms and atomically saves the previewed records into FinishedProduct master table
    */
   async confirmImport(
     records: ImportPreviewRecord[],
-    categoryId: string,
+    targetCategoryId: string | undefined,
     user: AuthUser,
-  ) {
-    const companyId = user.companyId;
-    const organizationId = user.organizationId;
+  ): Promise<{
+    success: boolean;
+    createdCount: number;
+    updatedCount: number;
+    skippedCount: number;
+    totalProcessed: number;
+    message: string;
+  }> {
+    if (!records || records.length === 0) {
+      throw new BadRequestException('No records provided for import');
+    }
+
+    let companyId = user.companyId || '';
+    let organizationId = user.organizationId || '';
+
+    if (!companyId || !organizationId) {
+      const defaultCompany = await this.prisma.company.findFirst({ select: { id: true, organizationId: true } });
+      if (defaultCompany) {
+        companyId = companyId || defaultCompany.id;
+        organizationId = organizationId || defaultCompany.organizationId;
+      }
+    }
+
+    // Resolve default category if not provided
+    let categoryId = targetCategoryId;
+    if (!categoryId) {
+      const defaultCat = await this.prisma.productCategory.findFirst({
+        where: organizationId ? { organizationId, code: '41-01' } : { code: '41-01' },
+      });
+      categoryId = defaultCat?.id;
+      if (!categoryId) {
+        const anyCat = await this.prisma.productCategory.findFirst();
+        categoryId = anyCat?.id;
+      }
+    }
 
     let createdCount = 0;
     let updatedCount = 0;
@@ -223,137 +253,237 @@ export class ProductImportService {
   }
 
   /**
-   * Heuristic Parser: detects CSV, TSV, or JSON lines without rigid fixed structure
+   * Robust parser: converts CSV, TSV, PDF, or spreadsheet content into normalized records
    */
-  private parseRawContent(raw: string): Record<string, string>[] {
-    const trimmed = raw.trim();
+  private async parseRawContent(raw: string, fileName?: string): Promise<{ rows: any[]; headers: string[] }> {
+    let content = raw.trim();
+    const lowerFileName = (fileName || '').toLowerCase();
 
-    // Check if JSON array
-    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    // 1. Check if base64 XLSX/XLS or binary buffer string
+    if (
+      lowerFileName.endsWith('.xlsx') ||
+      lowerFileName.endsWith('.xls') ||
+      content.startsWith('UEsDB')
+    ) {
       try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) return parsed;
+        const buffer = Buffer.from(content, 'base64');
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (firstSheetName) {
+          const sheet = workbook.Sheets[firstSheetName];
+          if (sheet) {
+            content = XLSX.utils.sheet_to_csv(sheet);
+          }
+        }
       } catch (e) {
-        // Fall back to line-based parsing
+        // Fall back to text parsing if already converted
+      }
+    } else if (
+      lowerFileName.endsWith('.pdf') ||
+      content.startsWith('JVBER')
+    ) {
+      // 2. Check if base64 PDF
+      try {
+        const buffer = Buffer.from(content, 'base64');
+        const pdfModule = require('pdf-parse');
+        const parser = new pdfModule.PDFParse({ data: buffer });
+        await parser.load();
+        const extracted = await parser.getText();
+        await parser.destroy();
+        if (extracted && extracted.trim()) {
+          content = extracted;
+        }
+      } catch (e) {
+        // Fall back to text parsing if already extracted
       }
     }
 
-    const lines = trimmed.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2 || !lines[0]) return [];
+    const lines = content.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (lines.length < 2) return { rows: [], headers: [] };
 
-    // Detect delimiter: comma, tab, semicolon, pipe
-    const firstLine = lines[0];
-    let delimiter = ',';
-    if (firstLine.includes('\t')) delimiter = '\t';
-    else if (firstLine.includes(';') && !firstLine.includes(',')) delimiter = ';';
-    else if (firstLine.includes('|')) delimiter = '|';
+    // 1. Detect Header Row: find first line that contains product/item/name
+    let headerIndex = -1;
+    let headers: string[] = [];
 
-    const headers = this.parseCsvLine(firstLine, delimiter).map((h) =>
-      h.trim().replace(/^["']|["']$/g, ''),
-    );
-
-    const rows: Record<string, string>[] = [];
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = 0; i < Math.min(lines.length, 15); i++) {
       const lineStr = lines[i];
       if (!lineStr) continue;
-      const values = this.parseCsvLine(lineStr, delimiter);
-      if (values.length === 0) continue;
-      const row: Record<string, string> = {};
-      for (let j = 0; j < headers.length; j++) {
-        const header = headers[j] || `Col_${j + 1}`;
-        row[header] = (values[j] || '').trim().replace(/^["']|["']$/g, '');
+      const rawTokens = this.parseCsvTokens(lineStr);
+      const lowerTokens = rawTokens.map((t) => t.toLowerCase().trim());
+
+      if (lowerTokens.some((t) => t.includes('product') || t.includes('item') || (t.includes('name') && !t.includes('company')))) {
+        headerIndex = i;
+        headers = rawTokens.map((t) => t.trim());
+        break;
       }
-      rows.push(row);
     }
 
-    return rows;
+    // Fallback: If no header found, use line 0
+    if (headerIndex === -1 && lines[0]) {
+      headerIndex = 0;
+      headers = this.parseCsvTokens(lines[0]).map((t) => t.trim());
+    }
+
+    // 2. Identify column index roles
+    let productColIdx = -1;
+    let compositionColIdx = -1;
+    let ppcColIdx = -1;
+    let rateColIdx = -1;
+    let codeColIdx = -1;
+    let urduColIdx = -1;
+    let srColIdx = -1;
+
+    headers.forEach((h, idx) => {
+      const l = h.toLowerCase().replace(/[^a-z0-9#]/g, '');
+      if (l.includes('product') || l.includes('itemname') || l.includes('title')) productColIdx = idx;
+      else if (l.includes('composition') || l.includes('formula') || l.includes('chemical')) compositionColIdx = idx;
+      else if (l.includes('packincarton') || l.includes('carton') || l.includes('ppc')) ppcColIdx = idx;
+      else if (l.includes('rate') || l.includes('price') || l.includes('sellingprice')) rateColIdx = idx;
+      else if (l.includes('code') || l.includes('sku')) codeColIdx = idx;
+      else if (l.includes('urdu')) urduColIdx = idx;
+      else if (l.includes('sr#') || l.includes('sr') || l === 'no') srColIdx = idx;
+    });
+
+    // Fallback for product column: first non-empty column that isn't Sr#
+    if (productColIdx === -1) {
+      productColIdx = srColIdx === 0 ? 1 : (srColIdx === 1 ? 2 : 1);
+    }
+
+    let currentMType = 'Insecticides';
+    const rows: any[] = [];
+
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      const lineStr = lines[i];
+      if (!lineStr) continue;
+      const tokens = this.parseCsvTokens(lineStr);
+
+      const nonEmpty = tokens.filter((t) => t.trim().length > 0);
+      if (nonEmpty.length === 0) continue;
+
+      const firstNonEmpty = (nonEmpty[0] || '').toLowerCase().trim();
+
+      // Skip notes / footers
+      if (
+        firstNonEmpty.startsWith('note:') ||
+        firstNonEmpty.includes('discount policy') ||
+        firstNonEmpty.includes('rate list is effective') ||
+        firstNonEmpty.includes('all the rights') ||
+        firstNonEmpty.includes('not applicable') ||
+        firstNonEmpty.includes('confrom avaliable') ||
+        firstNonEmpty.includes('confirm available')
+      ) {
+        continue;
+      }
+
+      // Detect Category Section Headers (e.g. ",Incesticides ,,,,", ",Gernal Herbicides ,,,,", ",Rice Herbicides ,,,,", ",Fungicides ,,,,", ",Granules ,,,,", ",Nutrients ,,,,")
+      if (
+        nonEmpty.length === 1 ||
+        (nonEmpty.length === 2 && isNaN(Number(nonEmpty[0])) && isNaN(Number(nonEmpty[1])))
+      ) {
+        const title = nonEmpty[0] || '';
+        const lower = title.toLowerCase();
+        if (lower.includes('insecticide') || lower.includes('incesticide')) currentMType = 'Insecticides';
+        else if (lower.includes('herbicide')) currentMType = 'Herbicides';
+        else if (lower.includes('fungicide')) currentMType = 'Fungicides';
+        else if (lower.includes('fertilizer') || lower.includes('nutrient')) currentMType = 'Fertilizers';
+        else if (lower.includes('seed')) currentMType = 'Seeds';
+        else if (lower.includes('granule')) currentMType = 'Insecticides';
+        else if (title.trim().length > 3) currentMType = title.trim();
+        continue;
+      }
+
+      // Extract Product Name
+      const rawProductName = (tokens[productColIdx] || '').trim();
+      if (!rawProductName) continue;
+
+      // Extract Selling Price
+      let rawPrice = (tokens[rateColIdx] || '').trim().replace(/[^0-9.]/g, '');
+      const baseSellingPrice = rawPrice ? parseFloat(rawPrice) : 0;
+
+      // Extract PPC from "1×30", "1x12", etc.
+      let ppc = 1;
+      const rawPpc = (tokens[ppcColIdx] || '').trim();
+      const ppcMatch = rawPpc.match(/(?:1\s*[×xX*]\s*)?(\d+)/);
+      if (ppcMatch && ppcMatch[1]) {
+        ppc = parseInt(ppcMatch[1], 10);
+      }
+
+      // Extract Pack Size Quantity & Unit from product name (e.g. "Abamectin 1000ml", "Acephate 250gm", "Good Luck 10ltr", "Gladiator 8Kg", "Croter 200 ml")
+      let packSizeQuantity = 1;
+      let packSizeUnit = 'Liter';
+
+      const packSizeRegex = /(\d+(?:\.\d+)?)\s*(ml|l|ltr|liter|litr|gm|g|gram|kg|kilo|pack)\b/i;
+      const packMatch = rawProductName.match(packSizeRegex);
+      if (packMatch && packMatch[1] && packMatch[2]) {
+        packSizeQuantity = parseFloat(packMatch[1]);
+        const rawUnit = packMatch[2].toLowerCase();
+        if (rawUnit === 'ml') packSizeUnit = 'ML';
+        else if (rawUnit === 'l' || rawUnit === 'ltr' || rawUnit === 'liter' || rawUnit === 'litr') packSizeUnit = 'Liter';
+        else if (rawUnit === 'kg' || rawUnit === 'kilo') packSizeUnit = 'KG';
+        else if (rawUnit === 'gm' || rawUnit === 'g' || rawUnit === 'gram') packSizeUnit = 'GM';
+        else packSizeUnit = 'Pack';
+      }
+
+      // Collect raw and unknown fields
+      const unknownFields: Record<string, any> = {};
+      const rawRow: Record<string, any> = {};
+
+      headers.forEach((h, idx) => {
+        const val = (tokens[idx] || '').trim();
+        if (h) rawRow[h] = val;
+        if (idx !== productColIdx && idx !== rateColIdx && idx !== ppcColIdx && idx !== codeColIdx && idx !== urduColIdx && val) {
+          unknownFields[h] = val;
+        }
+      });
+
+      if (compositionColIdx !== -1 && tokens[compositionColIdx]) {
+        unknownFields['Composition'] = (tokens[compositionColIdx] || '').trim();
+      }
+
+      rows.push({
+        productCode: codeColIdx !== -1 ? tokens[codeColIdx]?.trim() : undefined,
+        productName: rawProductName,
+        urduName: urduColIdx !== -1 ? tokens[urduColIdx]?.trim() : undefined,
+        productType: currentMType === 'Insecticides' && rawProductName.toLowerCase().includes('gr') ? 'Granules' : 'Standard',
+        mType: currentMType,
+        packSizeQuantity,
+        packSizeUnit,
+        ppc,
+        baseSellingPrice,
+        brand: 'Shehswar Agro',
+        grade: 'Standard',
+        unknownFields,
+        rawRow,
+      });
+    }
+
+    return { rows, headers: headers.filter((h) => h && h.length > 0) };
   }
 
-  private parseCsvLine(line: string, delimiter: string): string[] {
-    const values: string[] = [];
-    let current = '';
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"' || char === "'") {
-        inQuotes = !inQuotes;
-      } else if (char === delimiter && !inQuotes) {
-        values.push(current);
-        current = '';
-      } else {
-        current += char;
+  private parseCsvTokens(line: string): string[] {
+    if (line.includes(',')) {
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+          inQuotes = !inQuotes;
+        } else if (c === ',' && !inQuotes) {
+          values.push(current);
+          current = '';
+        } else {
+          current += c;
+        }
       }
-    }
-    values.push(current);
-    return values;
-  }
-
-  /**
-   * Intelligently maps fuzzy header names to standard fields, preserving unknown fields
-   */
-  private normalizeRow(row: Record<string, any>) {
-    const unknownFields: Record<string, any> = {};
-
-    let productCode: string | undefined;
-    let productName: string | undefined;
-    let urduName: string | undefined;
-    let productType: string | undefined;
-    let mType: string | undefined;
-    let packSizeQuantity: number | undefined;
-    let packSizeUnit: string | undefined;
-    let ppc: number | undefined;
-    let baseSellingPrice: number | undefined;
-    let brand: string | undefined;
-    let grade: string | undefined;
-
-    for (const [key, value] of Object.entries(row)) {
-      const cleanKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      if (['productcode', 'code', 'itemcode', 'skucode', 'sku'].includes(cleanKey)) {
-        productCode = String(value).trim();
-      } else if (['productname', 'itemname', 'name', 'title', 'account', 'product'].includes(cleanKey)) {
-        productName = String(value).trim();
-      } else if (['urduname', 'urdu', 'localname', 'urduaccount'].includes(cleanKey)) {
-        urduName = String(value).trim();
-      } else if (['producttype', 'type', 'itemtype'].includes(cleanKey)) {
-        productType = String(value).trim();
-      } else if (['mtype', 'classification', 'categorygroup', 'group'].includes(cleanKey)) {
-        mType = String(value).trim();
-      } else if (['packsize', 'packing', 'size', 'packquantity', 'packsizequantity', 'qty'].includes(cleanKey)) {
-        const num = parseFloat(String(value).replace(/[^0-9.]/g, ''));
-        if (!isNaN(num)) packSizeQuantity = num;
-      } else if (['unit', 'packingunit', 'uom', 'packunit', 'baseunit'].includes(cleanKey)) {
-        packSizeUnit = String(value).trim();
-      } else if (['ppc', 'packpercarton', 'bottlespercarton', 'cartonqty'].includes(cleanKey)) {
-        const num = parseInt(String(value).replace(/[^0-9]/g, ''), 10);
-        if (!isNaN(num)) ppc = num;
-      } else if (['price', 'sellingprice', 'basesellingprice', 'rate', 'defaultprice'].includes(cleanKey)) {
-        const num = parseFloat(String(value).replace(/[^0-9.]/g, ''));
-        if (!isNaN(num)) baseSellingPrice = num;
-      } else if (['brand', 'companyname'].includes(cleanKey)) {
-        brand = String(value).trim();
-      } else if (['grade', 'quality'].includes(cleanKey)) {
-        grade = String(value).trim();
-      } else {
-        // Unknown field — DO NOT DISCARD! Preserve in flexible customFields!
-        unknownFields[key] = value;
-      }
+      values.push(current);
+      return values;
     }
 
-    return {
-      productCode,
-      productName: productName || '',
-      urduName,
-      productType,
-      mType,
-      packSizeQuantity,
-      packSizeUnit,
-      ppc,
-      baseSellingPrice,
-      brand,
-      grade,
-      unknownFields,
-    };
+    if (line.includes('\t')) {
+      return line.split('\t').map((s) => s.trim());
+    }
+
+    return line.split(/\s{2,}/).map((s) => s.trim());
   }
 }

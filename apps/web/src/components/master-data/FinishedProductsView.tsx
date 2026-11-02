@@ -41,7 +41,7 @@ import {
   IconTrendingUp,
   IconBuilding,
 } from '../icons';
-import { UnifiedAddItemModal } from './UnifiedAddItemModal';
+import { AddFinishedProductModal } from './AddFinishedProductModal';
 import { ProductImportModal } from './ProductImportModal';
 
 interface FinishedProductItem {
@@ -467,7 +467,7 @@ export const FinishedProductsView: React.FC = () => {
             onClick={() => setIsAddItemOpen(true)}
             style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
           >
-            + Add Item
+            + Add Product
           </Button>
         </div>
       }
@@ -714,11 +714,11 @@ export const FinishedProductsView: React.FC = () => {
         </Modal>
       )}
 
-      {/* Unified Add Item Modal */}
-      <UnifiedAddItemModal
+      {/* Dedicated Add Finished Product Modal */}
+      <AddFinishedProductModal
         isOpen={isAddItemOpen}
         onClose={() => setIsAddItemOpen(false)}
-        onItemCreated={() => {
+        onProductCreated={() => {
           setIsAddItemOpen(false);
           loadData();
         }}

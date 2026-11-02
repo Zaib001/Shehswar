@@ -41,12 +41,25 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
     if (!file) return;
 
     setFileName(file.name);
+    const lower = file.name.toLowerCase();
+    const isBinary = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.pdf');
+
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setFileContent(text || '');
+      const result = event.target?.result as string;
+      if (isBinary) {
+        const base64 = result.includes('base64,') ? result.split('base64,')[1] : result;
+        setFileContent(base64 || '');
+      } else {
+        setFileContent(result || '');
+      }
     };
-    reader.readAsText(file);
+
+    if (isBinary) {
+      reader.readAsDataURL(file);
+    } else {
+      reader.readAsText(file);
+    }
   };
 
   const handleParseAndPreview = async () => {
@@ -181,7 +194,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             <input
               type="file"
               id="product-file-input"
-              accept=".csv,.txt,.json,.tsv,.xlsx"
+              accept=".csv,.txt,.json,.tsv,.xlsx,.xls,.pdf"
               onChange={handleFileUpload}
               style={{ display: 'none' }}
             />
@@ -201,10 +214,10 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
                 <IconDownload size={22} />
               </div>
               <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0F172A' }}>
-                {fileName ? fileName : 'Click to select CSV, TSV, or spreadsheet'}
+                {fileName ? fileName : 'Click to select Excel (.xlsx, .xls), PDF, or CSV'}
               </span>
               <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                Any tabular supplier layout accepted. Unknown headers are preserved in customFields JSON.
+                Auto-detects categories, embedded pack sizes, carton PPC, and seasonal rates. Unknown columns preserved.
               </span>
             </label>
           </div>
@@ -215,7 +228,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             </label>
             <textarea
               rows={5}
-              placeholder="Product Name, Pack Size, Unit, Selling Price, PPC, Grade, Special Lot..."
+              placeholder="Sr#, Product, Composition, Pack In Carton, Seasonal Rate..."
               value={fileContent}
               onChange={(e) => setFileContent(e.target.value)}
               style={{
@@ -240,7 +253,7 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
               <span style={{ fontSize: '0.72rem', color: '#64748B' }}>Total Detected</span>
               <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0F172A', margin: '4px 0 0 0' }}>
-                {previewData?.totalDetected || 0} Records
+                {previewData?.totalDetected || records.length || 0} Products
               </p>
             </div>
             <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
@@ -252,76 +265,123 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
             <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
               <span style={{ fontSize: '0.72rem', color: '#64748B' }}>Preserved Extra Headers</span>
               <p style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4F46E5', margin: '4px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {previewData?.detectedHeaders?.join(', ')}
+                {previewData?.detectedHeaders?.join(', ') || 'None'}
               </p>
             </div>
           </div>
 
-          <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', maxHeight: '280px', overflowY: 'auto' }}>
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', maxHeight: '340px', overflowY: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
-              <thead style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontWeight: 600 }}>
+              <thead style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontWeight: 600, position: 'sticky', top: 0, zIndex: 1 }}>
                 <tr>
-                  <th style={{ padding: '8px 10px' }}>Row</th>
-                  <th style={{ padding: '8px 10px' }}>Product Name</th>
+                  <th style={{ padding: '8px 10px' }}>#</th>
+                  <th style={{ padding: '8px 10px' }}>Product & Formulation</th>
+                  <th style={{ padding: '8px 10px' }}>Classification</th>
                   <th style={{ padding: '8px 10px' }}>Pack Size</th>
-                  <th style={{ padding: '8px 10px' }}>Selling Price</th>
                   <th style={{ padding: '8px 10px' }}>PPC</th>
-                  <th style={{ padding: '8px 10px' }}>Duplicate Status & Action</th>
+                  <th style={{ padding: '8px 10px' }}>Seasonal Rate</th>
+                  <th style={{ padding: '8px 10px' }}>Status & Action</th>
                 </tr>
               </thead>
               <tbody style={{ color: '#0F172A' }}>
-                {records.map((r, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                    <td style={{ padding: '8px 10px', color: '#64748B' }}>{r.rowNumber || idx + 1}</td>
-                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.productName}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      {r.packingQuantity ? `${r.packingQuantity} ${r.packingUnit || 'L'}` : '—'}
-                    </td>
-                    <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)' }}>
-                      {r.defaultSellingPrice ? `PKR ${r.defaultSellingPrice}` : '—'}
-                    </td>
-                    <td style={{ padding: '8px 10px' }}>{r.ppc || 1}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      {r.isDuplicate ? (
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          <span style={{ color: '#D97706', fontSize: '0.72rem', fontWeight: 600 }}>Duplicate:</span>
-                          <button
-                            type="button"
-                            onClick={() => toggleDuplicateAction(idx, 'SKIP')}
+                {records.map((r, idx) => {
+                  const qty = r.packSizeQuantity !== undefined ? r.packSizeQuantity : r.packingQuantity;
+                  const unit = r.packSizeUnit || r.packingUnit || 'Liter';
+                  const price = r.baseSellingPrice !== undefined ? r.baseSellingPrice : r.defaultSellingPrice;
+                  const mType = r.mType || r.category || 'Insecticides';
+                  const composition = r.unknownFields?.Composition || r.composition;
+
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                      <td style={{ padding: '8px 10px', color: '#64748B', fontFamily: 'var(--font-mono, monospace)' }}>
+                        {idx + 1}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        <div style={{ fontWeight: 600, color: '#0F172A' }}>{r.productName}</div>
+                        {composition && (
+                          <div style={{ fontSize: '0.7rem', color: '#64748B', marginTop: '2px' }}>
+                            {composition}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: '#EFF6FF',
+                            color: '#1D4ED8',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {mType}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>
+                        {qty ? `${qty} ${unit}` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)' }}>
+                        {r.ppc || 1}
+                      </td>
+                      <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: '#059669' }}>
+                        {price ? `PKR ${Number(price).toLocaleString()}` : '—'}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        {r.isDuplicate ? (
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <span style={{ color: '#D97706', fontSize: '0.72rem', fontWeight: 600 }}>Duplicate:</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleDuplicateAction(idx, 'SKIP')}
+                              style={{
+                                fontSize: '0.7rem',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #CBD5E1',
+                                background: r.duplicateAction === 'SKIP' ? '#0F172A' : '#FFFFFF',
+                                color: r.duplicateAction === 'SKIP' ? '#FFFFFF' : '#334155',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Skip
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleDuplicateAction(idx, 'UPDATE')}
+                              style={{
+                                fontSize: '0.7rem',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                border: '1px solid #CBD5E1',
+                                background: r.duplicateAction === 'UPDATE' ? '#2563EB' : '#FFFFFF',
+                                color: r.duplicateAction === 'UPDATE' ? '#FFFFFF' : '#334155',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Update
+                            </button>
+                          </div>
+                        ) : (
+                          <span
                             style={{
-                              fontSize: '0.7rem',
-                              padding: '2px 6px',
+                              display: 'inline-block',
+                              padding: '2px 8px',
                               borderRadius: '4px',
-                              border: '1px solid #CBD5E1',
-                              background: r.duplicateAction === 'SKIP' ? '#0F172A' : '#FFFFFF',
-                              color: r.duplicateAction === 'SKIP' ? '#FFFFFF' : '#334155',
-                              cursor: 'pointer',
+                              background: '#ECFDF5',
+                              color: '#059669',
+                              fontWeight: 600,
+                              fontSize: '0.72rem',
                             }}
                           >
-                            Skip
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleDuplicateAction(idx, 'UPDATE')}
-                            style={{
-                              fontSize: '0.7rem',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              border: '1px solid #CBD5E1',
-                              background: r.duplicateAction === 'UPDATE' ? '#2563EB' : '#FFFFFF',
-                              color: r.duplicateAction === 'UPDATE' ? '#FFFFFF' : '#334155',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Update
-                          </button>
-                        </div>
-                      ) : (
-                        <span style={{ color: '#059669', fontWeight: 600, fontSize: '0.72rem' }}>New Record</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                            New Product
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

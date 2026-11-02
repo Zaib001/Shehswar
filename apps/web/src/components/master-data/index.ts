@@ -28,6 +28,8 @@ export * from './PackingMaterialsView';
 export * from './ProductCategoriesView';
 export * from './PackSizesView';
 export * from './FinishedProductsView';
+export * from './AddFinishedProductModal';
+export * from './ProductImportModal';
 export * from './WarehouseLocationsView';
 export * from './ProductionLinesView';
 export * from './ShiftsView';
