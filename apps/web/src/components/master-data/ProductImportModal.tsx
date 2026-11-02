@@ -3,16 +3,17 @@
 /**
  * SHEHSWAR ONE360 - Dynamic Product Import Modal
  *
- * Supports flexible document/file import without requiring a rigid single template.
- * - Parses CSV, TSV, JSON, or tabular text
- * - Normalizes known fields
- * - Preserves unknown fields in `customFields`
- * - Pre-import duplicate review with options: SKIP, UPDATE, CREATE_NEW
+ * Full Enterprise UI matching Canonical Shehswar ERP Design System:
+ * - Uses standard Modal component from '../ui'
+ * - Flexible file parsing (CSV, TSV, JSON, structured text)
+ * - Known field normalization & dynamic unknown field preservation in customFields
+ * - Pre-import duplicate resolution (SKIP, UPDATE, CREATE_NEW)
  */
 import React, { useState } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
-import { IconClose, IconDownload, IconCheck, IconSparkles } from '../icons';
+import { Modal, Button } from '../ui';
+import { IconDownload, IconCheck } from '../icons';
 
 interface ProductImportModalProps {
   isOpen: boolean;
@@ -110,236 +111,248 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-          <div className="flex items-center gap-2 text-indigo-400 font-semibold text-base">
-            <IconSparkles size={20} />
-            <span>Dynamic Product Import (CSV / Excel / Structured Text)</span>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Dynamic Product Import / Upload"
+      description="Flexible document parser: maps standard fields and stores unknown supplier columns dynamically"
+      size="xl"
+      footer={
+        step === 'upload' ? (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={isLoading}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleParseAndPreview}
+              isLoading={isLoading}
+              style={{ backgroundColor: '#2563EB', borderColor: '#2563EB', color: '#fff' }}
+            >
+              Parse & Preview Records →
+            </Button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+        ) : step === 'preview' ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <Button variant="secondary" size="sm" onClick={() => setStep('upload')} disabled={isLoading}>
+              ← Back to File
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleConfirmImport}
+              isLoading={isLoading}
+              style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
+            >
+              Confirm Import ({records.filter((r) => r.duplicateAction !== 'SKIP').length} Records)
+            </Button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onClose}
+              style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
+            >
+              Finish & Refresh
+            </Button>
+          </div>
+        )
+      }
+    >
+      {step === 'upload' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div
+            style={{
+              padding: '28px',
+              border: '2px dashed #CBD5E1',
+              borderRadius: '12px',
+              background: '#F8FAFC',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
           >
-            <IconClose size={18} />
-          </button>
+            <input
+              type="file"
+              id="product-file-input"
+              accept=".csv,.txt,.json,.tsv,.xlsx"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+            <label htmlFor="product-file-input" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: '#EEF2FF',
+                  color: '#4F46E5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <IconDownload size={22} />
+              </div>
+              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0F172A' }}>
+                {fileName ? fileName : 'Click to select CSV, TSV, or spreadsheet'}
+              </span>
+              <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                Any tabular supplier layout accepted. Unknown headers are preserved in customFields JSON.
+              </span>
+            </label>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+              Or paste tabular text directly:
+            </label>
+            <textarea
+              rows={5}
+              placeholder="Product Name, Pack Size, Unit, Selling Price, PPC, Grade, Special Lot..."
+              value={fileContent}
+              onChange={(e) => setFileContent(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                background: '#FFFFFF',
+                border: '1px solid #CBD5E1',
+                borderRadius: '8px',
+                fontFamily: 'var(--font-mono, monospace)',
+                fontSize: '0.78rem',
+                color: '#0F172A',
+                outline: 'none',
+              }}
+            />
+          </div>
         </div>
+      )}
 
-        {/* Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-5">
-          {step === 'upload' && (
-            <div className="space-y-4">
-              <div className="p-8 border-2 border-dashed border-slate-700 hover:border-indigo-500/50 rounded-2xl text-center bg-slate-800/20 transition-all flex flex-col items-center justify-center">
-                <input
-                  type="file"
-                  id="product-file-input"
-                  accept=".csv,.txt,.json,.tsv,.xlsx"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <label
-                  htmlFor="product-file-input"
-                  className="cursor-pointer flex flex-col items-center gap-2"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
-                    <IconDownload size={24} />
-                  </div>
-                  <span className="text-white font-medium text-sm">
-                    {fileName ? fileName : 'Click to select CSV or tabular document'}
-                  </span>
-                  <span className="text-slate-400 text-xs">
-                    Any tabular structure accepted. Known fields are mapped, and custom fields are preserved in JSON.
-                  </span>
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                  Or paste text / CSV data directly:
-                </label>
-                <textarea
-                  rows={6}
-                  placeholder="Product Name, Pack Size, Unit, Selling Price, PPC, Grade, Custom Field..."
-                  value={fileContent}
-                  onChange={(e) => setFileContent(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                />
-              </div>
-            </div>
-          )}
-
-          {step === 'preview' && (
-            <div className="space-y-4">
-              {/* Summary KPIs */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3.5 bg-slate-800/60 border border-slate-700/60 rounded-xl">
-                  <span className="text-slate-400 text-xs">Detected Records</span>
-                  <p className="text-xl font-bold text-white mt-0.5">{previewData?.totalDetected || 0}</p>
-                </div>
-                <div className="p-3.5 bg-slate-800/60 border border-slate-700/60 rounded-xl">
-                  <span className="text-slate-400 text-xs">Duplicates Found</span>
-                  <p className={`text-xl font-bold mt-0.5 ${(previewData?.duplicateCount || 0) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                    {previewData?.duplicateCount || 0}
-                  </p>
-                </div>
-                <div className="p-3.5 bg-slate-800/60 border border-slate-700/60 rounded-xl">
-                  <span className="text-slate-400 text-xs">Detected Headers</span>
-                  <p className="text-xs text-indigo-300 font-mono mt-1 truncate">
-                    {previewData?.detectedHeaders?.join(', ')}
-                  </p>
-                </div>
-              </div>
-
-              {/* Records Table */}
-              <div className="border border-slate-800 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-800/90 text-slate-300 sticky top-0 border-b border-slate-700">
-                    <tr>
-                      <th className="p-2.5">Row</th>
-                      <th className="p-2.5">Product Name</th>
-                      <th className="p-2.5">Code</th>
-                      <th className="p-2.5">Pack Size</th>
-                      <th className="p-2.5">Price (PKR)</th>
-                      <th className="p-2.5">Extra Fields (customFields)</th>
-                      <th className="p-2.5 text-right">Duplicate Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {records.map((r, idx) => (
-                      <tr key={r.tempId || idx} className={r.isDuplicate ? 'bg-amber-500/5' : ''}>
-                        <td className="p-2.5 text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-2.5 font-medium text-white">
-                          {r.productName}
-                          {r.urduName && <span className="block text-slate-400 text-[10px]">{r.urduName}</span>}
-                        </td>
-                        <td className="p-2.5 font-mono text-indigo-300">{r.productCode || '(Auto-gen)'}</td>
-                        <td className="p-2.5">{r.packSizeQuantity ? `${r.packSizeQuantity} ${r.packSizeUnit || 'L'}` : '-'}</td>
-                        <td className="p-2.5 font-medium text-emerald-400">{r.baseSellingPrice ? `PKR ${r.baseSellingPrice}` : '-'}</td>
-                        <td className="p-2.5">
-                          {r.unknownFields && Object.keys(r.unknownFields).length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {Object.entries(r.unknownFields).slice(0, 3).map(([k, v]: any) => (
-                                <span key={k} className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] text-slate-300">
-                                  {k}: {String(v)}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-slate-500 text-[10px]">None</span>
-                          )}
-                        </td>
-                        <td className="p-2.5 text-right">
-                          {r.isDuplicate ? (
-                            <div className="inline-flex rounded-lg border border-slate-700 p-0.5 bg-slate-800">
-                              <button
-                                type="button"
-                                onClick={() => toggleDuplicateAction(idx, 'SKIP')}
-                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                                  r.duplicateAction === 'SKIP' ? 'bg-amber-500 text-white' : 'text-slate-400 hover:text-white'
-                                }`}
-                              >
-                                Skip
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleDuplicateAction(idx, 'UPDATE')}
-                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                                  r.duplicateAction === 'UPDATE' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-                                }`}
-                              >
-                                Update
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleDuplicateAction(idx, 'CREATE_NEW')}
-                                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                                  r.duplicateAction === 'CREATE_NEW' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                                }`}
-                              >
-                                New
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-medium">
-                              Ready (New)
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {step === 'completed' && (
-            <div className="p-8 text-center space-y-3">
-              <div className="w-14 h-14 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto border border-emerald-500/20">
-                <IconCheck size={28} />
-              </div>
-              <h3 className="text-lg font-bold text-white">Import Successfully Processed</h3>
-              <p className="text-sm text-slate-400">
-                All reviewed products and dynamic custom fields have been stored into the master database.
+      {step === 'preview' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>Total Detected</span>
+              <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0F172A', margin: '4px 0 0 0' }}>
+                {previewData?.totalDetected || 0} Records
               </p>
             </div>
-          )}
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>Duplicates Checked</span>
+              <p style={{ fontSize: '1.25rem', fontWeight: 700, color: (previewData?.duplicateCount || 0) > 0 ? '#D97706' : '#059669', margin: '4px 0 0 0' }}>
+                {previewData?.duplicateCount || 0}
+              </p>
+            </div>
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>Preserved Extra Headers</span>
+              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4F46E5', margin: '4px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {previewData?.detectedHeaders?.join(', ')}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', maxHeight: '280px', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+              <thead style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontWeight: 600 }}>
+                <tr>
+                  <th style={{ padding: '8px 10px' }}>Row</th>
+                  <th style={{ padding: '8px 10px' }}>Product Name</th>
+                  <th style={{ padding: '8px 10px' }}>Pack Size</th>
+                  <th style={{ padding: '8px 10px' }}>Selling Price</th>
+                  <th style={{ padding: '8px 10px' }}>PPC</th>
+                  <th style={{ padding: '8px 10px' }}>Duplicate Status & Action</th>
+                </tr>
+              </thead>
+              <tbody style={{ color: '#0F172A' }}>
+                {records.map((r, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    <td style={{ padding: '8px 10px', color: '#64748B' }}>{r.rowNumber || idx + 1}</td>
+                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>{r.productName}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      {r.packingQuantity ? `${r.packingQuantity} ${r.packingUnit || 'L'}` : '—'}
+                    </td>
+                    <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)' }}>
+                      {r.defaultSellingPrice ? `PKR ${r.defaultSellingPrice}` : '—'}
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>{r.ppc || 1}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      {r.isDuplicate ? (
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          <span style={{ color: '#D97706', fontSize: '0.72rem', fontWeight: 600 }}>Duplicate:</span>
+                          <button
+                            type="button"
+                            onClick={() => toggleDuplicateAction(idx, 'SKIP')}
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #CBD5E1',
+                              background: r.duplicateAction === 'SKIP' ? '#0F172A' : '#FFFFFF',
+                              color: r.duplicateAction === 'SKIP' ? '#FFFFFF' : '#334155',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Skip
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleDuplicateAction(idx, 'UPDATE')}
+                            style={{
+                              fontSize: '0.7rem',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              border: '1px solid #CBD5E1',
+                              background: r.duplicateAction === 'UPDATE' ? '#2563EB' : '#FFFFFF',
+                              color: r.duplicateAction === 'UPDATE' ? '#FFFFFF' : '#334155',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Update
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#059669', fontWeight: 600, fontSize: '0.72rem' }}>New Record</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
+      )}
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-800 flex justify-between items-center bg-slate-900/50">
-          {step === 'upload' && (
-            <>
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleParseAndPreview}
-                disabled={isLoading}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold shadow-lg shadow-indigo-600/20 flex items-center gap-2"
-              >
-                {isLoading ? 'Detecting Structure...' : 'Preview Import Records →'}
-              </button>
-            </>
-          )}
-
-          {step === 'preview' && (
-            <>
-              <button
-                type="button"
-                onClick={() => setStep('upload')}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-medium"
-              >
-                ← Back to Upload
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmImport}
-                disabled={isLoading}
-                className="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/20 flex items-center gap-2"
-              >
-                {isLoading ? 'Importing...' : `Confirm & Import ${records.filter((r) => r.duplicateAction !== 'SKIP').length} Products`}
-              </button>
-            </>
-          )}
-
-          {step === 'completed' && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="ml-auto px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold"
-            >
-              Close & View Catalog
-            </button>
-          )}
+      {step === 'completed' && (
+        <div style={{ padding: '24px', textAlign: 'center' }}>
+          <div
+            style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: '#ECFDF5',
+              color: '#059669',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px auto',
+            }}
+          >
+            <IconCheck size={28} />
+          </div>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0F172A', margin: '0 0 6px 0' }}>
+            Products Imported Successfully
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: '#64748B' }}>
+            All valid records have been saved into the Finished Products master catalog.
+          </p>
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 };

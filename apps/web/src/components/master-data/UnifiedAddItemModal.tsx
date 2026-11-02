@@ -3,25 +3,24 @@
 /**
  * SHEHSWAR ONE360 - Unified "+ Add Item" Modal
  *
- * Professional Single Entry Point:
- * User selects Item Category -> The system automatically determines:
- * - Entity Type (FinishedProduct, RawMaterial, PackingMaterial)
- * - Dynamic form fields
- * - Sequential collision-safe code (FG-XXXXXX, RM-XXXXXX, PM-XXXXXX)
- * - Database destination table and UI section
- *
- * Mandate:
- * - Packaging is separate from Pack Size
- * - "+ Add New Packaging" creates a real PackingMaterial
- * - Inline "+ Add New Unit" and "+ Add New Category"
- * - Complete legacy fields rendered (PPC, Urdu Name, MType, Base Price, etc.)
+ * Full Enterprise UI matching Canonical Shehswar ERP Design System:
+ * - Uses standard Modal component from '../ui'
+ * - Standard Input, Select, Button, StatusBadge from '../ui'
+ * - Clean light SaaS layout with design tokens
+ * - Category determines entity, fields, sequential code, and destination
+ * - Strict Packaging vs Pack Size separation
+ * - Submodals for + Add Packaging, + Add Unit, + Add Category
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
 import {
-  IconPlus,
-  IconClose,
+  Modal,
+  Button,
+  Input,
+  Select,
+} from '../ui';
+import {
   IconCheck,
   IconAlertTriangle,
   IconPackage,
@@ -48,11 +47,11 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
 
   // Categories & Routing State
   const [categories, setCategories] = useState<any[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(defaultCategoryId || '');
   const [routeInfo, setRouteInfo] = useState<any | null>(null);
-  const [previewCode, setPreviewCode] = useState<string>('Loading...');
+  const [previewCode, setPreviewCode] = useState<string>('ITEM-XXXXXX');
 
-  // Form Fields - Common
+  // Form Fields - Core Master
   const [itemName, setItemName] = useState('');
   const [urduName, setUrduName] = useState('');
   const [description, setDescription] = useState('');
@@ -113,14 +112,19 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
       setUoms(uomList);
       setPurchaseUoms(uomList);
 
-      // Set initial Category
-      if (defaultCategoryId && catList.some((c: any) => c.id === defaultCategoryId)) {
-        setSelectedCategoryId(defaultCategoryId);
-      } else if (catList.length > 0) {
-        setSelectedCategoryId(catList[0].id);
+      if (!selectedCategoryId && catList.length > 0) {
+        // Default to Finished Goods 41-01 if available
+        const defaultCat = catList.find((c: any) => c.code === '41-01') || catList[0];
+        setSelectedCategoryId(defaultCat.id);
       }
-    } catch (err) {
-      console.error('Failed to load prerequisites:', err);
+    } catch (err: any) {
+      console.error('Failed to load item creation prerequisites', err);
+    }
+  }, [selectedCategoryId]);
+
+  useEffect(() => {
+    if (defaultCategoryId) {
+      setSelectedCategoryId(defaultCategoryId);
     }
   }, [defaultCategoryId]);
 
@@ -131,6 +135,7 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
       setDuplicateWarning(null);
       setItemName('');
       setUrduName('');
+      setDescription('');
     }
   }, [isOpen, loadPrerequisites]);
 
@@ -141,7 +146,6 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
     ApiClient.get<any>(`/api/v1/master-data/category-router/${selectedCategoryId}`)
       .then((res) => {
         setRouteInfo(res.data);
-        // Preview next sequential code
         return ApiClient.get<any>(`/api/v1/master-data/next-code?entityType=${res.data.targetEntity}`);
       })
       .then((codeRes) => {
@@ -175,8 +179,6 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
 
     return () => clearTimeout(timer);
   }, [itemName, routeInfo?.targetEntity]);
-
-  if (!isOpen) return null;
 
   // 4. Handle Submit
   const handleSave = async (e: React.FormEvent) => {
@@ -248,573 +250,505 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-                <IconPlus size={20} />
-              </div>
-              <div>
-                <h3 className="text-white font-bold text-base leading-tight">Add New Item</h3>
-                <p className="text-slate-400 text-xs">
-                  Category determines entity, fields, sequential code, and destination.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-            >
-              <IconClose size={20} />
-            </button>
-          </div>
-
-          {/* Form Body or Success Card */}
-          {createdResult ? (
-            <div className="p-8 text-center space-y-4 my-auto">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center mx-auto">
-                <IconCheck size={32} />
-              </div>
-              <div>
-                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  {createdResult.entityType}
-                </span>
-                <h3 className="text-xl font-bold text-white mt-2">
-                  {createdResult.item?.productName || createdResult.item?.materialName}
-                </h3>
-                <p className="text-slate-400 font-mono text-sm mt-0.5">
-                  Code: <span className="text-emerald-400 font-bold">{createdResult.code}</span>
-                </p>
-                <p className="text-xs text-slate-400 mt-2">
-                  Stored in table: <code className="text-slate-300 font-mono">{createdResult.destinationLabel}</code>
-                </p>
-              </div>
-
-              <div className="pt-4 flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreatedResult(null);
-                    setItemName('');
-                    setUrduName('');
-                  }}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold transition-colors"
-                >
-                  + Add Another Item
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-600/20"
-                >
-                  View in {createdResult.destinationLabel} →
-                </button>
-              </div>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Register Master Item"
+        description="Single entry point: selected category routes to Finished Goods, Raw Materials, or Packing Materials"
+        size="xl"
+        footer={
+          createdResult ? (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setCreatedResult(null);
+                  setItemName('');
+                  setUrduName('');
+                  setDescription('');
+                }}
+              >
+                + Register Another Item
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onClose}
+                style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
+              >
+                Done
+              </Button>
             </div>
           ) : (
-            <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-6 space-y-5">
-              {/* STEP 1: CATEGORY SELECTION */}
-              <div className="p-4 bg-slate-800/40 border border-slate-700/60 rounded-xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-                    <IconTag size={14} />
-                    <span>1. Item Category / Item Type (Routing Layer)</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsCategoryModalOpen(true)}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 hover:underline"
-                  >
-                    <IconPlus size={12} />
-                    <span>+ Add New Category</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <select
-                      value={selectedCategoryId}
-                      onChange={(e) => setSelectedCategoryId(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white text-sm font-medium focus:ring-2 focus:ring-emerald-500/50"
-                    >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.code ? `[${c.code}] ` : ''}{c.name} ({c.badge || c.entityType})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-2 px-3.5 py-2 bg-slate-900/60 border border-slate-700/60 rounded-xl">
-                    <span className="text-slate-400 text-xs">Destination:</span>
-                    <span className="text-xs font-semibold text-white px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                      {routeInfo?.destinationLabel || 'Loading routing...'}
-                    </span>
-                    <span className="text-xs font-mono text-emerald-400 ml-auto font-bold">
-                      {previewCode}
-                    </span>
-                  </div>
-                </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                Next Code:{' '}
+                <strong style={{ fontFamily: 'var(--font-mono, monospace)', color: '#2563EB' }}>
+                  {previewCode}
+                </strong>
               </div>
-
-              {/* Duplicate Warning Alert */}
-              {duplicateWarning && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-amber-300 text-xs animate-in fade-in">
-                  <IconAlertTriangle size={18} className="shrink-0 mt-0.5 text-amber-400" />
-                  <div className="flex-1">
-                    <p className="font-semibold">Possible duplicate detected:</p>
-                    <p className="text-amber-200/90 mt-0.5">
-                      &quot;{duplicateWarning.name}&quot; already exists with Code{' '}
-                      <span className="font-mono font-bold">{duplicateWarning.code}</span>.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 2: DYNAMIC FIELDS BASED ON ENTITY */}
-
-              {/* Common Basic Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    {routeInfo?.targetEntity === 'FINISHED_PRODUCT' ? 'Product Name' : 'Material Name'}{' '}
-                    <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder={
-                      routeInfo?.targetEntity === 'FINISHED_PRODUCT'
-                        ? 'e.g. ABC 20% EC'
-                        : routeInfo?.targetEntity === 'RAW_MATERIAL'
-                        ? 'e.g. Chlorpyrifos 97% Tech'
-                        : 'e.g. 2 Liter HDPE Bottle'
-                    }
-                    value={itemName}
-                    onChange={(e) => setItemName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Urdu Name / Local Description
-                  </label>
-                  <input
-                    type="text"
-                    dir="rtl"
-                    placeholder="اے بی سی بیس فیصد"
-                    value={urduName}
-                    onChange={(e) => setUrduName(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                  />
-                </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <Button variant="secondary" size="sm" onClick={onClose} disabled={isSaving}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSave}
+                  isLoading={isSaving}
+                  style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
+                >
+                  Save Item
+                </Button>
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Item Description / Notes (Optional)
+            </div>
+          )
+        }
+      >
+        {createdResult ? (
+          <div style={{ padding: '24px', textAlign: 'center' }}>
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: '#ECFDF5',
+                color: '#059669',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px auto',
+              }}
+            >
+              <IconCheck size={28} />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0F172A', margin: '0 0 6px 0' }}>
+              {createdResult.item?.productName || createdResult.item?.materialName}
+            </h3>
+            <div
+              style={{
+                fontFamily: 'var(--font-mono, monospace)',
+                fontWeight: 700,
+                color: '#2563EB',
+                fontSize: '1rem',
+                marginBottom: '10px',
+              }}
+            >
+              Code: {createdResult.code}
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#64748B', maxWidth: '380px', margin: '0 auto' }}>
+              Successfully recorded in database table: <strong>{createdResult.destinationLabel}</strong>.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Step 1: Category Routing Layer */}
+            <div style={{ padding: '14px 16px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <IconTag size={16} /> 1. Select Item Category / Type (Routing Layer) *
                 </label>
-                <input
-                  type="text"
-                  placeholder="Additional specifications or formulation remarks..."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-emerald-500/50"
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  style={{ fontSize: '0.75rem', color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  + Add New Category
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'center' }}>
+                <Select
+                  value={selectedCategoryId}
+                  onChange={(e) => setSelectedCategoryId(typeof e === 'string' ? e : e.target?.value || '')}
+                  options={categories.map((c) => ({
+                    label: `${c.code ? `[${c.code}] ` : ''}${c.name} (${c.badge || c.entityType})`,
+                    value: c.id,
+                  }))}
+                />
+
+                <div style={{ padding: '8px 12px', background: '#FFFFFF', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Target Destination:</span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A' }}>
+                    {routeInfo?.destinationLabel || 'Loading routing...'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Duplicate Alert */}
+            {duplicateWarning && (
+              <div style={{ padding: '10px 14px', background: '#FEF3C7', borderRadius: '8px', border: '1px solid #FDE68A', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <IconAlertTriangle size={18} style={{ color: '#D97706', flexShrink: 0 }} />
+                <div style={{ fontSize: '0.8rem', color: '#92400E' }}>
+                  Possible duplicate: <strong>{duplicateWarning.name}</strong> already exists with Code{' '}
+                  <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>{duplicateWarning.code}</span>.
+                </div>
+              </div>
+            )}
+
+            {/* Basic Identity Fields */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                  {routeInfo?.targetEntity === 'FINISHED_PRODUCT' ? 'Product Name' : 'Material Name'} *
+                </label>
+                <Input
+                  required
+                  value={itemName}
+                  onChange={(e) => setItemName(e.target.value)}
+                  placeholder={
+                    routeInfo?.targetEntity === 'FINISHED_PRODUCT'
+                      ? 'e.g. ABC 20% EC'
+                      : routeInfo?.targetEntity === 'RAW_MATERIAL'
+                      ? 'e.g. Chlorpyrifos 97% Tech'
+                      : 'e.g. 2 Liter HDPE Bottle'
+                  }
                 />
               </div>
 
-              {/* ============================================================== */}
-              {/* FINISHED PRODUCT DYNAMIC SUBFORM */}
-              {/* ============================================================== */}
-              {routeInfo?.targetEntity === 'FINISHED_PRODUCT' && (
-                <div className="space-y-4 pt-1">
-                  {/* PACKAGING vs PACK SIZE SEPARATION (Mandatory Rule) */}
-                  <div className="p-4 bg-slate-800/30 border border-slate-700/60 rounded-xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
-                        <IconPackage size={14} />
-                        <span>Packaging & Unit Configuration</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setIsPackagingModalOpen(true)}
-                        className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 hover:underline"
-                      >
-                        <IconPlus size={12} />
-                        <span>+ Add New Packaging</span>
-                      </button>
-                    </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                  Urdu Name / Local Specification
+                </label>
+                <Input
+                  dir="rtl"
+                  value={urduName}
+                  onChange={(e) => setUrduName(e.target.value)}
+                  placeholder="اے بی سی بیس فیصد"
+                />
+              </div>
+            </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                          Packaging Material (Bottle/Bag)
-                        </label>
-                        <select
-                          value={selectedPackagingId}
-                          onChange={(e) => setSelectedPackagingId(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-indigo-500/50"
-                        >
-                          <option value="">-- Select Physical Packaging --</option>
-                          {packagingMaterials.map((pm) => (
-                            <option key={pm.id} value={pm.id}>
-                              {pm.materialCode} {pm.materialName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                Description / Technical Notes (Optional)
+              </label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Additional specifications or formulation remarks..."
+              />
+            </div>
 
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">
-                          Pack Size Quantity <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          value={packSizeQuantity}
-                          onChange={(e) => setPackSizeQuantity(Number(e.target.value))}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-indigo-500/50"
-                          placeholder="e.g. 2"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-xs font-medium text-slate-300">
-                            Pack Size Unit
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => setIsUnitModalOpen(true)}
-                            className="text-[10px] text-indigo-400 hover:underline"
-                          >
-                            + Add Unit
-                          </button>
-                        </div>
-                        <select
-                          value={packSizeUnit}
-                          onChange={(e) => setPackSizeUnit(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-indigo-500/50"
-                        >
-                          <option value="Liter">Liter</option>
-                          <option value="KG">KG</option>
-                          <option value="ML">ML</option>
-                          <option value="GM">GM</option>
-                          <option value="Pack">Pack</option>
-                        </select>
-                      </div>
-                    </div>
+            {/* ============================================================== */}
+            {/* FINISHED PRODUCT DYNAMIC SUBFORM */}
+            {/* ============================================================== */}
+            {routeInfo?.targetEntity === 'FINISHED_PRODUCT' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Packaging & Pack Size Separation */}
+                <div style={{ padding: '14px 16px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <IconPackage size={16} /> Packaging Material & Unit Logistics
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsPackagingModalOpen(true)}
+                      style={{ fontSize: '0.75rem', color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      + Add New Packaging
+                    </button>
                   </div>
 
-                  {/* Classification & Commercial Master Fields */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                        MType (Classification)
+                      <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', marginBottom: '4px' }}>
+                        Physical Packaging (Bottle/Bag)
                       </label>
-                      <select
-                        value={mType}
-                        onChange={(e) => setMType(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-emerald-500/50"
-                      >
-                        <option value="Insecticides">Insecticides</option>
-                        <option value="Herbicides">Herbicides</option>
-                        <option value="Weedicides">Weedicides</option>
-                        <option value="Fungicides">Fungicides</option>
-                        <option value="Fertilizers">Fertilizers</option>
-                        <option value="Seeds">Seeds</option>
-                        <option value="PGRs / Nutrients">PGRs / Nutrients</option>
-                        <option value="Others">Others</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                        Product Type
-                      </label>
-                      <input
-                        type="text"
-                        value={productType}
-                        onChange={(e) => setProductType(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-emerald-500/50"
-                        placeholder="e.g. Insecticide"
+                      <Select
+                        value={selectedPackagingId}
+                        onChange={(e) => setSelectedPackagingId(typeof e === 'string' ? e : e.target?.value || '')}
+                        options={[
+                          { label: '-- Select Physical Packaging --', value: '' },
+                          ...packagingMaterials.map((pm) => ({
+                            label: `${pm.materialCode} ${pm.materialName}`,
+                            value: pm.id,
+                          })),
+                        ]}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                        PPC (Packs / Carton)
+                      <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', marginBottom: '4px' }}>
+                        Pack Size Quantity *
                       </label>
-                      <input
-                        type="number"
-                        value={ppc}
-                        onChange={(e) => setPpc(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs focus:ring-2 focus:ring-emerald-500/50"
-                        placeholder="12"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                        Base Selling Price (PKR)
-                      </label>
-                      <input
+                      <Input
                         type="number"
                         step="0.01"
-                        value={baseSellingPrice}
-                        onChange={(e) => setBaseSellingPrice(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-emerald-400 font-bold text-xs focus:ring-2 focus:ring-emerald-500/50"
-                        placeholder="PKR 2,800"
+                        required
+                        value={packSizeQuantity}
+                        onChange={(e) => setPackSizeQuantity(parseFloat(e.target.value) || 1)}
+                        style={{ fontFamily: 'var(--font-mono, monospace)' }}
                       />
                     </div>
-                  </div>
 
-                  {/* Brand & Grade */}
-                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">Brand</label>
-                      <input
-                        type="text"
-                        value={brand}
-                        onChange={(e) => setBrand(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">Grade</label>
-                      <input
-                        type="text"
-                        value={grade}
-                        onChange={(e) => setGrade(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ============================================================== */}
-              {/* RAW MATERIAL DYNAMIC SUBFORM */}
-              {/* ============================================================== */}
-              {routeInfo?.targetEntity === 'RAW_MATERIAL' && (
-                <div className="space-y-4 pt-1">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-medium text-slate-300">Base Unit (UOM)</label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <label style={{ fontSize: '0.72rem', color: '#64748B' }}>Pack Size Unit</label>
                         <button
                           type="button"
                           onClick={() => setIsUnitModalOpen(true)}
-                          className="text-[10px] text-emerald-400 hover:underline"
+                          style={{ fontSize: '0.7rem', color: '#2563EB', background: 'none', border: 'none', cursor: 'pointer' }}
                         >
                           + Add Unit
                         </button>
                       </div>
-                      <select
-                        value={selectedBaseUomId}
-                        onChange={(e) => setSelectedBaseUomId(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      >
-                        <option value="">-- Base UOM --</option>
-                        {uoms.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name} ({u.symbol || u.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Purchase Unit (Drum/Bag)
-                      </label>
-                      <select
-                        value={selectedPurchaseUomId}
-                        onChange={(e) => setSelectedPurchaseUomId(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      >
-                        <option value="">-- Purchase UOM --</option>
-                        {purchaseUoms.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name} ({u.symbol || u.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Conversion Factor
-                      </label>
-                      <input
-                        type="number"
-                        step="0.001"
-                        value={conversionFactor}
-                        onChange={(e) => setConversionFactor(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                        placeholder="e.g. 200 (KG/Drum)"
+                      <Select
+                        value={packSizeUnit}
+                        onChange={(e) => setPackSizeUnit(typeof e === 'string' ? e : e.target?.value || 'Liter')}
+                        options={[
+                          { label: 'Liter', value: 'Liter' },
+                          { label: 'KG', value: 'KG' },
+                          { label: 'ML', value: 'ML' },
+                          { label: 'GM', value: 'GM' },
+                          { label: 'Pack', value: 'Pack' },
+                        ]}
                       />
                     </div>
                   </div>
+                </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-3 p-3 bg-slate-800/40 border border-slate-700/60 rounded-xl">
-                      <input
-                        type="checkbox"
-                        id="batchCtrl"
-                        checked={batchControlled}
-                        onChange={(e) => setBatchControlled(e.target.checked)}
-                        className="w-4 h-4 text-emerald-500 rounded bg-slate-900 border-slate-700"
-                      />
-                      <label htmlFor="batchCtrl" className="text-xs text-slate-300">
-                        Batch Controlled Material
-                      </label>
-                    </div>
-                    <div className="flex items-center gap-3 p-3 bg-slate-800/40 border border-slate-700/60 rounded-xl">
-                      <input
-                        type="checkbox"
-                        id="qcReq"
-                        checked={qcRequired}
-                        onChange={(e) => setQcRequired(e.target.checked)}
-                        className="w-4 h-4 text-emerald-500 rounded bg-slate-900 border-slate-700"
-                      />
-                      <label htmlFor="qcReq" className="text-xs text-slate-300">
-                        QC Inspection Required
-                      </label>
-                    </div>
+                {/* Classification & Commercial Fields */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      MType (Classification)
+                    </label>
+                    <Select
+                      value={mType}
+                      onChange={(e) => setMType(typeof e === 'string' ? e : e.target?.value || 'Insecticides')}
+                      options={[
+                        { label: 'Insecticides', value: 'Insecticides' },
+                        { label: 'Herbicides', value: 'Herbicides' },
+                        { label: 'Weedicides', value: 'Weedicides' },
+                        { label: 'Fungicides', value: 'Fungicides' },
+                        { label: 'Fertilizers', value: 'Fertilizers' },
+                        { label: 'Seeds', value: 'Seeds' },
+                        { label: 'PGRs / Nutrients', value: 'PGRs / Nutrients' },
+                        { label: 'Others', value: 'Others' },
+                      ]}
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Storage Requirements / Safety Specs
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      PPC (Packs / Carton)
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Store below 25°C in ventilated area"
-                      value={storageRequirements}
-                      onChange={(e) => setStorageRequirements(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
+                    <Input
+                      type="number"
+                      value={ppc}
+                      onChange={(e) => setPpc(parseInt(e.target.value, 10) || 1)}
+                      style={{ fontFamily: 'var(--font-mono, monospace)' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Base Commercial Price (PKR)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={baseSellingPrice}
+                      onChange={(e) => setBaseSellingPrice(parseFloat(e.target.value) || 0)}
+                      style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Product Type
+                    </label>
+                    <Input
+                      value={productType}
+                      onChange={(e) => setProductType(e.target.value)}
+                      placeholder="e.g. EC, SC, Granules"
                     />
                   </div>
                 </div>
-              )}
 
-              {/* ============================================================== */}
-              {/* PACKING MATERIAL DYNAMIC SUBFORM (Bottles, Cartons, Shrink...) */}
-              {/* ============================================================== */}
-              {routeInfo?.targetEntity === 'PACKING_MATERIAL' && (
-                <div className="space-y-4 pt-1">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-medium text-slate-300">Unit of Count</label>
-                        <button
-                          type="button"
-                          onClick={() => setIsUnitModalOpen(true)}
-                          className="text-[10px] text-emerald-400 hover:underline"
-                        >
-                          + Add Unit
-                        </button>
-                      </div>
-                      <select
-                        value={selectedBaseUomId}
-                        onChange={(e) => setSelectedBaseUomId(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      >
-                        <option value="">-- Select UOM --</option>
-                        {uoms.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name} ({u.symbol || u.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Pack Compatibility
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Fits 2L liquid bottles or 10KG boxes"
-                        value={packCompatibility}
-                        onChange={(e) => setPackCompatibility(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      />
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Brand
+                    </label>
+                    <Input
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                      placeholder="e.g. Shehswar Agro"
+                    />
                   </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Minimum Stock Level
-                      </label>
-                      <input
-                        type="number"
-                        value={minStock}
-                        onChange={(e) => setMinStock(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1">
-                        Reorder Stock Level
-                      </label>
-                      <input
-                        type="number"
-                        value={reorderLevel}
-                        onChange={(e) => setReorderLevel(Number(e.target.value))}
-                        className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-xs"
-                      />
-                    </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Grade
+                    </label>
+                    <Input
+                      value={grade}
+                      onChange={(e) => setGrade(e.target.value)}
+                      placeholder="e.g. Premium / Technical"
+                    />
                   </div>
-                </div>
-              )}
-
-              {/* Footer Buttons */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-                <span className="text-xs text-slate-400">
-                  Code will be generated automatically as{' '}
-                  <span className="font-mono text-emerald-400 font-bold">{previewCode}</span>
-                </span>
-
-                <div className="flex gap-2.5">
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-medium transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2"
-                  >
-                    {isSaving ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        <span>Creating Item...</span>
-                      </>
-                    ) : (
-                      <>
-                        <IconCheck size={16} />
-                        <span>Save Item</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
-            </form>
-          )}
-        </div>
-      </div>
+            )}
+
+            {/* ============================================================== */}
+            {/* RAW MATERIAL DYNAMIC SUBFORM */}
+            {/* ============================================================== */}
+            {routeInfo?.targetEntity === 'RAW_MATERIAL' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Base Unit of Measure (UOM)
+                    </label>
+                    <Select
+                      value={selectedBaseUomId}
+                      onChange={(e) => setSelectedBaseUomId(typeof e === 'string' ? e : e.target?.value || '')}
+                      options={[
+                        { label: '-- Select Base UOM --', value: '' },
+                        ...uoms.map((u) => ({
+                          label: `${u.name} (${u.symbol || u.code})`,
+                          value: u.id,
+                        })),
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Purchase Unit (Drum/Bag)
+                    </label>
+                    <Select
+                      value={selectedPurchaseUomId}
+                      onChange={(e) => setSelectedPurchaseUomId(typeof e === 'string' ? e : e.target?.value || '')}
+                      options={[
+                        { label: '-- Select Purchase UOM --', value: '' },
+                        ...purchaseUoms.map((u) => ({
+                          label: `${u.name} (${u.symbol || u.code})`,
+                          value: u.id,
+                        })),
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Conversion Factor
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.001"
+                      value={conversionFactor}
+                      onChange={(e) => setConversionFactor(parseFloat(e.target.value) || 1)}
+                      placeholder="1 Drum = X Liters"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#334155', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={batchControlled}
+                      onChange={(e) => setBatchControlled(e.target.checked)}
+                      style={{ borderRadius: '4px' }}
+                    />
+                    Batch Controlled Material
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#334155', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={qcRequired}
+                      onChange={(e) => setQcRequired(e.target.checked)}
+                      style={{ borderRadius: '4px' }}
+                    />
+                    QC Inspection Required
+                  </label>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                    Storage Requirements / Handling Specs
+                  </label>
+                  <Input
+                    value={storageRequirements}
+                    onChange={(e) => setStorageRequirements(e.target.value)}
+                    placeholder="e.g. Keep in cool, ventilated bay below 30°C"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================== */}
+            {/* PACKING MATERIAL DYNAMIC SUBFORM (Bottles, Cartons, Shrink...) */}
+            {/* ============================================================== */}
+            {routeInfo?.targetEntity === 'PACKING_MATERIAL' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Unit of Count
+                    </label>
+                    <Select
+                      value={selectedBaseUomId}
+                      onChange={(e) => setSelectedBaseUomId(typeof e === 'string' ? e : e.target?.value || '')}
+                      options={[
+                        { label: '-- Select Unit --', value: '' },
+                        ...uoms.map((u) => ({
+                          label: `${u.name} (${u.symbol || u.code})`,
+                          value: u.id,
+                        })),
+                      ]}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Pack Compatibility
+                    </label>
+                    <Input
+                      value={packCompatibility}
+                      onChange={(e) => setPackCompatibility(e.target.value)}
+                      placeholder="e.g. Fits 2L liquid bottles or 10KG boxes"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Minimum Stock Level
+                    </label>
+                    <Input
+                      type="number"
+                      value={minStock}
+                      onChange={(e) => setMinStock(parseInt(e.target.value, 10) || 0)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                      Reorder Stock Level
+                    </label>
+                    <Input
+                      type="number"
+                      value={reorderLevel}
+                      onChange={(e) => setReorderLevel(parseInt(e.target.value, 10) || 0)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </form>
+        )}
+      </Modal>
 
       {/* Sub-Modals */}
       <InlinePackagingModal

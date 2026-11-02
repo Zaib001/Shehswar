@@ -1,25 +1,45 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Unified Product & Item Management Workspace
+ * SHEHSWAR ONE360 - Product & Item Management Workspace
  *
- * Full Architectural Separation:
- * - Product Master represents "What the item is".
- * - Costing logic is completely isolated in Product Costing.
- * - Single professional "+ Add Item" entry point with dynamic category routing.
- * - Full legacy columns rendered (PPC, Urdu Name, MType, Packaging Material, Base Price).
- * - Live category tabs (Finished Goods 41-01, Raw Materials 41-51, Bottles 41-82, Cartons 41-83, etc.)
- * - Dynamic file import / upload support.
+ * Full Enterprise UI matching Canonical Shehswar ERP Design System:
+ * - ListPageTemplate structure with breadcrumbs and actions
+ * - 4 Executive KpiCard metrics with standard SVG icons
+ * - Card & CardContent filter toolbar with Input (startIcon) and Select components
+ * - DataTable with monospace codes, Urdu RTL typography, packaging pills, status badges
+ * - Strict separation between Product Master and Product Costing
+ * - One professional "+ Add Item" modal and dynamic file import
+ * - Zero hardcoded mock data; connected directly to live PostgreSQL
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
+import { ListPageTemplate } from '../templates';
 import {
+  Card,
+  CardContent,
+  Button,
+  Input,
+  Select,
+  DataTable,
+  KpiCard,
+  StatusBadge,
+  TableSkeleton,
+  EmptyState,
+  ErrorState,
+  Modal,
+} from '../ui';
+import {
+  IconFlask,
+  IconPackage,
   IconPlus,
   IconRefresh,
   IconDownload,
+  IconSearch,
   IconEye,
-  IconFlask,
+  IconTrendingUp,
+  IconBuilding,
 } from '../icons';
 import { UnifiedAddItemModal } from './UnifiedAddItemModal';
 import { ProductImportModal } from './ProductImportModal';
@@ -29,8 +49,10 @@ interface FinishedProductItem {
   productCode: string;
   productName: string;
   urduName?: string;
+  categoryId?: string;
   category?: { id: string; code: string; name: string };
-  packagingMaterial?: { id: string; materialCode: string; materialName: string };
+  packagingMaterialId?: string;
+  packagingMaterial?: { id: string; materialCode: string; materialName: string; standardCost?: number; lastPurchaseCost?: number };
   packingQuantity?: number;
   packingUnit?: string;
   ppc?: number;
@@ -38,31 +60,55 @@ interface FinishedProductItem {
   productType?: string;
   defaultSellingPrice?: number;
   standardCost?: number;
+  customFields?: Record<string, any>;
   status: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export const FinishedProductsView: React.FC = () => {
   const { showToast } = useToast();
   const [products, setProducts] = useState<FinishedProductItem[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [mTypeFilter, setMTypeFilter] = useState('ALL');
+  const [costingFilter, setCostingFilter] = useState('ALL');
 
   // Modals
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [viewingProduct, setViewingProduct] = useState<FinishedProductItem | null>(null);
 
-  // Load Products
+  // Load Products & Categories
   const loadData = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const prodRes = await ApiClient.get<any[]>('/api/v1/master-data/finished-products');
-      const prodList = Array.isArray(prodRes.data) ? prodRes.data : (prodRes.data as any)?.data || [];
+      const [prodRes, catRes] = await Promise.all([
+        ApiClient.get<any[]>('/api/v1/master-data/finished-products'),
+        ApiClient.get<any[]>('/api/v1/master-data/unified-categories'),
+      ]);
+
+      const prodList = Array.isArray(prodRes.data)
+        ? prodRes.data
+        : (prodRes.data as any)?.data || [];
+      const catList = Array.isArray(catRes.data)
+        ? catRes.data
+        : (catRes.data as any)?.data || [];
+
       setProducts(prodList);
+      setCategories(catList);
     } catch (err: any) {
-      showToast({ title: 'Error', message: 'Failed to load catalog data', type: 'error' });
+      setError(err?.message || 'Failed to load product catalog records');
+      showToast({
+        title: 'Error',
+        message: err?.message || 'Failed to load catalog data from server',
+        type: 'error',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -72,346 +118,621 @@ export const FinishedProductsView: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Filter products by category & search query
+  // Executive KPI Calculations
+  const totalCount = products.length;
+  const activeCount = products.filter((p) => p.status === 'ACTIVE' || !p.status).length;
+  const costedCount = products.filter((p) => Number(p.standardCost || 0) > 0).length;
+  const uncostedCount = totalCount - costedCount;
+  const pricedCount = products.filter((p) => Number(p.defaultSellingPrice || 0) > 0).length;
+  const coveragePct = totalCount > 0 ? Math.round((pricedCount / totalCount) * 100) : 0;
+
+  // Filtered Products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
-        searchQuery === '' ||
-        p.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.productCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (p.urduName && p.urduName.includes(searchQuery));
+        q === '' ||
+        p.productName.toLowerCase().includes(q) ||
+        p.productCode.toLowerCase().includes(q) ||
+        (p.urduName && p.urduName.includes(q)) ||
+        (p.packagingMaterial?.materialName && p.packagingMaterial.materialName.toLowerCase().includes(q));
 
       const matchesCat =
-        activeCategoryFilter === 'ALL' ||
-        p.category?.code === activeCategoryFilter ||
-        p.category?.name === activeCategoryFilter;
+        categoryFilter === 'ALL' ||
+        p.categoryId === categoryFilter ||
+        p.category?.id === categoryFilter ||
+        p.category?.code === categoryFilter;
 
-      return matchesSearch && matchesCat;
+      const matchesMType =
+        mTypeFilter === 'ALL' ||
+        p.mType === mTypeFilter;
+
+      const hasCost = Number(p.standardCost || 0) > 0;
+      const matchesCosting =
+        costingFilter === 'ALL' ||
+        (costingFilter === 'COSTED' && hasCost) ||
+        (costingFilter === 'UNCOSTED' && !hasCost);
+
+      return matchesSearch && matchesCat && matchesMType && matchesCosting;
     });
-  }, [products, searchQuery, activeCategoryFilter]);
+  }, [products, searchQuery, categoryFilter, mTypeFilter, costingFilter]);
+
+  // Navigate to Product Costing Engine for a specific product
+  const handleNavigateToCosting = (productId: string) => {
+    window.location.hash = `#product-costing?product=${productId}`;
+    showToast({
+      title: 'Routing to Product Costing',
+      message: 'Loading recipe and procurement rates in Costing Engine...',
+      type: 'info',
+    });
+  };
+
+  // Enterprise DataTable Columns
+  const columns = [
+    {
+      key: 'productCode',
+      label: 'Product Code',
+      sortable: true,
+      render: (row: FinishedProductItem) => (
+        <span
+          style={{
+            fontFamily: 'var(--font-mono, monospace)',
+            fontWeight: 700,
+            color: 'var(--color-primary-600, #2563EB)',
+            fontSize: '0.85rem',
+            letterSpacing: '0.5px',
+          }}
+        >
+          {row.productCode}
+        </span>
+      ),
+    },
+    {
+      key: 'productName',
+      label: 'Product Name / Account',
+      sortable: true,
+      render: (row: FinishedProductItem) => (
+        <div>
+          <div style={{ fontWeight: 600, color: 'var(--text-primary, #0F172A)', fontSize: '0.88rem' }}>
+            {row.productName}
+          </div>
+          {row.urduName && (
+            <div
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary, #64748B)',
+                marginTop: '2px',
+                fontFamily: 'sans-serif',
+              }}
+              dir="rtl"
+            >
+              {row.urduName}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      render: (row: FinishedProductItem) => {
+        const cat = row.category || categories.find((c) => c.id === row.categoryId);
+        return (
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary, #475569)' }}>
+            {cat ? `${cat.code ? `[${cat.code}] ` : ''}${cat.name}` : '41-01 Finished Goods'}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'packaging',
+      label: 'Packaging & Pack Size',
+      render: (row: FinishedProductItem) => (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span
+              style={{
+                fontFamily: 'var(--font-mono, monospace)',
+                fontWeight: 700,
+                color: 'var(--text-primary, #0F172A)',
+                padding: '2px 8px',
+                background: '#F1F5F9',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                border: '1px solid #E2E8F0',
+              }}
+            >
+              {row.packingQuantity ? `${row.packingQuantity} ${row.packingUnit || 'Liter'}` : '—'}
+            </span>
+          </div>
+          {row.packagingMaterial && (
+            <div
+              style={{
+                fontSize: '0.72rem',
+                color: 'var(--text-muted, #64748B)',
+                marginTop: '3px',
+                fontFamily: 'var(--font-mono, monospace)',
+              }}
+            >
+              {row.packagingMaterial.materialName} ({row.packagingMaterial.materialCode})
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'ppc',
+      label: 'PPC',
+      align: 'center' as const,
+      render: (row: FinishedProductItem) => (
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: '6px',
+            backgroundColor: '#F8FAFC',
+            border: '1px solid #E2E8F0',
+            fontFamily: 'var(--font-mono, monospace)',
+            fontWeight: 600,
+            fontSize: '0.78rem',
+            color: '#334155',
+          }}
+        >
+          {row.ppc || 1}
+        </span>
+      ),
+    },
+    {
+      key: 'mType',
+      label: 'Classification (MType)',
+      render: (row: FinishedProductItem) => {
+        const val = row.mType || 'Insecticides';
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '2px 8px',
+              borderRadius: '999px',
+              fontSize: '0.72rem',
+              fontWeight: 600,
+              backgroundColor: '#EEF2FF',
+              color: '#4F46E5',
+              border: '1px solid #C7D2FE',
+            }}
+          >
+            {val}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'defaultSellingPrice',
+      label: 'Base Selling Price',
+      sortable: true,
+      align: 'right' as const,
+      render: (row: FinishedProductItem) => (
+        <span
+          style={{
+            fontFamily: 'var(--font-mono, monospace)',
+            fontWeight: 700,
+            color: 'var(--text-primary, #0F172A)',
+            fontSize: '0.85rem',
+          }}
+        >
+          {row.defaultSellingPrice !== null && row.defaultSellingPrice !== undefined && Number(row.defaultSellingPrice) > 0
+            ? `PKR ${Number(row.defaultSellingPrice).toLocaleString()}`
+            : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'costingStatus',
+      label: 'Manufacturing Cost',
+      render: (row: FinishedProductItem) => {
+        const hasCost = Number(row.standardCost || 0) > 0;
+        if (hasCost) {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ECFDF5',
+                  color: '#059669',
+                  border: '1px solid #A7F3D0',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                }}
+              >
+                PKR {Number(row.standardCost).toLocaleString()} / Pack
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleNavigateToCosting(row.id)}
+                style={{ fontSize: '0.72rem', padding: '2px 6px', height: '24px' }}
+                title="Recalculate Costing in Costing Engine"
+              >
+                Recalculate
+              </Button>
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                backgroundColor: '#FEF3C7',
+                color: '#D97706',
+                border: '1px solid #FDE68A',
+                fontWeight: 700,
+                fontSize: '0.7rem',
+                letterSpacing: '0.4px',
+              }}
+            >
+              NOT CONFIGURED
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleNavigateToCosting(row.id)}
+              style={{
+                fontSize: '0.72rem',
+                padding: '2px 8px',
+                height: '24px',
+                borderColor: '#10B981',
+                color: '#059669',
+                backgroundColor: '#F0FDF4',
+                fontWeight: 600,
+              }}
+            >
+              Cost Now →
+            </Button>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (row: FinishedProductItem) => (
+        <StatusBadge status={row.status || 'ACTIVE'} />
+      ),
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      align: 'right' as const,
+      render: (row: FinishedProductItem) => (
+        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconEye size={14} />}
+            onClick={() => setViewingProduct(row)}
+            title="View Product Master Details"
+          >
+            View
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => handleNavigateToCosting(row.id)}
+            style={{ fontSize: '0.75rem', height: '28px' }}
+          >
+            Cost Engine
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Top Action Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl backdrop-blur-sm">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-              <IconFlask size={22} />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">Product & Item Management</h1>
-              <p className="text-slate-400 text-xs">
-                Master definition of products, identities, packaging, and commercial base prices.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
+    <ListPageTemplate
+      title="Product & Item Master"
+      subtitle="Commercial finished formulations, packaging configurations, PPC, and sales base prices. Cost calculation is segregated into Product Costing."
+      breadcrumbs={[
+        { label: 'Master Data', href: '#' },
+        { label: 'Finished Products Catalog' },
+      ]}
+      actions={
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            startIcon={<IconDownload size={14} />}
             onClick={() => setIsImportOpen(true)}
-            className="px-4 py-2.5 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-800/80 hover:bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
           >
-            <IconDownload size={15} className="text-indigo-400" />
-            <span>Product Import / Upload</span>
-          </button>
-
-          <button
-            onClick={() => loadData()}
-            className="p-2.5 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            title="Refresh Catalog"
+            Import Products
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            startIcon={<IconRefresh size={14} />}
+            onClick={loadData}
           >
-            <IconRefresh size={16} />
-          </button>
-
-          <button
+            Refresh
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            startIcon={<IconPlus size={14} />}
             onClick={() => setIsAddItemOpen(true)}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all"
+            style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
           >
-            <IconPlus size={16} />
-            <span>+ Add Item</span>
-          </button>
+            + Add Item
+          </Button>
         </div>
+      }
+    >
+      {/* 4 Executive KPI Cards matching Shehswar ERP standard */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '16px',
+          marginBottom: '24px',
+        }}
+      >
+        <KpiCard
+          title="Total Products in Master"
+          value={totalCount}
+          subtitle={`${activeCount} Active in Commercial Catalog`}
+          icon={<IconFlask size={20} />}
+          accentColor="#10B981"
+        />
+        <KpiCard
+          title="Costed Formulations"
+          value={costedCount}
+          subtitle={`${uncostedCount} Pending Batch Costing`}
+          icon={<IconTrendingUp size={20} />}
+          accentColor="#6366F1"
+        />
+        <KpiCard
+          title="Packaging Types"
+          value={products.filter((p) => p.packagingMaterialId).length}
+          subtitle={`Linked to Material Inventory`}
+          icon={<IconPackage size={20} />}
+          accentColor="#F59E0B"
+        />
+        <KpiCard
+          title="Commercial Rate Coverage"
+          value={`${coveragePct}%`}
+          subtitle={`${pricedCount} of ${totalCount} Have Base Rates`}
+          icon={<IconBuilding size={20} />}
+          accentColor="#06B6D4"
+        />
       </div>
 
-      {/* Category Navigation Bar & Search */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        {/* Category Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-          <button
-            onClick={() => setActiveCategoryFilter('ALL')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-              activeCategoryFilter === 'ALL'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            All Products ({products.length})
-          </button>
-
-          <button
-            onClick={() => setActiveCategoryFilter('41-01')}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-              activeCategoryFilter === '41-01'
-                ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            Finished Goods [41-01]
-          </button>
-
-          <button
-            onClick={() => {
-              window.location.hash = '#raw-materials';
-              showToast({ title: 'Navigation', message: 'Opening Raw Materials catalog', type: 'info' });
-            }}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
-          >
-            Raw Materials [41-51] →
-          </button>
-
-          <button
-            onClick={() => {
-              window.location.hash = '#packing-materials';
-              showToast({ title: 'Navigation', message: 'Opening Packing Materials catalog', type: 'info' });
-            }}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
-          >
-            Packing Materials [41-81..87] →
-          </button>
-        </div>
-
-        {/* Search Input */}
-        <div className="w-full md:w-72">
-          <input
-            type="text"
-            placeholder="Search by code, name, or Urdu..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-          />
-        </div>
-      </div>
-
-      {/* Main Table */}
-      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-        {isLoading ? (
-          <div className="p-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-            <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            <span>Loading product master records...</span>
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="p-16 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
-              <IconFlask size={24} />
+      {/* Filter Toolbar matching SalesOrdersView and RawMaterialsView */}
+      <Card style={{ marginBottom: '20px' }}>
+        <CardContent style={{ padding: '14px 18px' }}>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ flex: 1, minWidth: '260px' }}>
+              <Input
+                placeholder="Search by code, product name, packaging, or Urdu..."
+                startIcon={<IconSearch size={16} />}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
-            <h4 className="text-white font-semibold text-sm">No products found</h4>
-            <p className="text-slate-400 text-xs max-w-sm mx-auto">
-              Click &quot;+ Add Item&quot; to create your first finished good or import product records from a file.
-            </p>
-            <button
-              onClick={() => setIsAddItemOpen(true)}
-              className="mt-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-            >
-              + Add First Item
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-800/80 text-slate-300 border-b border-slate-700 font-semibold uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="p-3.5">Product Code</th>
-                  <th className="p-3.5">Product Name / Account</th>
-                  <th className="p-3.5">Urdu Name</th>
-                  <th className="p-3.5">Packing & Size</th>
-                  <th className="p-3.5">PPC</th>
-                  <th className="p-3.5">MType</th>
-                  <th className="p-3.5">Type</th>
-                  <th className="p-3.5">Base Selling Price</th>
-                  <th className="p-3.5">Costing Status</th>
-                  <th className="p-3.5">Status</th>
-                  <th className="p-3.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {filteredProducts.map((p) => {
-                  const hasCost = Number(p.standardCost || 0) > 0;
-                  return (
-                    <tr key={p.id} className="hover:bg-slate-800/40 transition-colors group">
-                      <td className="p-3.5 font-mono font-bold text-emerald-400 whitespace-nowrap">
-                        {p.productCode}
-                      </td>
-                      <td className="p-3.5 font-semibold text-white max-w-[200px] truncate">
-                        {p.productName}
-                      </td>
-                      <td className="p-3.5 font-medium text-slate-400 text-right whitespace-nowrap" dir="rtl">
-                        {p.urduName || '-'}
-                      </td>
-                      <td className="p-3.5 whitespace-nowrap">
-                        <span className="text-slate-200">
-                          {p.packingQuantity ? `${p.packingQuantity} ${p.packingUnit || 'Liter'}` : '-'}
-                        </span>
-                        {p.packagingMaterial && (
-                          <span className="block text-[10px] text-slate-400 font-mono">
-                            {p.packagingMaterial.materialName}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3.5 font-mono text-center">
-                        <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">
-                          {p.ppc || 1}
-                        </span>
-                      </td>
-                      <td className="p-3.5 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-medium">
-                          {p.mType || 'Insecticides'}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-slate-400 whitespace-nowrap">
-                        {p.productType || '-'}
-                      </td>
-                      <td className="p-3.5 font-mono font-bold text-white whitespace-nowrap">
-                        {p.defaultSellingPrice ? `PKR ${Number(p.defaultSellingPrice).toLocaleString()}` : '-'}
-                      </td>
-                      <td className="p-3.5 whitespace-nowrap">
-                        {hasCost ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold font-mono">
-                              PKR {Number(p.standardCost).toLocaleString()} / Pack
-                            </span>
-                            <button
-                              onClick={() => {
-                                window.location.hash = `#product-costing?product=${p.id}`;
-                              }}
-                              className="text-[10px] text-slate-400 hover:text-emerald-400 underline"
-                              title="Recalculate Costing"
-                            >
-                              Edit Cost
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-semibold">
-                              NOT CONFIGURED
-                            </span>
-                            <button
-                              onClick={() => {
-                                window.location.hash = `#product-costing?product=${p.id}`;
-                              }}
-                              className="px-2 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-semibold transition-colors"
-                            >
-                              Cost Now
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3.5 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => setViewingProduct(p)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                            title="View Product Master Details"
-                          >
-                            <IconEye size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
-      {/* Product Detail Modal */}
+            <div style={{ minWidth: '220px' }}>
+              <Select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
+                options={[
+                  { label: 'All Master Categories', value: 'ALL' },
+                  ...categories.map((c) => ({
+                    label: `${c.code ? `[${c.code}] ` : ''}${c.name}`,
+                    value: c.id,
+                  })),
+                ]}
+              />
+            </div>
+
+            <div style={{ minWidth: '180px' }}>
+              <Select
+                value={mTypeFilter}
+                onChange={(e) => setMTypeFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
+                options={[
+                  { label: 'All Classifications (MType)', value: 'ALL' },
+                  { label: 'Insecticides', value: 'Insecticides' },
+                  { label: 'Herbicides', value: 'Herbicides' },
+                  { label: 'Weedicides', value: 'Weedicides' },
+                  { label: 'Fungicides', value: 'Fungicides' },
+                  { label: 'Fertilizers', value: 'Fertilizers' },
+                  { label: 'Seeds', value: 'Seeds' },
+                  { label: 'PGRs / Nutrients', value: 'PGRs / Nutrients' },
+                  { label: 'Others', value: 'Others' },
+                ]}
+              />
+            </div>
+
+            <div style={{ minWidth: '180px' }}>
+              <Select
+                value={costingFilter}
+                onChange={(e) => setCostingFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
+                options={[
+                  { label: 'All Costing States', value: 'ALL' },
+                  { label: 'Cost Configured', value: 'COSTED' },
+                  { label: 'Not Configured', value: 'UNCOSTED' },
+                ]}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Main Table View */}
+      {isLoading ? (
+        <TableSkeleton rows={6} columns={9} />
+      ) : error ? (
+        <ErrorState
+          title="Failed to Load Product Master Records"
+          message={error}
+          onRetry={loadData}
+        />
+      ) : filteredProducts.length === 0 ? (
+        <EmptyState
+          title="No Products Found"
+          description={
+            searchQuery
+              ? 'No products match your current search or filter criteria.'
+              : 'No finished products have been registered yet.'
+          }
+          actionLabel="+ Add First Item"
+          onAction={() => setIsAddItemOpen(true)}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filteredProducts}
+          searchable={false}
+          pageSize={10}
+        />
+      )}
+
+      {/* Product Detail Modal matching Shehswar UI Modal */}
       {viewingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <span className="text-xs font-mono font-bold text-emerald-400">{viewingProduct.productCode}</span>
-                <h3 className="text-lg font-bold text-white">{viewingProduct.productName}</h3>
-                {viewingProduct.urduName && (
-                  <p className="text-slate-400 text-sm" dir="rtl">{viewingProduct.urduName}</p>
-                )}
-              </div>
-              <button
-                onClick={() => setViewingProduct(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+        <Modal
+          isOpen={!!viewingProduct}
+          onClose={() => setViewingProduct(null)}
+          title="Product Master Specification"
+          description={`Identity and technical packaging details for ${viewingProduct.productCode}`}
+          size="lg"
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const pid = viewingProduct.id;
+                  setViewingProduct(null);
+                  handleNavigateToCosting(pid);
+                }}
+                style={{ backgroundColor: '#EEF2FF', color: '#4F46E5', borderColor: '#C7D2FE' }}
               >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">Packaging Material</span>
-                <p className="text-white font-medium mt-0.5">
-                  {viewingProduct.packagingMaterial?.materialName || 'Not Linked'}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">Pack Size & Unit</span>
-                <p className="text-white font-medium mt-0.5">
-                  {viewingProduct.packingQuantity} {viewingProduct.packingUnit}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">PPC (Packs / Carton)</span>
-                <p className="text-white font-medium mt-0.5">{viewingProduct.ppc || 1}</p>
-              </div>
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">MType</span>
-                <p className="text-white font-medium mt-0.5">{viewingProduct.mType || 'Insecticides'}</p>
-              </div>
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">Base Selling Price</span>
-                <p className="text-emerald-400 font-bold mt-0.5">
-                  {viewingProduct.defaultSellingPrice ? `PKR ${Number(viewingProduct.defaultSellingPrice).toLocaleString()}` : 'Not Set'}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-800/60 rounded-xl">
-                <span className="text-slate-400">Manufacturing Cost</span>
-                <p className="text-white font-bold mt-0.5">
-                  {viewingProduct.standardCost ? `PKR ${Number(viewingProduct.standardCost).toLocaleString()} / Pack` : 'Not Configured'}
-                </p>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-800 flex justify-end">
-              <button
-                onClick={() => setViewingProduct(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-semibold"
-              >
+                Open in Product Costing Engine →
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setViewingProduct(null)}>
                 Close
-              </button>
+              </Button>
             </div>
+          }
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '0.85rem' }}>
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                Product Identity
+              </div>
+              <div style={{ marginTop: '8px', fontWeight: 700, fontSize: '1rem', color: '#0F172A' }}>
+                {viewingProduct.productName}
+              </div>
+              {viewingProduct.urduName && (
+                <div style={{ color: '#475569', marginTop: '4px', fontSize: '0.9rem' }} dir="rtl">
+                  {viewingProduct.urduName}
+                </div>
+              )}
+              <div style={{ marginTop: '8px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: '#2563EB' }}>
+                Code: {viewingProduct.productCode}
+              </div>
+              <div style={{ marginTop: '4px', color: '#64748B' }}>
+                Classification: <strong>{viewingProduct.mType || 'Insecticides'}</strong>
+              </div>
+            </div>
+
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                Packaging & Carton Logistics
+              </div>
+              <div style={{ marginTop: '8px', fontWeight: 600, color: '#0F172A' }}>
+                Pack Size: {viewingProduct.packingQuantity ? `${viewingProduct.packingQuantity} ${viewingProduct.packingUnit || 'Liter'}` : 'Not Specified'}
+              </div>
+              <div style={{ marginTop: '4px', color: '#475569' }}>
+                PPC (Pack Per Carton): <strong>{viewingProduct.ppc || 1} units/box</strong>
+              </div>
+              <div style={{ marginTop: '4px', color: '#475569' }}>
+                Packaging Material: <strong>{viewingProduct.packagingMaterial?.materialName || 'None Assigned'}</strong>
+              </div>
+              {viewingProduct.packagingMaterial?.materialCode && (
+                <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.75rem', color: '#64748B' }}>
+                  Material Code: {viewingProduct.packagingMaterial.materialCode}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                Commercial Pricing
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '1.1rem', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
+                {viewingProduct.defaultSellingPrice ? `PKR ${Number(viewingProduct.defaultSellingPrice).toLocaleString()}` : 'Not Set'}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+                Base commercial rate for sales orders and rate lists.
+              </div>
+            </div>
+
+            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                Authoritative Costing Status
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '1.1rem', fontWeight: 700, color: Number(viewingProduct.standardCost || 0) > 0 ? '#059669' : '#D97706', fontFamily: 'var(--font-mono, monospace)' }}>
+                {Number(viewingProduct.standardCost || 0) > 0
+                  ? `PKR ${Number(viewingProduct.standardCost).toLocaleString()} / Pack`
+                  : 'NOT CONFIGURED'}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
+                Applied via Product Costing Engine snapshot.
+              </div>
+            </div>
+
+            {viewingProduct.customFields && Object.keys(viewingProduct.customFields).length > 0 && (
+              <div style={{ gridColumn: '1 / -1', padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Dynamic File Import Fields (customFields)
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+                  {Object.entries(viewingProduct.customFields).map(([k, v]) => (
+                    <div key={k} style={{ padding: '6px 10px', background: '#FFFFFF', borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '0.78rem' }}>
+                      <span style={{ color: '#64748B', display: 'block', fontSize: '0.7rem' }}>{k}</span>
+                      <strong style={{ color: '#0F172A' }}>{String(v)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Unified Add Item Modal */}
       <UnifiedAddItemModal
         isOpen={isAddItemOpen}
         onClose={() => setIsAddItemOpen(false)}
-        onItemCreated={() => loadData()}
+        onItemCreated={() => {
+          setIsAddItemOpen(false);
+          loadData();
+        }}
       />
 
-      {/* Product File Import Modal */}
+      {/* Dynamic Product Import Modal */}
       <ProductImportModal
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
-        onImportComplete={() => loadData()}
+        onImportComplete={() => {
+          setIsImportOpen(false);
+          loadData();
+        }}
       />
-    </div>
+    </ListPageTemplate>
   );
 };

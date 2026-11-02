@@ -2,11 +2,15 @@
 
 /**
  * SHEHSWAR ONE360 - Inline Category Creation Modal
+ *
+ * Full Enterprise UI matching Canonical Shehswar ERP Design System:
+ * - Uses standard Modal component from '../ui'
+ * - Standard Input, Select, Button from '../ui'
  */
 import React, { useState } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
-import { IconClose, IconCheck, IconTag } from '../icons';
+import { Modal, Button, Input, Select } from '../ui';
 
 interface InlineCategoryModalProps {
   isOpen: boolean;
@@ -67,93 +71,68 @@ export const InlineCategoryModal: React.FC<InlineCategoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
-            <IconTag size={18} />
-            <span>Add New Category</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Create New Category"
+      description="Registers a new classification under the 41-XX master hierarchy"
+      size="sm"
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', width: '100%' }}>
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSubmit}
+            isLoading={isSaving}
+            style={{ backgroundColor: '#2563EB', borderColor: '#2563EB', color: '#fff' }}
           >
-            <IconClose size={18} />
-          </button>
+            Create Category
+          </Button>
+        </div>
+      }
+    >
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+            Category Group *
+          </label>
+          <Select
+            value={categoryType}
+            onChange={(e) => setCategoryType((typeof e === 'string' ? e : e.target?.value || 'PACKING_MATERIAL') as any)}
+            options={[
+              { label: 'Packing Material (Bottles, Cartons, Shrink, etc.)', value: 'PACKING_MATERIAL' },
+              { label: 'Raw Material (Active Ingredients, Solvents)', value: 'RAW_MATERIAL' },
+              { label: 'Finished Goods (Commercial Formulations)', value: 'FINISHED_PRODUCT' },
+            ]}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Category Group <span className="text-rose-400">*</span>
-            </label>
-            <select
-              value={categoryType}
-              onChange={(e) => setCategoryType(e.target.value as any)}
-              className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            >
-              <option value="PACKING_MATERIAL">Packing Material (Bottles, Cartons, Shrink, etc.)</option>
-              <option value="RAW_MATERIAL">Raw Material (Active Ingredients, Solvents)</option>
-              <option value="FINISHED_PRODUCT">Finished Goods (Formulated Products)</option>
-            </select>
-          </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+            Category Name *
+          </label>
+          <Input
+            required
+            placeholder="e.g. Drums, Jerry Cans, Foil Seals"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
 
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Category Name <span className="text-rose-400">*</span>
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. Drums, Pallets, Labels, Emulsifiers"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
-              Description (Optional)
-            </label>
-            <textarea
-              rows={2}
-              placeholder="Brief description of items under this category..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-800/80 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            />
-          </div>
-
-          <div className="pt-3 border-t border-slate-800 flex justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-sm font-medium transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/20 transition-all flex items-center gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <IconCheck size={16} />
-                  <span>Save Category</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+            Description (Optional)
+          </label>
+          <Input
+            placeholder="Purpose and classification notes..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+      </form>
+    </Modal>
   );
 };
-
