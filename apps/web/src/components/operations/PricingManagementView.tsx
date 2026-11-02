@@ -15,7 +15,7 @@
  * 9. Pricing Authority Limits & Governance Configuration
  * 10. Live Price Resolution Simulator connected to Backend Database
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Button,
   Input,
@@ -134,6 +134,23 @@ export const PricingManagementView: React.FC = () => {
   const [rateListItems, setRateListItems] = useState<any[]>([]);
   const [rateListItemSearch, setRateListItemSearch] = useState('');
   const [bulkAdjustmentPct, setBulkAdjustmentPct] = useState<number | ''>('');
+
+  // Searchable Scheme Combobox state
+  const [schemeComboQuery, setSchemeComboQuery] = useState('');
+  const [schemeComboOpen, setSchemeComboOpen] = useState(false);
+  const [schemeComboHighlight, setSchemeComboHighlight] = useState(0);
+  const schemeComboInputRef = useRef<HTMLInputElement>(null);
+  const schemeComboListRef = useRef<HTMLUListElement>(null);
+
+  // Scheme discount info for header card
+  const [selectedSchemeInfo, setSelectedSchemeInfo] = useState<any>(null);
+
+  // Form field refs for keyboard-first navigation
+  const codeInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const effectiveFromInputRef = useRef<HTMLInputElement>(null);
+  const effectiveToInputRef = useRef<HTMLInputElement>(null);
+  const rateInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Rate List Version Modal State
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
@@ -428,6 +445,10 @@ export const PricingManagementView: React.FC = () => {
     setRateListItems([]);
     setRateListItemSearch('');
     setBulkAdjustmentPct('');
+    setSchemeComboQuery('');
+    setSchemeComboOpen(false);
+    setSchemeComboHighlight(0);
+    setSelectedSchemeInfo(null);
     setIsRateListModalOpen(true);
 
     if (preselectedSchemeId) {
@@ -460,6 +481,10 @@ export const PricingManagementView: React.FC = () => {
       const shortCode = scheme.shortCode || scheme.code;
       const typeCode = scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR';
       const year = new Date().getFullYear();
+
+      // Store scheme info for summary card
+      setSelectedSchemeInfo(scheme);
+      setSchemeComboQuery(`${shortCode} - ${scheme.name}`);
 
       setRateListForm((prev) => ({
         ...prev,
@@ -540,26 +565,60 @@ export const PricingManagementView: React.FC = () => {
     );
   };
 
-  const handleItemDiscountChange = (index: number, newDiscountPct: number) => {
-    setRateListItems((prev) =>
-      prev.map((it, i) => {
-        if (i !== index) return it;
-        const base = Number(it.baseRate) || 0;
-        const calculatedRate = Math.round(base * (1 - newDiscountPct / 100));
-        return {
-          ...it,
-          discountPercent: newDiscountPct,
-          schemeRate: calculatedRate,
-          minAllowedRate: Math.round(calculatedRate * 0.8),
-        };
-      })
-    );
+  /**
+   * Remove a single product from the rate list (does NOT delete product master)
+   */
+  const handleRemoveRateListItem = (finishedProductId: string) => {
+    setRateListItems((prev) => prev.filter((it) => it.finishedProductId !== finishedProductId));
   };
 
-  const handleItemRateTypeToggle = (index: number, newType: string) => {
-    setRateListItems((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, rateType: newType } : it))
+  /**
+   * Scheme combobox filtered results
+   */
+  const schemeComboResults = useMemo(() => {
+    const q = schemeComboQuery.toLowerCase().trim();
+    if (!q) return schemes.slice(0, 50);
+    return schemes.filter(
+      (s) =>
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.code || '').toLowerCase().includes(q) ||
+        (s.shortCode || '').toLowerCase().includes(q)
     );
+  }, [schemes, schemeComboQuery]);
+
+  /**
+   * Handle scheme combobox keyboard events (Arrow Up/Down, Enter, Escape)
+   */
+  const handleSchemeComboKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!schemeComboOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setSchemeComboOpen(true);
+      setSchemeComboHighlight(0);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSchemeComboHighlight((h) => Math.min(h + 1, schemeComboResults.length - 1));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSchemeComboHighlight((h) => Math.max(h - 1, 0));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (schemeComboOpen && schemeComboResults[schemeComboHighlight]) {
+        const picked = schemeComboResults[schemeComboHighlight];
+        setSchemeComboOpen(false);
+        handleSchemeSelectForRateList(picked.id);
+        setTimeout(() => codeInputRef.current?.focus(), 80);
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      setSchemeComboOpen(false);
+      return;
+    }
   };
 
   /**
@@ -1908,20 +1967,191 @@ export const PricingManagementView: React.FC = () => {
             >
               1. Select Scheme * (Searchable Dropdown)
             </label>
-            <Select
-              value={rateListForm.schemeId}
-              onChange={(e) => handleSchemeSelectForRateList(e.target.value)}
-              options={[
-                { value: '', label: '-- Select a Scheme to Auto-Load Finished Products --' },
-                ...schemes.map((s) => ({
-                  value: s.id,
-                  label: `${s.shortCode || s.code} - ${s.name} (${s.schemeTypeCode || s.schemeTypeRef?.code || 'SR'})`,
-                })),
-              ]}
-            />
-            <div style={{ fontSize: '12px', color: '#047857', marginTop: '6px' }}>
-              Selecting a scheme automatically retrieves active sellable finished products from the database and precalculates scheme rates.
+
+            {/* ── Searchable Scheme Combobox ── */}
+            <div style={{ position: 'relative' }}>
+              <input
+                ref={schemeComboInputRef}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Type scheme code or name (e.g. MCCM, Mega Carnival, SR)…"
+                value={schemeComboQuery}
+                onChange={(e) => {
+                  setSchemeComboQuery(e.target.value);
+                  setSchemeComboOpen(true);
+                  setSchemeComboHighlight(0);
+                  // If user clears the field, reset scheme selection
+                  if (!e.target.value.trim()) {
+                    setRateListForm((prev) => ({
+                      ...prev,
+                      schemeId: '',
+                      schemeShortCode: '',
+                      schemeName: '',
+                      schemeTypeCode: '',
+                    }));
+                    setRateListItems([]);
+                    setSelectedSchemeInfo(null);
+                  }
+                }}
+                onFocus={() => { setSchemeComboOpen(true); setSchemeComboHighlight(0); }}
+                onBlur={() => setTimeout(() => setSchemeComboOpen(false), 160)}
+                onKeyDown={handleSchemeComboKeyDown}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  fontSize: '14px',
+                  border: rateListForm.schemeId
+                    ? '2px solid #059669'
+                    : '1.5px solid #a7f3d0',
+                  borderRadius: '6px',
+                  outline: 'none',
+                  backgroundColor: '#fff',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {/* Dropdown list */}
+              {schemeComboOpen && schemeComboResults.length > 0 && (
+                <ul
+                  ref={schemeComboListRef}
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 9999,
+                    maxHeight: '240px',
+                    overflowY: 'auto',
+                    margin: '2px 0 0 0',
+                    padding: 0,
+                    listStyle: 'none',
+                    backgroundColor: '#fff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                  }}
+                >
+                  {schemeComboResults.map((s, idx) => {
+                    const typeCode = s.schemeTypeCode || s.schemeTypeRef?.code || '';
+                    const shortCode = s.shortCode || s.code;
+                    const isHighlighted = idx === schemeComboHighlight;
+                    return (
+                      <li
+                        key={s.id}
+                        onMouseDown={() => {
+                          setSchemeComboOpen(false);
+                          handleSchemeSelectForRateList(s.id);
+                          setTimeout(() => codeInputRef.current?.focus(), 80);
+                        }}
+                        onMouseEnter={() => setSchemeComboHighlight(idx)}
+                        style={{
+                          padding: '10px 14px',
+                          cursor: 'pointer',
+                          backgroundColor: isHighlighted ? '#ecfdf5' : 'transparent',
+                          borderBottom: '1px solid #f1f5f9',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '2px 7px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            backgroundColor: typeCode === 'NNR' ? '#f3e8ff' : typeCode === 'CA' ? '#fef9c3' : typeCode === 'ABC' ? '#e0f2fe' : '#ecfdf5',
+                            color: typeCode === 'NNR' ? '#7e22ce' : typeCode === 'CA' ? '#92400e' : typeCode === 'ABC' ? '#0369a1' : '#065f46',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {typeCode}
+                        </span>
+                        <span style={{ fontWeight: 700, fontSize: '13px', color: '#059669', flexShrink: 0 }}>
+                          {shortCode}
+                        </span>
+                        <span style={{ fontSize: '13px', color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.name}
+                        </span>
+                        {s.status === 'ACTIVE' && (
+                          <span style={{ fontSize: '10px', color: '#059669', flexShrink: 0 }}>● ACTIVE</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {schemeComboOpen && schemeComboResults.length === 0 && schemeComboQuery.trim() && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 9999,
+                    padding: '12px 14px',
+                    backgroundColor: '#fff',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                    fontSize: '13px',
+                    color: '#94a3b8',
+                  }}
+                >
+                  No schemes found for &quot;{schemeComboQuery}&quot;
+                </div>
+              )}
             </div>
+
+            {/* Keyboard hint */}
+            <div style={{ fontSize: '11px', color: '#047857', marginTop: '6px', display: 'flex', gap: '12px' }}>
+              <span>↓↑ navigate</span>
+              <span>Enter select</span>
+              <span>Esc close</span>
+              <span style={{ marginLeft: 'auto' }}>Selecting a scheme auto-loads all active finished products with scheme-calculated rates.</span>
+            </div>
+
+            {/* Scheme Summary Card — shown after selection */}
+            {selectedSchemeInfo && rateListForm.schemeId && (
+              <div
+                style={{
+                  marginTop: '10px',
+                  padding: '10px 14px',
+                  backgroundColor: '#f0fdf4',
+                  borderRadius: '6px',
+                  border: '1px solid #86efac',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '16px',
+                  alignItems: 'center',
+                  fontSize: '13px',
+                }}
+              >
+                <span style={{ fontWeight: 800, color: '#065f46' }}>
+                  ✓ {selectedSchemeInfo.name}
+                </span>
+                <span style={{ color: '#475569' }}>
+                  Code: <strong>{selectedSchemeInfo.shortCode || selectedSchemeInfo.code}</strong>
+                </span>
+                <span style={{ color: '#475569' }}>
+                  Type: <strong>{rateListForm.schemeTypeCode}</strong>
+                </span>
+                {(selectedSchemeInfo.defaultDiscountPct || selectedSchemeInfo.cashDiscountPct) > 0 && (
+                  <span style={{ color: '#b45309', fontWeight: 700 }}>
+                    Discount: {selectedSchemeInfo.defaultDiscountPct || selectedSchemeInfo.cashDiscountPct}%
+                  </span>
+                )}
+                {selectedSchemeInfo.startDate && (
+                  <span style={{ color: '#475569' }}>
+                    Valid: {new Date(selectedSchemeInfo.startDate).toLocaleDateString()} → {selectedSchemeInfo.endDate ? new Date(selectedSchemeInfo.endDate).toLocaleDateString() : 'Ongoing'}
+                  </span>
+                )}
+                <span style={{ fontWeight: 700, color: '#059669', marginLeft: 'auto' }}>
+                  {rateListItems.length} Products
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Rate List Metadata */}
@@ -1931,9 +2161,16 @@ export const PricingManagementView: React.FC = () => {
                 Rate List Code *
               </label>
               <Input
+                ref={codeInputRef}
                 placeholder="e.g. RL-MCCM-2026"
                 value={rateListForm.code}
                 onChange={(e) => setRateListForm({ ...rateListForm, code: e.target.value.toUpperCase() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    nameInputRef.current?.focus();
+                  }
+                }}
               />
             </div>
             <div>
@@ -1941,9 +2178,16 @@ export const PricingManagementView: React.FC = () => {
                 Rate List Name *
               </label>
               <Input
+                ref={nameInputRef}
                 placeholder="e.g. Mega Carnival Open Mela Official Rate List"
                 value={rateListForm.name}
                 onChange={(e) => setRateListForm({ ...rateListForm, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    effectiveFromInputRef.current?.focus();
+                  }
+                }}
               />
             </div>
             <div>
@@ -1960,9 +2204,16 @@ export const PricingManagementView: React.FC = () => {
                 Validity From *
               </label>
               <Input
+                ref={effectiveFromInputRef}
                 type="date"
                 value={rateListForm.effectiveFrom}
                 onChange={(e) => setRateListForm({ ...rateListForm, effectiveFrom: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    effectiveToInputRef.current?.focus();
+                  }
+                }}
               />
             </div>
             <div>
@@ -1970,9 +2221,19 @@ export const PricingManagementView: React.FC = () => {
                 Validity To (Optional)
               </label>
               <Input
+                ref={effectiveToInputRef}
                 type="date"
                 value={rateListForm.effectiveTo}
                 onChange={(e) => setRateListForm({ ...rateListForm, effectiveTo: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (rateInputRefs.current[0]) {
+                      rateInputRefs.current[0]?.focus();
+                      rateInputRefs.current[0]?.select();
+                    }
+                  }
+                }}
               />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '20px' }}>
@@ -2063,27 +2324,74 @@ export const PricingManagementView: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div style={{ maxHeight: '360px', overflowY: 'auto', borderRadius: '6px', border: '1px solid var(--border-default)' }}>
+              <div style={{ maxHeight: '380px', overflowY: 'auto', borderRadius: '6px', border: '1px solid var(--border-default)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', backgroundColor: 'var(--bg-surface)' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--bg-subtle)', position: 'sticky', top: 0, borderBottom: '1px solid var(--border-default)', zIndex: 1 }}>
-                      <th style={{ padding: '8px 12px' }}>Code</th>
-                      <th style={{ padding: '8px 12px' }}>Finished Product & Packaging</th>
-                      <th style={{ padding: '8px 12px' }}>Pack Size</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Base Price (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Pricing Mode</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Discount %</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Scheme Rate (PKR)</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'center', width: '40px' }} title="Remove item">−</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Code</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product Name & Category</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '130px' }}>Pack Size</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '130px' }}>Base Price (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '150px' }}>Scheme Rate (PKR)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredModalItems.map((item, idx) => {
                       const basePrice = Number(item.baseRate || 0);
-                      const schemeRate = Number(item.schemeRate || 0);
-                      const isNetNet = rateListForm.schemeTypeCode === 'NNR' || item.rateType === 'NET_NET';
+                      const schemeRate = item.schemeRate !== undefined && item.schemeRate !== null ? item.schemeRate : basePrice;
 
                       return (
-                        <tr key={item.finishedProductId || idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                        <tr
+                          key={item.finishedProductId || idx}
+                          style={{
+                            borderBottom: '1px solid var(--border-default)',
+                            transition: 'background-color 0.1s ease',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-subtle)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                        >
+                          <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              tabIndex={0}
+                              aria-label={`Remove ${item.productName} from rate list`}
+                              title="Remove product from rate list"
+                              onClick={() => handleRemoveRateListItem(item.finishedProductId)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  handleRemoveRateListItem(item.finishedProductId);
+                                }
+                              }}
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                border: '1px solid #fca5a5',
+                                backgroundColor: '#fee2e2',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '13px',
+                                fontWeight: 800,
+                                lineHeight: 1,
+                                padding: 0,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#dc2626';
+                                e.currentTarget.style.color = '#ffffff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#fee2e2';
+                                e.currentTarget.style.color = '#dc2626';
+                              }}
+                            >
+                              −
+                            </button>
+                          </td>
                           <td style={{ padding: '8px 12px', fontWeight: 700, color: '#047857' }}>
                             {item.productCode}
                           </td>
@@ -2094,56 +2402,45 @@ export const PricingManagementView: React.FC = () => {
                             </div>
                           </td>
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
-                            {item.packSize || item.unit || 'Unit'}
+                            {item.packSize || item.unit || 'Standard'}
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>
                             {basePrice.toLocaleString()}
                           </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleItemRateTypeToggle(
-                                  idx,
-                                  item.rateType === 'DIRECT' ? 'DISCOUNT' : 'DIRECT'
-                                )
-                              }
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                border: '1px solid #cbd5e1',
-                                backgroundColor: isNetNet ? '#f3e8ff' : item.rateType === 'DISCOUNT' ? '#eff6ff' : '#f8fafc',
-                                color: isNetNet ? '#7e22ce' : item.rateType === 'DISCOUNT' ? '#1d4ed8' : '#334155',
-                              }}
-                            >
-                              {isNetNet ? 'Net Net' : item.rateType === 'DISCOUNT' ? 'Discount %' : 'Direct Rate'}
-                            </button>
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            <Input
-                              type="number"
-                              value={item.discountPercent || ''}
-                              style={{ width: '70px', padding: '4px 6px', fontSize: '12px', textAlign: 'center' }}
-                              onChange={(e) => handleItemDiscountChange(idx, Number(e.target.value))}
-                              disabled={isNetNet}
-                            />
-                          </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                            <Input
+                            <input
+                              ref={(el) => { rateInputRefs.current[idx] = el; }}
                               type="number"
                               value={schemeRate}
                               style={{
-                                width: '110px',
-                                padding: '4px 8px',
-                                fontSize: '12px',
+                                width: '120px',
+                                padding: '5px 8px',
+                                fontSize: '13px',
                                 fontWeight: 700,
                                 color: '#047857',
                                 textAlign: 'right',
+                                border: '1.5px solid #a7f3d0',
+                                borderRadius: '4px',
+                                outline: 'none',
+                                backgroundColor: '#fff',
+                              }}
+                              onFocus={(e) => {
+                                e.currentTarget.style.borderColor = '#059669';
+                                e.currentTarget.select();
+                              }}
+                              onBlur={(e) => {
+                                e.currentTarget.style.borderColor = '#a7f3d0';
                               }}
                               onChange={(e) => handleItemRateChange(idx, Number(e.target.value))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (idx + 1 < filteredModalItems.length) {
+                                    rateInputRefs.current[idx + 1]?.focus();
+                                    rateInputRefs.current[idx + 1]?.select();
+                                  }
+                                }
+                              }}
                             />
                           </td>
                         </tr>
