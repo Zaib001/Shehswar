@@ -87,6 +87,7 @@ model Organization {
   pricingAuthorityLimits PricingAuthorityLimit[]
   rateLists        RateList[]
   pricingSchemes   PricingScheme[]
+  schemeTypes      SchemeType[]
   accounts         Account[]
   journalEntries   JournalEntry[]
   expenseEntries   ExpenseEntry[]
@@ -180,6 +181,7 @@ model Company {
   pricingAuthorityLimits PricingAuthorityLimit[]
   rateLists        RateList[]
   pricingSchemes   PricingScheme[]
+  schemeTypes      SchemeType[]
   accounts         Account[]
   journalEntries   JournalEntry[]
   expenseEntries   ExpenseEntry[]
@@ -2805,6 +2807,28 @@ model PricingAuthorityLimit {
   @@map("pricing_authority_limits")
 }
 
+model SchemeType {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  companyId      String?         @db.Uuid
+  code           String          @db.VarChar(50) // CA, ABC, SR, NNR, etc.
+  name           String          @db.VarChar(100) // Cash Advance, Advance Booking, Seasonal Rate List, Net Net Rate List
+  description    String?         @db.Text
+  isPredefined   Boolean         @default(false)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  schemes        PricingScheme[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("scheme_types")
+}
+
 model RateList {
   id                 String            @id @default(uuid()) @db.Uuid
   organizationId     String            @db.Uuid
@@ -2815,6 +2839,9 @@ model RateList {
   category           String            @default("SEASONAL") @db.VarChar(100) // SEASONAL, CASH, ADVANCE_BOOKING, VD, NET_RATE, PACKAGE, SPECIAL, MELA, GENERAL
   currency           String            @default("PKR") @db.VarChar(10)
   status             String            @default("ACTIVE") @db.VarChar(50) // DRAFT, ACTIVE, INACTIVE, ARCHIVED
+  schemeId           String?           @db.Uuid
+  schemeShortCode    String?           @db.VarChar(50)
+  schemeName         String?           @db.VarChar(200)
   isMobileVisible    Boolean           @default(true)
   isMobileSelectable Boolean           @default(true)
   isInternalOnly     Boolean           @default(false)
@@ -2826,6 +2853,7 @@ model RateList {
 
   organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   company            Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  scheme             PricingScheme?    @relation("SchemeRateLists", fields: [schemeId], references: [id], onDelete: SetNull)
   versions           RateListVersion[]
   salesOrders        SalesOrder[]
   salesOrderItems    SalesOrderItem[]
@@ -2834,6 +2862,7 @@ model RateList {
   @@unique([companyId, code])
   @@index([organizationId])
   @@index([companyId])
+  @@index([schemeId])
   @@index([category])
   @@index([status])
   @@map("rate_lists")
@@ -2874,6 +2903,9 @@ model RateListItem {
   unit                String?         @default("BAG") @db.VarChar(50)
   discountType        String?         @default("PERCENTAGE") @db.VarChar(50) // PERCENTAGE, FLAT
   discountValue       Decimal         @default(0) @db.Decimal(18, 4)
+  discountPercent     Decimal?        @default(0) @db.Decimal(8, 2)
+  schemeRate          Decimal?        @db.Decimal(18, 4)
+  rateType            String?         @default("DIRECT") @db.VarChar(50) // DIRECT, DISCOUNT, NET_NET
   fixedNetRate        Decimal?        @db.Decimal(18, 4)
   minAllowedRate      Decimal?        @db.Decimal(18, 4)
   quantityFrom        Decimal         @default(1) @db.Decimal(18, 4)
@@ -2898,7 +2930,10 @@ model PricingScheme {
   id                   String          @id @default(uuid()) @db.Uuid
   organizationId       String          @db.Uuid
   companyId            String          @db.Uuid
+  schemeTypeId         String?         @db.Uuid
+  schemeTypeCode       String?         @db.VarChar(50) // CA, ABC, SR, NNR
   code                 String          @db.VarChar(50)
+  shortCode            String?         @db.VarChar(50) // Short identifier e.g. MCCM
   name                 String          @db.VarChar(200)
   description          String?         @db.Text
   schemeType           String          @default("CASH_DISCOUNT") @db.VarChar(50) // CASH_DISCOUNT, ADVANCE_BOOKING, PACKAGE, SPECIAL_RATE, VOLUME_DISCOUNT, NET_RATE, MELA_EVENT, CREDIT_COMMERCIAL, OTHER
@@ -2911,13 +2946,18 @@ model PricingScheme {
   maxQuantity          Decimal?        @db.Decimal(18, 4)
   applicableDealerTier String?         @default("ALL") @db.VarChar(50)
   paymentTerm          String?         @default("ANY") @db.VarChar(50) // CASH, CREDIT, ADVANCE, ANY
+  startDate            DateTime?       @db.Timestamptz(6)
+  endDate              DateTime?       @db.Timestamptz(6)
+  defaultDiscountPct   Decimal?        @db.Decimal(8, 2)
+  additionalBookingPct Decimal?        @db.Decimal(8, 2)
+  cashDiscountPct      Decimal?        @db.Decimal(8, 2)
   effectiveFrom        DateTime        @db.Timestamptz(6)
   effectiveTo          DateTime?       @db.Timestamptz(6)
   isMobileVisible      Boolean         @default(true)
   isMobileSelectable   Boolean         @default(true)
   isInternalOnly       Boolean         @default(false)
   priority             Int             @default(0)
-  status               String          @default("ACTIVE") @db.VarChar(50) // DRAFT, ACTIVE, EXPIRED, ARCHIVED
+  status               String          @default("ACTIVE") @db.VarChar(50) // DRAFT, SCHEDULED, ACTIVE, EXPIRED, INACTIVE, ARCHIVED
   createdById          String?         @db.VarChar(100)
   approvedById         String?         @db.VarChar(100)
   createdAt            DateTime        @default(now()) @db.Timestamptz(6)
@@ -2925,13 +2965,16 @@ model PricingScheme {
 
   organization         Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   company              Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  schemeTypeRef        SchemeType?     @relation(fields: [schemeTypeId], references: [id], onDelete: SetNull)
   baseRateList         RateList?       @relation("BaseRateListSchemes", fields: [baseRateListId], references: [id], onDelete: SetNull)
+  rateLists            RateList[]      @relation("SchemeRateLists")
   salesOrders          SalesOrder[]
   salesOrderItems      SalesOrderItem[]
 
   @@unique([companyId, code])
   @@index([organizationId])
   @@index([companyId])
+  @@index([schemeTypeId])
   @@index([schemeType])
   @@index([status, effectiveFrom, effectiveTo])
   @@map("pricing_schemes")

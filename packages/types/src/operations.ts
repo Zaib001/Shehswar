@@ -488,6 +488,28 @@ export interface DiscountComponent {
   value: number;
 }
 
+export interface SchemeTypeRecord {
+  id: string;
+  organizationId: string;
+  companyId?: string | null;
+  code: string; // e.g. "CA", "ABC", "SR", "NNR"
+  name: string; // e.g. "Cash Advance", "Advance Booking", "Seasonal Rate List", "Net Net Rate List"
+  description?: string | null;
+  isPredefined: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateSchemeTypeDto {
+  organizationId?: string;
+  companyId?: string;
+  code: string;
+  name: string;
+  description?: string;
+  isPredefined?: boolean;
+}
+
 export interface CreateRateListDto {
   organizationId?: string;
   companyId?: string;
@@ -496,6 +518,9 @@ export interface CreateRateListDto {
   description?: string;
   category?: RateListCategory;
   currency?: string;
+  schemeId?: string;
+  schemeShortCode?: string;
+  schemeName?: string;
   isMobileVisible?: boolean;
   isMobileSelectable?: boolean;
   isInternalOnly?: boolean;
@@ -512,6 +537,9 @@ export interface UpdateRateListDto {
   category?: RateListCategory;
   currency?: string;
   status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  schemeId?: string;
+  schemeShortCode?: string;
+  schemeName?: string;
   isMobileVisible?: boolean;
   isMobileSelectable?: boolean;
   isInternalOnly?: boolean;
@@ -525,6 +553,9 @@ export interface CreateRateListItemDto {
   unit?: string;
   discountType?: 'PERCENTAGE' | 'FLAT';
   discountValue?: number;
+  discountPercent?: number;
+  schemeRate?: number;
+  rateType?: 'DIRECT' | 'DISCOUNT' | 'NET_NET' | string;
   fixedNetRate?: number;
   minAllowedRate?: number;
   quantityFrom?: number;
@@ -546,7 +577,10 @@ export interface CreateRateListVersionDto {
 export interface CreatePricingSchemeDto {
   organizationId?: string;
   companyId?: string;
+  schemeTypeId?: string;
+  schemeTypeCode?: string;
   code: string;
+  shortCode?: string;
   name: string;
   description?: string;
   schemeType: SchemeType;
@@ -559,6 +593,11 @@ export interface CreatePricingSchemeDto {
   maxQuantity?: number;
   applicableDealerTier?: string;
   paymentTerm?: string;
+  startDate?: string;
+  endDate?: string;
+  defaultDiscountPct?: number;
+  additionalBookingPct?: number;
+  cashDiscountPct?: number;
   effectiveFrom: string;
   effectiveTo?: string;
   isMobileVisible?: boolean;
@@ -569,6 +608,9 @@ export interface CreatePricingSchemeDto {
 }
 
 export interface UpdatePricingSchemeDto {
+  schemeTypeId?: string;
+  schemeTypeCode?: string;
+  shortCode?: string;
   name?: string;
   description?: string;
   schemeType?: SchemeType;
@@ -581,6 +623,11 @@ export interface UpdatePricingSchemeDto {
   maxQuantity?: number;
   applicableDealerTier?: string;
   paymentTerm?: string;
+  startDate?: string;
+  endDate?: string;
+  defaultDiscountPct?: number;
+  additionalBookingPct?: number;
+  cashDiscountPct?: number;
   effectiveFrom?: string;
   effectiveTo?: string;
   isMobileVisible?: boolean;

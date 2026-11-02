@@ -28,8 +28,11 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
 }) => {
   const { showToast } = useToast();
   const [step, setStep] = useState<'upload' | 'preview' | 'completed'>('upload');
+  const [uploadMode, setUploadMode] = useState<'file' | 'paste'>('file');
   const [fileContent, setFileContent] = useState('');
   const [fileName, setFileName] = useState('');
+  const [fileSize, setFileSize] = useState('');
+  const [pastedText, setPastedText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [previewData, setPreviewData] = useState<any | null>(null);
   const [records, setRecords] = useState<any[]>([]);
@@ -41,6 +44,11 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
     if (!file) return;
 
     setFileName(file.name);
+    const sizeStr = file.size < 1024 * 1024 
+      ? `${(file.size / 1024).toFixed(1)} KB` 
+      : `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+    setFileSize(sizeStr);
+
     const lower = file.name.toLowerCase();
     const isBinary = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.pdf');
 
@@ -62,17 +70,30 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
     }
   };
 
+  const handleRemoveFile = () => {
+    setFileName('');
+    setFileSize('');
+    setFileContent('');
+  };
+
   const handleParseAndPreview = async () => {
-    if (!fileContent.trim()) {
-      showToast({ title: 'Validation', message: 'Please select a file or paste content first', type: 'warning' });
+    const contentToSend = uploadMode === 'file' ? fileContent : pastedText;
+    const nameToSend = uploadMode === 'file' ? fileName : 'pasted-records.csv';
+
+    if (!contentToSend || !contentToSend.trim()) {
+      showToast({
+        title: 'Validation',
+        message: uploadMode === 'file' ? 'Please select a file to import' : 'Please paste product records into the text area',
+        type: 'warning',
+      });
       return;
     }
 
     setIsLoading(true);
     try {
       const res = await ApiClient.post<any>('/api/v1/master-data/products/import-preview', {
-        content: fileContent,
-        fileName: fileName || 'products-import.csv',
+        content: contentToSend.trim(),
+        fileName: nameToSend || 'products-import.csv',
       });
       setPreviewData(res.data);
       setRecords(res.data?.records || []);
@@ -177,73 +198,172 @@ export const ProductImportModal: React.FC<ProductImportModalProps> = ({
     >
       {step === 'upload' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div
-            style={{
-              padding: '28px',
-              border: '2px dashed #CBD5E1',
-              borderRadius: '12px',
-              background: '#F8FAFC',
-              textAlign: 'center',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-            }}
-          >
-            <input
-              type="file"
-              id="product-file-input"
-              accept=".csv,.txt,.json,.tsv,.xlsx,.xls,.pdf"
-              onChange={handleFileUpload}
-              style={{ display: 'none' }}
-            />
-            <label htmlFor="product-file-input" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-              <div
-                style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
-                  background: '#EEF2FF',
-                  color: '#4F46E5',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <IconDownload size={22} />
-              </div>
-              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#0F172A' }}>
-                {fileName ? fileName : 'Click to select Excel (.xlsx, .xls), PDF, or CSV'}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                Auto-detects categories, embedded pack sizes, carton PPC, and seasonal rates. Unknown columns preserved.
-              </span>
-            </label>
+          {/* Tab Selector */}
+          <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid #E2E8F0', paddingBottom: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setUploadMode('file')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: uploadMode === 'file' ? '#EEF2FF' : 'transparent',
+                color: uploadMode === 'file' ? '#4F46E5' : '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <IconDownload size={15} /> Upload File (Excel / PDF / CSV)
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode('paste')}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: uploadMode === 'paste' ? '#EEF2FF' : 'transparent',
+                color: uploadMode === 'paste' ? '#4F46E5' : '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              📋 Paste Raw Text / CSV
+            </button>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Or paste tabular text directly:
-            </label>
-            <textarea
-              rows={5}
-              placeholder="Sr#, Product, Composition, Pack In Carton, Seasonal Rate..."
-              value={fileContent}
-              onChange={(e) => setFileContent(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 14px',
-                background: '#FFFFFF',
-                border: '1px solid #CBD5E1',
-                borderRadius: '8px',
-                fontFamily: 'var(--font-mono, monospace)',
-                fontSize: '0.78rem',
-                color: '#0F172A',
-                outline: 'none',
-              }}
-            />
-          </div>
+          {uploadMode === 'file' && (
+            <div>
+              {fileName ? (
+                /* Selected File Card */
+                <div
+                  style={{
+                    padding: '20px',
+                    borderRadius: '12px',
+                    background: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div
+                      style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '10px',
+                        background: '#DCFCE7',
+                        color: '#16A34A',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <IconCheck size={22} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#14532D' }}>
+                        {fileName}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#15803D', marginTop: '2px', display: 'flex', gap: '8px' }}>
+                        <span>Size: {fileSize}</span>
+                        <span>•</span>
+                        <span style={{ fontWeight: 600 }}>Ready for extraction</span>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRemoveFile}
+                    style={{ color: '#DC2626', borderColor: '#FEE2E2', backgroundColor: '#FEF2F2', fontSize: '0.75rem' }}
+                  >
+                    ✕ Remove File
+                  </Button>
+                </div>
+              ) : (
+                /* File Dropzone */
+                <div
+                  style={{
+                    padding: '32px 20px',
+                    border: '2px dashed #CBD5E1',
+                    borderRadius: '12px',
+                    background: '#F8FAFC',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '10px',
+                  }}
+                >
+                  <input
+                    type="file"
+                    id="product-file-input"
+                    accept=".csv,.txt,.json,.tsv,.xlsx,.xls,.pdf"
+                    onChange={handleFileUpload}
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="product-file-input" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '52px',
+                        height: '52px',
+                        borderRadius: '14px',
+                        background: '#EEF2FF',
+                        color: '#4F46E5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <IconDownload size={26} />
+                    </div>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#0F172A' }}>
+                      Click to choose Excel (.xlsx, .xls), PDF, or CSV file
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                      Auto-detects categories, embedded pack sizes, carton PPC, and seasonal rates. Unknown columns preserved.
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
+          {uploadMode === 'paste' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                Paste tabular text, CSV, or raw records directly:
+              </label>
+              <textarea
+                rows={8}
+                placeholder="Sr#,Product,Composition,Pack In Carton,Seasonal Rate&#10;1,Acelam 26% WDG,Acetamiprid+Lambda Cyhalothrin 26% WDG,1×30,525&#10;2,Abamectin 1000ml,Abamectin 1.8% EC,1×12,1250"
+                value={pastedText}
+                onChange={(e) => setPastedText(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  background: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '8px',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontSize: '0.78rem',
+                  color: '#0F172A',
+                  outline: 'none',
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 

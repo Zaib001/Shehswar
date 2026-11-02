@@ -43,7 +43,7 @@ export class CodeGenerationService {
       FINISHED_PRODUCT: { prefix: 'FG', pad: 6 },
       RAW_MATERIAL: { prefix: 'RM', pad: 6 },
       PACKING_MATERIAL: { prefix: 'PM', pad: 6 },
-      PACK_SIZE: { prefix: 'PKG', pad: 5 },
+      PACK_SIZE: { prefix: 'PS', pad: 6 },
       UOM: { prefix: 'UOM', pad: 4 },
     };
 
@@ -138,6 +138,27 @@ export class CodeGenerationService {
       return candidate;
     }
 
+    if (entityType === 'PACK_SIZE') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.packSize.findFirst({
+        where: { organizationId, code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.packSize.findFirst({
+          where: { organizationId, code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
     return `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
   }
 
@@ -159,8 +180,8 @@ export class CodeGenerationService {
           return match && match[1] ? parseInt(match[1], 10) : 0;
         })
         .filter((n) => n > 0 && n < 30); // 41-01 to 41-29 range for finished goods
-      const maxNum = numbers.length > 0 ? Math.max(...numbers) : 1;
-      const nextNum = maxNum + 1;
+      const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+      const nextNum = maxNum >= 1 ? maxNum + 1 : 1;
       return `41-${String(nextNum).padStart(2, '0')}`;
     }
 
@@ -191,7 +212,7 @@ export class CodeGenerationService {
       FINISHED_PRODUCT: { prefix: 'FG', pad: 6 },
       RAW_MATERIAL: { prefix: 'RM', pad: 6 },
       PACKING_MATERIAL: { prefix: 'PM', pad: 6 },
-      PACK_SIZE: { prefix: 'PKG', pad: 5 },
+      PACK_SIZE: { prefix: 'PS', pad: 6 },
       UOM: { prefix: 'UOM', pad: 4 },
       CATEGORY: { prefix: '41', pad: 2 },
     };

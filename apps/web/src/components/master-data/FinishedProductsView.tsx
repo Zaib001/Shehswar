@@ -68,13 +68,11 @@ interface FinishedProductItem {
 export const FinishedProductsView: React.FC = () => {
   const { showToast } = useToast();
   const [products, setProducts] = useState<FinishedProductItem[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [mTypeFilter, setMTypeFilter] = useState('ALL');
   const [costingFilter, setCostingFilter] = useState('ALL');
 
@@ -82,26 +80,21 @@ export const FinishedProductsView: React.FC = () => {
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [viewingProduct, setViewingProduct] = useState<FinishedProductItem | null>(null);
+  const [productToDelete, setProductToDelete] = useState<FinishedProductItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load Products & Categories
+  // Load Products
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [prodRes, catRes] = await Promise.all([
-        ApiClient.get<any[]>('/api/v1/master-data/finished-products'),
-        ApiClient.get<any[]>('/api/v1/master-data/unified-categories'),
-      ]);
+      const prodRes = await ApiClient.get<any[]>('/api/v1/master-data/finished-products');
 
       const prodList = Array.isArray(prodRes.data)
         ? prodRes.data
         : (prodRes.data as any)?.data || [];
-      const catList = Array.isArray(catRes.data)
-        ? catRes.data
-        : (catRes.data as any)?.data || [];
 
       setProducts(prodList);
-      setCategories(catList);
     } catch (err: any) {
       setError(err?.message || 'Failed to load product catalog records');
       showToast({
@@ -113,6 +106,32 @@ export const FinishedProductsView: React.FC = () => {
       setIsLoading(false);
     }
   }, [showToast]);
+
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
+    setIsDeleting(true);
+    try {
+      await ApiClient.delete(`/api/v1/master-data/finished-products/${productToDelete.id}`);
+      showToast({
+        title: 'Product Deleted',
+        message: `Product "${productToDelete.productName}" (${productToDelete.productCode}) was deleted`,
+        type: 'success',
+      });
+      if (viewingProduct?.id === productToDelete.id) {
+        setViewingProduct(null);
+      }
+      setProductToDelete(null);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Delete Failed',
+        message: err.response?.data?.message || err.message || 'Failed to delete product',
+        type: 'error',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -127,6 +146,12 @@ export const FinishedProductsView: React.FC = () => {
   const coveragePct = totalCount > 0 ? Math.round((pricedCount / totalCount) * 100) : 0;
 
   // Filtered Products
+  const availableMTypes = useMemo(() => {
+    const list = products.map((p) => p.mType).filter(Boolean) as string[];
+    const defaults = ['Insecticides', 'Herbicides', 'Fungicides', 'Fertilizers', 'Seeds', 'PGRs / Nutrients', 'Granules', 'Acaricides', 'Weedicides'];
+    return Array.from(new Set([...list, ...defaults]));
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const q = searchQuery.toLowerCase().trim();
@@ -136,12 +161,6 @@ export const FinishedProductsView: React.FC = () => {
         p.productCode.toLowerCase().includes(q) ||
         (p.urduName && p.urduName.includes(q)) ||
         (p.packagingMaterial?.materialName && p.packagingMaterial.materialName.toLowerCase().includes(q));
-
-      const matchesCat =
-        categoryFilter === 'ALL' ||
-        p.categoryId === categoryFilter ||
-        p.category?.id === categoryFilter ||
-        p.category?.code === categoryFilter;
 
       const matchesMType =
         mTypeFilter === 'ALL' ||
@@ -153,9 +172,9 @@ export const FinishedProductsView: React.FC = () => {
         (costingFilter === 'COSTED' && hasCost) ||
         (costingFilter === 'UNCOSTED' && !hasCost);
 
-      return matchesSearch && matchesCat && matchesMType && matchesCosting;
+      return matchesSearch && matchesMType && matchesCosting;
     });
-  }, [products, searchQuery, categoryFilter, mTypeFilter, costingFilter]);
+  }, [products, searchQuery, mTypeFilter, costingFilter]);
 
   // Navigate to Product Costing Engine for a specific product
   const handleNavigateToCosting = (productId: string) => {
@@ -213,13 +232,25 @@ export const FinishedProductsView: React.FC = () => {
       ),
     },
     {
-      key: 'category',
-      label: 'Category',
+      key: 'mType',
+      label: 'Product Category',
       render: (row: FinishedProductItem) => {
-        const cat = row.category || categories.find((c) => c.id === row.categoryId);
+        const val = row.mType || 'Insecticides';
         return (
-          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary, #475569)' }}>
-            {cat ? `${cat.code ? `[${cat.code}] ` : ''}${cat.name}` : '41-01 Finished Goods'}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '3px 10px',
+              borderRadius: '999px',
+              fontSize: '0.74rem',
+              fontWeight: 600,
+              backgroundColor: '#EEF2FF',
+              color: '#4F46E5',
+              border: '1px solid #C7D2FE',
+            }}
+          >
+            {val}
           </span>
         );
       },
@@ -242,8 +273,23 @@ export const FinishedProductsView: React.FC = () => {
                 border: '1px solid #E2E8F0',
               }}
             >
-              {row.packingQuantity ? `${row.packingQuantity} ${row.packingUnit || 'Liter'}` : '—'}
+              {row.packingQuantity ? `${row.packingQuantity} ${row.packingUnit || 'Gram'}` : '—'}
             </span>
+            {row.customFields?.packagingContainer && (
+              <span
+                style={{
+                  fontSize: '0.7rem',
+                  color: '#475569',
+                  background: '#F8FAFC',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  border: '1px solid #E2E8F0',
+                }}
+                title="Packaging Container Count / Size"
+              >
+                Cnt: {row.customFields.packagingContainer}
+              </span>
+            )}
           </div>
           {row.packagingMaterial && (
             <div
@@ -281,30 +327,6 @@ export const FinishedProductsView: React.FC = () => {
           {row.ppc || 1}
         </span>
       ),
-    },
-    {
-      key: 'mType',
-      label: 'Classification (MType)',
-      render: (row: FinishedProductItem) => {
-        const val = row.mType || 'Insecticides';
-        return (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '2px 8px',
-              borderRadius: '999px',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              backgroundColor: '#EEF2FF',
-              color: '#4F46E5',
-              border: '1px solid #C7D2FE',
-            }}
-          >
-            {val}
-          </span>
-        );
-      },
     },
     {
       key: 'defaultSellingPrice',
@@ -429,6 +451,22 @@ export const FinishedProductsView: React.FC = () => {
           >
             Cost Engine
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setProductToDelete(row)}
+            style={{
+              color: '#DC2626',
+              backgroundColor: '#FEF2F2',
+              borderColor: '#FEE2E2',
+              fontSize: '0.75rem',
+              height: '28px',
+              padding: '0 8px',
+            }}
+            title="Delete Finished Product"
+          >
+            Delete
+          </Button>
         </div>
       ),
     },
@@ -526,32 +564,14 @@ export const FinishedProductsView: React.FC = () => {
 
             <div style={{ minWidth: '220px' }}>
               <Select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
-                options={[
-                  { label: 'All Master Categories', value: 'ALL' },
-                  ...categories.map((c) => ({
-                    label: `${c.code ? `[${c.code}] ` : ''}${c.name}`,
-                    value: c.id,
-                  })),
-                ]}
-              />
-            </div>
-
-            <div style={{ minWidth: '180px' }}>
-              <Select
                 value={mTypeFilter}
                 onChange={(e) => setMTypeFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
                 options={[
-                  { label: 'All Classifications (MType)', value: 'ALL' },
-                  { label: 'Insecticides', value: 'Insecticides' },
-                  { label: 'Herbicides', value: 'Herbicides' },
-                  { label: 'Weedicides', value: 'Weedicides' },
-                  { label: 'Fungicides', value: 'Fungicides' },
-                  { label: 'Fertilizers', value: 'Fertilizers' },
-                  { label: 'Seeds', value: 'Seeds' },
-                  { label: 'PGRs / Nutrients', value: 'PGRs / Nutrients' },
-                  { label: 'Others', value: 'Others' },
+                  { label: 'All Product Categories (MType)', value: 'ALL' },
+                  ...availableMTypes.map((m) => ({
+                    label: m,
+                    value: m,
+                  })),
                 ]}
               />
             </div>
@@ -611,20 +631,34 @@ export const FinishedProductsView: React.FC = () => {
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 onClick={() => {
-                  const pid = viewingProduct.id;
+                  const target = viewingProduct;
                   setViewingProduct(null);
-                  handleNavigateToCosting(pid);
+                  setProductToDelete(target);
                 }}
-                style={{ backgroundColor: '#EEF2FF', color: '#4F46E5', borderColor: '#C7D2FE' }}
+                style={{ color: '#DC2626', backgroundColor: '#FEF2F2', borderColor: '#FEE2E2', fontSize: '0.78rem' }}
               >
-                Open in Product Costing Engine →
+                Delete Product
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setViewingProduct(null)}>
-                Close
-              </Button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const pid = viewingProduct.id;
+                    setViewingProduct(null);
+                    handleNavigateToCosting(pid);
+                  }}
+                  style={{ backgroundColor: '#EEF2FF', color: '#4F46E5', borderColor: '#C7D2FE' }}
+                >
+                  Open in Product Costing Engine →
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setViewingProduct(null)}>
+                  Close
+                </Button>
+              </div>
             </div>
           }
         >
@@ -710,6 +744,61 @@ export const FinishedProductsView: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Product Deletion Confirmation Modal */}
+      {productToDelete && (
+        <Modal
+          isOpen={!!productToDelete}
+          onClose={() => !isDeleting && setProductToDelete(null)}
+          title="Delete Finished Product"
+          description="Are you sure you want to delete this finished product? This action cannot be undone."
+          size="sm"
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
+              <Button variant="secondary" size="sm" onClick={() => setProductToDelete(null)} disabled={isDeleting}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConfirmDelete}
+                isLoading={isDeleting}
+                style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', color: '#fff' }}
+              >
+                Delete Product
+              </Button>
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div
+              style={{
+                padding: '12px 14px',
+                background: '#FEF2F2',
+                borderRadius: '8px',
+                border: '1px solid #FEE2E2',
+              }}
+            >
+              <div style={{ fontWeight: 700, color: '#991B1B', fontSize: '0.9rem' }}>
+                {productToDelete.productName}
+              </div>
+              <div
+                style={{
+                  fontSize: '0.78rem',
+                  color: '#B91C1C',
+                  marginTop: '3px',
+                  fontFamily: 'var(--font-mono, monospace)',
+                }}
+              >
+                Code: {productToDelete.productCode}
+              </div>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+              This will permanently delete or deactivate this finished product from the master catalog.
+            </p>
           </div>
         </Modal>
       )}

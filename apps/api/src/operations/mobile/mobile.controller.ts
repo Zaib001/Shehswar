@@ -179,16 +179,28 @@ export class MobileController {
   }
 
   // ============================
-  // 4. MOBILE PUBLISHED SCHEMES (REQUIREMENT 24)
+  // 4. MOBILE PUBLISHED SCHEMES (REQUIREMENTS 14, 17, 24)
   // ============================
 
   @UseGuards(JwtAuthGuard)
   @Get('pricing/schemes')
   async getMobileVisibleSchemes(@CurrentUser() user: AuthUser) {
-    return this.pricingService.getPricingSchemes(user.companyId, {
-      status: 'ACTIVE',
-      isMobileVisible: true,
-    });
+    return this.pricingService.getActiveSchemes(user.companyId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('schemes/active')
+  async getActiveSchemesMobile(@CurrentUser() user: AuthUser) {
+    return this.pricingService.getActiveSchemes(user.companyId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('schemes/:schemeId/rates')
+  async getSchemeRatesMobile(
+    @Param('schemeId') schemeId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.getRateListProductsForScheme(schemeId, user.companyId);
   }
 
   // ============================

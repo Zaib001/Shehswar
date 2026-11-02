@@ -43,12 +43,14 @@ import {
   UpdateMarketAssignmentDto,
 } from './dto';
 import { UserContextDto } from '@shehswar/types';
+import { CodeGenerationService } from '../code-generation/code-generation.service';
 
 @Injectable()
 export class MasterDataService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly codeGen: CodeGenerationService,
   ) {}
 
   // ==========================================
@@ -1666,12 +1668,23 @@ export class MasterDataService {
   }
 
   async createMaterialCategory(dto: any, _actor: { id: string; email?: string }) {
+    let organizationId = dto.organizationId;
+    if (!organizationId) {
+      const org = await this.prisma.organization.findFirst();
+      organizationId = org?.id;
+    }
+
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCategoryCode(organizationId!, 'MATERIAL');
+    }
+
     const categoryType = (dto.categoryType || dto.type || 'RAW_MATERIAL').toUpperCase();
     return this.prisma.materialCategory.create({
       data: {
         id: uuidv7(),
-        organizationId: dto.organizationId,
-        code: dto.code.toUpperCase().trim(),
+        organizationId: organizationId!,
+        code,
         name: dto.name.trim(),
         categoryType,
         description: dto.description || null,
@@ -2114,11 +2127,16 @@ export class MasterDataService {
       if (match) taxRate = Number(match[1]);
     }
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCategoryCode(organizationId!, 'FINISHED_PRODUCT');
+    }
+
     return this.prisma.productCategory.create({
       data: {
         id: uuidv7(),
         organizationId: organizationId!,
-        code: (dto.code || '').toUpperCase(),
+        code,
         name: dto.name,
         description: dto.description || null,
         taxClassification: dto.taxClassification || null,
@@ -2161,14 +2179,70 @@ export class MasterDataService {
   }
 
   async createPackSize(dto: any, _actor: { id: string; email?: string }) {
+    let organizationId = dto.organizationId;
+    let companyId = dto.companyId;
+    if (!organizationId || !companyId) {
+      const company = await this.prisma.company.findFirst({ select: { id: true, organizationId: true } });
+      organizationId = organizationId || company?.organizationId;
+      companyId = companyId || company?.id;
+    }
+
+    // Resolve UOM if uomId not provided
+    let uomId = dto.uomId;
+    let uomName = '';
+    if (!uomId && (dto.unit || dto.packingUnit || dto.uom)) {
+      const unitStr = String(dto.unit || dto.packingUnit || dto.uom).trim();
+      const uom = await this.prisma.unitOfMeasure.findFirst({
+        where: {
+          OR: [
+            { code: { equals: unitStr, mode: 'insensitive' } },
+            { symbol: { equals: unitStr, mode: 'insensitive' } },
+            { name: { equals: unitStr, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (uom) {
+        uomId = uom.id;
+        uomName = uom.name;
+      }
+    } else if (uomId) {
+      const uom = await this.prisma.unitOfMeasure.findUnique({ where: { id: uomId } });
+      if (uom) uomName = uom.name;
+    }
+
+    const quantity = Number(dto.quantity || 1);
+    const name = dto.name?.trim() || `${quantity} ${uomName || dto.unit || 'Liter'}`;
+
+    // Check if an existing pack size has exact matching quantity and uomId
+    if (organizationId && uomId) {
+      const existing = await this.prisma.packSize.findFirst({
+        where: { organizationId, quantity, uomId },
+        include: { uom: true },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    // Auto-generate Pack Size Code (PS-XXXXXX)
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: companyId || '',
+        organizationId: organizationId || '',
+        entityType: 'PACK_SIZE',
+      });
+    }
+
     return this.prisma.packSize.create({
       data: {
         id: uuidv7(),
-        organizationId: dto.organizationId,
-        code: dto.code.toUpperCase(),
-        name: dto.name,
-        quantity: dto.quantity,
-        uomId: dto.uomId,
+        organizationId: organizationId!,
+        code,
+        name,
+        quantity,
+        uomId: uomId || undefined,
+        status: dto.status || 'ACTIVE',
       },
       include: { uom: true },
     });
@@ -2203,7 +2277,8 @@ export class MasterDataService {
       where,
       include: {
         category: true,
-        packSize: true,
+        packSize: { include: { uom: true } },
+        packagingMaterial: true,
         baseUom: true,
         salesUom: true,
         company: { select: { id: true, name: true, code: true } },
@@ -2225,7 +2300,8 @@ export class MasterDataService {
       where: { id },
       include: {
         category: true,
-        packSize: true,
+        packSize: { include: { uom: true } },
+        packagingMaterial: true,
         baseUom: true,
         salesUom: true,
         company: true,
@@ -2244,22 +2320,53 @@ export class MasterDataService {
   }
 
   async createFinishedProduct(dto: any, actor: { id: string; email?: string }) {
+    let productCode = (dto.productCode || '').trim().toUpperCase();
+    if (!productCode || productCode === 'AUTO') {
+      productCode = await this.codeGen.generateCode({
+        companyId: dto.companyId,
+        organizationId: dto.organizationId,
+        entityType: 'FINISHED_PRODUCT',
+      });
+    }
+
+    // Dynamic PackSize resolution
+    let packSizeId = dto.packSizeId;
+    const qty = dto.packingQuantity !== undefined ? Number(dto.packingQuantity) : (dto.packSizeQuantity !== undefined ? Number(dto.packSizeQuantity) : undefined);
+    const unit = dto.packingUnit || dto.packSizeUnit;
+
+    if (!packSizeId && qty !== undefined && unit) {
+      const ps = await this.createPackSize({
+        organizationId: dto.organizationId,
+        companyId: dto.companyId,
+        quantity: qty,
+        unit,
+      }, actor);
+      packSizeId = ps.id;
+    }
+
     const created = await this.prisma.finishedProduct.create({
       data: {
         id: uuidv7(),
         organizationId: dto.organizationId,
         companyId: dto.companyId,
         categoryId: dto.categoryId,
-        packSizeId: dto.packSizeId,
+        packSizeId,
         baseUomId: dto.baseUomId,
         salesUomId: dto.salesUomId,
-        productCode: dto.productCode.toUpperCase(),
+        productCode,
         sku: dto.sku,
         productName: dto.productName,
-        brand: dto.brand,
-        grade: dto.grade,
+        urduName: dto.urduName,
+        brand: dto.brand || 'Shehswar Agro',
+        grade: dto.grade || 'Standard',
+        productType: dto.productType || 'EC',
+        mType: dto.mType || 'Insecticides',
         fertilizerType: dto.fertilizerType,
         productForm: dto.productForm,
+        packagingMaterialId: dto.packagingMaterialId,
+        packingQuantity: qty,
+        packingUnit: unit,
+        ppc: dto.ppc ? Number(dto.ppc) : 1,
         bagWeight: dto.bagWeight,
         barcode: dto.barcode,
         batchControlled: dto.batchControlled ?? true,
@@ -2273,7 +2380,12 @@ export class MasterDataService {
         status: dto.status || 'ACTIVE',
         approvalStatus: 'APPROVED',
       },
-      include: { category: true, packSize: true, baseUom: true },
+      include: {
+        category: true,
+        packSize: { include: { uom: true } },
+        packagingMaterial: true,
+        baseUom: true,
+      },
     });
 
     await this.auditService.record({

@@ -29,6 +29,7 @@ export * from './ProductCategoriesView';
 export * from './PackSizesView';
 export * from './FinishedProductsView';
 export * from './AddFinishedProductModal';
+export * from './InlinePackSizeModal';
 export * from './ProductImportModal';
 export * from './WarehouseLocationsView';
 export * from './ProductionLinesView';

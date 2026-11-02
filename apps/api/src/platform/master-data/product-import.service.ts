@@ -219,6 +219,49 @@ export class ProductImportService {
         });
       }
 
+      // Dynamic PackSize Resolution & Auto Code Generation
+      let packSizeId: string | undefined = undefined;
+      const packQty = rec.packSizeQuantity ? Number(rec.packSizeQuantity) : 1;
+      const packUnit = rec.packSizeUnit || 'Liter';
+
+      if (packQty && packUnit && organizationId) {
+        const uom = await this.prisma.unitOfMeasure.findFirst({
+          where: {
+            OR: [
+              { code: { equals: packUnit, mode: 'insensitive' } },
+              { symbol: { equals: packUnit, mode: 'insensitive' } },
+              { name: { equals: packUnit, mode: 'insensitive' } },
+            ],
+          },
+        });
+        const uomId = uom?.id;
+
+        let existingPs = uomId
+          ? await this.prisma.packSize.findFirst({
+              where: { organizationId, quantity: packQty, uomId },
+            })
+          : null;
+
+        if (!existingPs) {
+          const psCode = await this.codeGen.generateCode({
+            companyId,
+            organizationId,
+            entityType: 'PACK_SIZE',
+          });
+          existingPs = await this.prisma.packSize.create({
+            data: {
+              organizationId,
+              code: psCode,
+              name: `${packQty} ${uom?.name || packUnit}`,
+              quantity: packQty,
+              uomId: uomId || undefined,
+              status: 'ACTIVE',
+            },
+          });
+        }
+        packSizeId = existingPs.id;
+      }
+
       await this.prisma.finishedProduct.create({
         data: {
           organizationId,
@@ -231,8 +274,9 @@ export class ProductImportService {
           mType: rec.mType || 'Insecticides',
           brand: rec.brand || 'Shehswar Agro',
           grade: rec.grade || 'Standard',
-          packingQuantity: rec.packSizeQuantity ? Number(rec.packSizeQuantity) : 1,
-          packingUnit: rec.packSizeUnit || 'Liter',
+          packingQuantity: packQty,
+          packingUnit: packUnit,
+          packSizeId: packSizeId || undefined,
           ppc: rec.ppc ? Number(rec.ppc) : 1,
           defaultSellingPrice: rec.baseSellingPrice ? Number(rec.baseSellingPrice) : null,
           status: 'ACTIVE',
@@ -259,14 +303,32 @@ export class ProductImportService {
     let content = raw.trim();
     const lowerFileName = (fileName || '').toLowerCase();
 
+    // 0. Unwrap outer quotes or data URL prefixes if user pasted raw encoded text
+    if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
+      content = content.slice(1, -1).trim();
+    }
+    if (content.startsWith('data:')) {
+      const commaIdx = content.indexOf(',');
+      if (commaIdx !== -1) {
+        content = content.slice(commaIdx + 1).trim();
+      }
+    }
+
     // 1. Check if base64 XLSX/XLS or binary buffer string
-    if (
+    const isXlsx =
       lowerFileName.endsWith('.xlsx') ||
       lowerFileName.endsWith('.xls') ||
-      content.startsWith('UEsDB')
-    ) {
+      content.startsWith('UEsDB') ||
+      content.includes('UEsDB');
+
+    if (isXlsx) {
       try {
-        const buffer = Buffer.from(content, 'base64');
+        let xlsxB64 = content;
+        const pkIdx = content.indexOf('UEsDB');
+        if (pkIdx !== -1) {
+          xlsxB64 = content.slice(pkIdx).trim();
+        }
+        const buffer = Buffer.from(xlsxB64, 'base64');
         const workbook = XLSX.read(buffer, { type: 'buffer' });
         const firstSheetName = workbook.SheetNames[0];
         if (firstSheetName) {
@@ -275,26 +337,42 @@ export class ProductImportService {
             content = XLSX.utils.sheet_to_csv(sheet);
           }
         }
-      } catch (e) {
+      } catch (e: any) {
         // Fall back to text parsing if already converted
       }
-    } else if (
-      lowerFileName.endsWith('.pdf') ||
-      content.startsWith('JVBER')
-    ) {
-      // 2. Check if base64 PDF
-      try {
-        const buffer = Buffer.from(content, 'base64');
-        const pdfModule = require('pdf-parse');
-        const parser = new pdfModule.PDFParse({ data: buffer });
-        await parser.load();
-        const extracted = await parser.getText();
-        await parser.destroy();
-        if (extracted && extracted.trim()) {
-          content = extracted;
+    } else {
+      // 2. Check if PDF (binary or base64 JVBER)
+      const isPdf =
+        lowerFileName.endsWith('.pdf') ||
+        content.startsWith('JVBER') ||
+        content.includes('JVBER') ||
+        content.includes('%PDF-');
+
+      if (isPdf) {
+        try {
+          let pdfB64 = content;
+          const jvberIdx = content.indexOf('JVBER');
+          if (jvberIdx !== -1) {
+            pdfB64 = content.slice(jvberIdx).trim();
+          }
+          const buffer = Buffer.from(pdfB64, 'base64');
+          const pdfModule = require('pdf-parse');
+          let extractedText = '';
+          if (typeof pdfModule === 'function') {
+            const parsed = await pdfModule(buffer);
+            extractedText = parsed?.text || '';
+          } else if (pdfModule.PDFParse) {
+            const parser = new pdfModule.PDFParse({ data: buffer });
+            const parsed = await parser.getText();
+            await parser.destroy().catch(() => {});
+            extractedText = typeof parsed === 'string' ? parsed : (parsed?.text || '');
+          }
+          if (extractedText && extractedText.trim()) {
+            content = extractedText.trim();
+          }
+        } catch (e: any) {
+          // Fall back to text parsing if already extracted
         }
-      } catch (e) {
-        // Fall back to text parsing if already extracted
       }
     }
 
@@ -335,18 +413,21 @@ export class ProductImportService {
 
     headers.forEach((h, idx) => {
       const l = h.toLowerCase().replace(/[^a-z0-9#]/g, '');
-      if (l.includes('product') || l.includes('itemname') || l.includes('title')) productColIdx = idx;
-      else if (l.includes('composition') || l.includes('formula') || l.includes('chemical')) compositionColIdx = idx;
-      else if (l.includes('packincarton') || l.includes('carton') || l.includes('ppc')) ppcColIdx = idx;
-      else if (l.includes('rate') || l.includes('price') || l.includes('sellingprice')) rateColIdx = idx;
+      if (l.includes('product') || l.includes('itemname') || l.includes('title') || l.includes('item')) productColIdx = idx;
+      else if (l.includes('composition') || l.includes('formula') || l.includes('chemical') || l.includes('ingredient')) compositionColIdx = idx;
+      else if (l.includes('packincarton') || l.includes('carton') || l.includes('ppc') || l.includes('packing')) ppcColIdx = idx;
+      else if (l.includes('rate') || l.includes('price') || l.includes('sellingprice') || l.includes('cost')) rateColIdx = idx;
       else if (l.includes('code') || l.includes('sku')) codeColIdx = idx;
       else if (l.includes('urdu')) urduColIdx = idx;
-      else if (l.includes('sr#') || l.includes('sr') || l === 'no') srColIdx = idx;
+      else if (l.includes('sr#') || l.includes('sr') || l === 'no' || l === 'srno') srColIdx = idx;
     });
 
     // Fallback for product column: first non-empty column that isn't Sr#
     if (productColIdx === -1) {
       productColIdx = srColIdx === 0 ? 1 : (srColIdx === 1 ? 2 : 1);
+    }
+    if (rateColIdx === -1) {
+      rateColIdx = headers.length > 4 ? 4 : Math.max(0, headers.length - 1);
     }
 
     let currentMType = 'Insecticides';
@@ -482,6 +563,16 @@ export class ProductImportService {
 
     if (line.includes('\t')) {
       return line.split('\t').map((s) => s.trim());
+    }
+
+    if (/\s{2,}/.test(line)) {
+      return line.split(/\s{2,}/).map((s) => s.trim());
+    }
+
+    // Space-separated tabular line e.g. "1 Acelam 26% WDG Acetamiprid+Lambda Cyhalothrin 26% WDG 1×30 525"
+    const tableRowMatch = line.match(/^(\d+)\s+(.+?)\s+(1\s*[×xX*]\s*\d+|\d+)\s+([0-9,]+(?:\.[0-9]+)?)$/);
+    if (tableRowMatch) {
+      return [tableRowMatch[1] || '', tableRowMatch[2] || '', '', tableRowMatch[3] || '', tableRowMatch[4] || ''];
     }
 
     return line.split(/\s{2,}/).map((s) => s.trim());

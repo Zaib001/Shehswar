@@ -1,17 +1,19 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Dynamic Rate Lists & Commercial Pricing Management UI
+ * SHEHSWAR ONE360 - Dynamic Scheme Master & Scheme-Based Rate Lists Management UI
  *
  * Implements:
- * 1. Unlimited user-created Rate Lists with full Versioning
- * 2. Unlimited Commercial Schemes & Phases (Cash 15%, PPG Advance Jan 20%, Package 10+1, Net Rate, Special Deal)
- * 3. Add All Active Finished Products 1-Click Database Auto-Loader
- * 4. Additive & Sequential Multi-Component Discount Calculations
- * 5. Strict Separation of Rate List, Pricing Scheme, and Payment Term
- * 6. Role-Based Pricing Authority Limits Configuration
- * 7. Live Interactive Price Resolution & Authority Approval Simulator
- * 8. Real API & PostgreSQL Database Driven (No hardcoding, no mock data)
+ * 1. Scheme Master: Predefined types (CA, ABC, SR, NNR) + Dynamic Scheme Types without code changes
+ * 2. Scheme Name & Short Code (e.g. MCCM - Mega Carnival Open Mela, SR - Season 2026, ABC - Jan Booking)
+ * 3. Select Scheme -> Automatically Load sellable Finished Products (No Raw/Packing materials)
+ * 4. Scheme-Wise Rates: Supports Discount-based pricing, Direct Rate, and Net Net direct rate (NNR)
+ * 5. Scheme-Specific Commercial Logic: CA (Cash Discount), ABC (Cash + Booking Benefit), SR (Seasonal), NNR (Direct Net)
+ * 6. Historical Rate List Versioning & Duplicate Active Rate Protection
+ * 7. Requirement 21: Auto-generate / Add Newly Created Finished Products to Existing Rate List
+ * 8. Authoritative Rate List PDF Generation (Company Header, Scheme Code, Validity, Finished Goods Table)
+ * 9. Pricing Authority Limits & Governance Configuration
+ * 10. Live Price Resolution Simulator connected to Backend Database
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -33,24 +35,23 @@ import {
   IconPlus,
   IconCheck,
   IconEye,
-  IconTrash,
   IconEdit,
   IconRefresh,
   IconShield,
-  IconCreditCard,
   IconLayers,
   IconTag,
   IconPercent,
   IconClock,
+  IconPrinter,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
+import { exportRateListToPdf } from '../../lib/pdf-export';
 
 export type PricingTab =
   | 'rate-lists'
   | 'schemes'
   | 'active-matrix'
-  | 'rate-history'
   | 'authority'
   | 'simulator';
 
@@ -62,20 +63,61 @@ export const PricingManagementView: React.FC = () => {
   // Data states
   const [rateLists, setRateLists] = useState<any[]>([]);
   const [schemes, setSchemes] = useState<any[]>([]);
+  const [schemeTypes, setSchemeTypes] = useState<any[]>([]);
   const [authorityLimits, setAuthorityLimits] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [dealers, setDealers] = useState<any[]>([]);
 
   // Filter & Search states
   const [rateListSearch, setRateListSearch] = useState('');
-  const [rateListCategoryFilter, setRateListCategoryFilter] = useState('ALL');
+  const [rateListSchemeFilter, setRateListSchemeFilter] = useState('ALL');
   const [schemeSearch, setSchemeSearch] = useState('');
+  const [schemeTypeFilter, setSchemeTypeFilter] = useState('ALL');
 
-  // Rate List Create / Edit Modal State
+  // ==========================================================
+  // SCHEME MASTER STATE (Requirements 1 - 5, 12, 14)
+  // ==========================================================
+  const [isSchemeModalOpen, setIsSchemeModalOpen] = useState(false);
+  const [selectedScheme, setSelectedScheme] = useState<any | null>(null);
+  const [schemeForm, setSchemeForm] = useState({
+    schemeTypeId: '',
+    schemeTypeCode: 'SR',
+    name: '',
+    shortCode: '',
+    code: '',
+    description: '',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: '',
+    status: 'ACTIVE',
+    defaultDiscountPct: '' as number | '',
+    additionalBookingPct: '' as number | '',
+    cashDiscountPct: '' as number | '',
+    calculationMethod: 'ADDITIVE',
+    paymentTerm: 'CASH',
+    isMobileVisible: true,
+    isMobileSelectable: true,
+  });
+
+  // Dynamic Scheme Type Modal State
+  const [isSchemeTypeModalOpen, setIsSchemeTypeModalOpen] = useState(false);
+  const [schemeTypeForm, setSchemeTypeForm] = useState({
+    code: '',
+    name: '',
+    description: '',
+  });
+
+  // ==========================================================
+  // RATE LIST CREATION STATE (Requirements 6 - 11, 13, 21)
+  // ==========================================================
   const [isRateListModalOpen, setIsRateListModalOpen] = useState(false);
   const [selectedRateList, setSelectedRateList] = useState<any | null>(null);
   const [isRateListDetailModalOpen, setIsRateListDetailModalOpen] = useState(false);
+  const [isLoadingSchemeProducts, setIsLoadingSchemeProducts] = useState(false);
   const [rateListForm, setRateListForm] = useState({
+    schemeId: '',
+    schemeShortCode: '',
+    schemeName: '',
+    schemeTypeCode: '',
     code: '',
     name: '',
     description: '',
@@ -87,10 +129,10 @@ export const PricingManagementView: React.FC = () => {
     priority: 10,
     effectiveFrom: new Date().toISOString().split('T')[0],
     effectiveTo: '',
-    notes: 'Initial Version',
+    notes: 'Initial Published Version',
   });
   const [rateListItems, setRateListItems] = useState<any[]>([]);
-  const [isPopulatingProducts, setIsPopulatingProducts] = useState(false);
+  const [rateListItemSearch, setRateListItemSearch] = useState('');
   const [bulkAdjustmentPct, setBulkAdjustmentPct] = useState<number | ''>('');
 
   // Rate List Version Modal State
@@ -101,29 +143,6 @@ export const PricingManagementView: React.FC = () => {
     effectiveTo: '',
     notes: '',
   });
-
-  // Scheme Create / Edit Modal State
-  const [isSchemeModalOpen, setIsSchemeModalOpen] = useState(false);
-  const [selectedScheme, setSelectedScheme] = useState<any | null>(null);
-  const [schemeForm, setSchemeForm] = useState({
-    code: '',
-    name: '',
-    description: '',
-    schemeType: 'CASH_DISCOUNT',
-    calculationMethod: 'ADDITIVE',
-    paymentTerm: 'CASH',
-    paidQuantity: 0,
-    freeQuantity: 0,
-    minQuantity: 0,
-    isMobileVisible: true,
-    isMobileSelectable: true,
-    priority: 10,
-    effectiveFrom: new Date().toISOString().split('T')[0],
-    effectiveTo: '',
-  });
-  const [discountComponents, setDiscountComponents] = useState<
-    Array<{ name: string; type: 'PERCENTAGE' | 'FLAT'; value: number }>
-  >([{ name: 'Cash Discount', type: 'PERCENTAGE', value: 15.0 }]);
 
   // Authority Limit Edit Modal State
   const [isAuthorityModalOpen, setIsAuthorityModalOpen] = useState(false);
@@ -137,7 +156,7 @@ export const PricingManagementView: React.FC = () => {
     requiresApproval: true,
   });
 
-  // Simulator / Price Preview State
+  // Simulator State
   const [simDealerId, setSimDealerId] = useState('');
   const [simProductId, setSimProductId] = useState('');
   const [simQuantity, setSimQuantity] = useState<number>(10);
@@ -154,22 +173,26 @@ export const PricingManagementView: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [rateListsRes, schemesRes, limitsRes, productsRes, dealersRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/pricing/rate-lists'),
-        ApiClient.get<any>('/api/v1/pricing/schemes'),
-        ApiClient.get<any>('/api/v1/pricing/authority-limits'),
-        ApiClient.get<any>('/api/v1/pricing/active-products'),
-        ApiClient.get<any>('/api/v1/dealers'),
-      ]);
+      const [rateListsRes, schemesRes, schemeTypesRes, limitsRes, productsRes, dealersRes] =
+        await Promise.all([
+          ApiClient.get<any>('/api/v1/pricing/rate-lists'),
+          ApiClient.get<any>('/api/v1/pricing/schemes'),
+          ApiClient.get<any>('/api/v1/pricing/scheme-types'),
+          ApiClient.get<any>('/api/v1/pricing/authority-limits'),
+          ApiClient.get<any>('/api/v1/pricing/active-products'),
+          ApiClient.get<any>('/api/v1/dealers'),
+        ]);
 
       const rateListsData = rateListsRes.data?.data || rateListsRes.data || [];
       const schemesData = schemesRes.data?.data || schemesRes.data || [];
+      const schemeTypesData = schemeTypesRes.data?.data || schemeTypesRes.data || [];
       const limitsData = limitsRes.data?.data || limitsRes.data || [];
       const productsData = productsRes.data?.data || productsRes.data || [];
       const dealersData = dealersRes.data?.data || dealersRes.data || [];
 
       setRateLists(Array.isArray(rateListsData) ? rateListsData : []);
       setSchemes(Array.isArray(schemesData) ? schemesData : []);
+      setSchemeTypes(Array.isArray(schemeTypesData) ? schemeTypesData : []);
       setAuthorityLimits(Array.isArray(limitsData) ? limitsData : []);
       setAllProducts(Array.isArray(productsData) ? productsData : []);
       setDealers(Array.isArray(dealersData) ? dealersData : []);
@@ -200,40 +223,343 @@ export const PricingManagementView: React.FC = () => {
   }, [loadData]);
 
   // ==========================================
-  // RATE LIST ACTIONS
+  // SCHEME MASTER ACTIONS (Requirements 1 - 5)
   // ==========================================
 
-  /**
-   * 1-Click Auto Loader: Populate All Active Finished Products from Real DB (Requirement 8)
-   */
-  const handlePopulateAllProducts = async () => {
-    setIsPopulatingProducts(true);
+  const handleOpenCreateScheme = () => {
+    setSelectedScheme(null);
+    const defaultType = schemeTypes.find((t) => t.code === 'SR') || schemeTypes[0] || {
+      id: '',
+      code: 'SR',
+      name: 'Seasonal Rate List',
+    };
+
+    setSchemeForm({
+      schemeTypeId: defaultType.id || '',
+      schemeTypeCode: defaultType.code,
+      name: '',
+      shortCode: '',
+      code: '',
+      description: '',
+      startDate: new Date().toISOString().split('T')[0] as string,
+      endDate: '',
+      status: 'ACTIVE',
+      defaultDiscountPct: '',
+      additionalBookingPct: '',
+      cashDiscountPct: '',
+      calculationMethod: 'ADDITIVE',
+      paymentTerm: 'CASH',
+      isMobileVisible: true,
+      isMobileSelectable: true,
+    });
+    setIsSchemeModalOpen(true);
+  };
+
+  const handleOpenEditScheme = (scheme: any) => {
+    setSelectedScheme(scheme);
+    const startStr = scheme.startDate
+      ? new Date(scheme.startDate).toISOString().split('T')[0]
+      : new Date(scheme.effectiveFrom || Date.now()).toISOString().split('T')[0];
+    const endStr = scheme.endDate
+      ? new Date(scheme.endDate).toISOString().split('T')[0]
+      : scheme.effectiveTo
+      ? new Date(scheme.effectiveTo).toISOString().split('T')[0]
+      : '';
+
+    setSchemeForm({
+      schemeTypeId: scheme.schemeTypeId || '',
+      schemeTypeCode: scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR',
+      name: scheme.name || '',
+      shortCode: scheme.shortCode || '',
+      code: scheme.code || '',
+      description: scheme.description || '',
+      startDate: startStr || '',
+      endDate: endStr || '',
+      status: scheme.status || 'ACTIVE',
+      defaultDiscountPct:
+        scheme.defaultDiscountPct !== null && scheme.defaultDiscountPct !== undefined
+          ? Number(scheme.defaultDiscountPct)
+          : '',
+      additionalBookingPct:
+        scheme.additionalBookingPct !== null && scheme.additionalBookingPct !== undefined
+          ? Number(scheme.additionalBookingPct)
+          : '',
+      cashDiscountPct:
+        scheme.cashDiscountPct !== null && scheme.cashDiscountPct !== undefined
+          ? Number(scheme.cashDiscountPct)
+          : '',
+      calculationMethod: scheme.calculationMethod || 'ADDITIVE',
+      paymentTerm: scheme.paymentTerm || 'CASH',
+      isMobileVisible: scheme.isMobileVisible ?? true,
+      isMobileSelectable: scheme.isMobileSelectable ?? true,
+    });
+    setIsSchemeModalOpen(true);
+  };
+
+  const handleSchemeTypeChange = (typeId: string) => {
+    const selected = schemeTypes.find((t) => t.id === typeId);
+    if (selected) {
+      setSchemeForm((prev) => ({
+        ...prev,
+        schemeTypeId: selected.id,
+        schemeTypeCode: selected.code,
+        // Set commercial hints based on type
+        cashDiscountPct: selected.code === 'CA' ? 10 : prev.cashDiscountPct,
+        additionalBookingPct: selected.code === 'ABC' ? 5 : prev.additionalBookingPct,
+      }));
+    }
+  };
+
+  const handleSaveScheme = async () => {
+    if (!schemeForm.name.trim()) {
+      showToast({ title: 'Validation Error', message: 'Scheme Name is required.', type: 'error' });
+      return;
+    }
+    if (!schemeForm.shortCode.trim()) {
+      showToast({ title: 'Validation Error', message: 'Scheme Short Code is required.', type: 'error' });
+      return;
+    }
+
     try {
-      const res = await ApiClient.get<any>('/api/v1/pricing/active-products');
-      const loaded = res.data?.data || res.data || [];
-      if (loaded.length === 0) {
+      const generatedCode = `${schemeForm.schemeTypeCode}-${schemeForm.shortCode.toUpperCase()}`;
+      const payload = {
+        name: schemeForm.name.trim(),
+        code: schemeForm.code || generatedCode,
+        shortCode: schemeForm.shortCode.trim().toUpperCase(),
+        schemeTypeId: schemeForm.schemeTypeId || undefined,
+        schemeTypeCode: schemeForm.schemeTypeCode,
+        description: schemeForm.description,
+        startDate: schemeForm.startDate ? new Date(schemeForm.startDate).toISOString() : undefined,
+        endDate: schemeForm.endDate ? new Date(schemeForm.endDate).toISOString() : undefined,
+        status: schemeForm.status,
+        defaultDiscountPct:
+          schemeForm.defaultDiscountPct !== '' ? Number(schemeForm.defaultDiscountPct) : undefined,
+        additionalBookingPct:
+          schemeForm.additionalBookingPct !== '' ? Number(schemeForm.additionalBookingPct) : undefined,
+        cashDiscountPct:
+          schemeForm.cashDiscountPct !== '' ? Number(schemeForm.cashDiscountPct) : undefined,
+        calculationMethod: schemeForm.calculationMethod,
+        paymentTerm: schemeForm.paymentTerm,
+        isMobileVisible: schemeForm.isMobileVisible,
+        isMobileSelectable: schemeForm.isMobileSelectable,
+      };
+
+      if (selectedScheme?.id) {
+        await ApiClient.put(`/api/v1/pricing/schemes/${selectedScheme.id}`, payload);
         showToast({
-          title: 'No Active Products',
-          message: 'No active finished products found in catalog to populate.',
-          type: 'warning',
+          title: 'Scheme Updated',
+          message: `Scheme '${schemeForm.name}' updated successfully.`,
+          type: 'success',
         });
-        return;
+      } else {
+        await ApiClient.post('/api/v1/pricing/schemes', payload);
+        showToast({
+          title: 'Scheme Created',
+          message: `Scheme '${schemeForm.name}' (${schemeForm.shortCode}) created successfully.`,
+          type: 'success',
+        });
       }
-      setRateListItems(loaded);
+
+      setIsSchemeModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      showToast({ title: 'Error Saving Scheme', message: err.message, type: 'error' });
+    }
+  };
+
+  const handleSaveSchemeType = async () => {
+    if (!schemeTypeForm.code.trim() || !schemeTypeForm.name.trim()) {
+      showToast({ title: 'Validation Error', message: 'Type Code and Name are required.', type: 'error' });
+      return;
+    }
+
+    try {
+      const res = await ApiClient.post<any>('/api/v1/pricing/scheme-types', {
+        code: schemeTypeForm.code.trim().toUpperCase(),
+        name: schemeTypeForm.name.trim(),
+        description: schemeTypeForm.description.trim(),
+      });
+      const created = res.data?.data || res.data;
       showToast({
-        title: 'Products Auto-Populated',
-        message: `Successfully loaded ${loaded.length} active finished products with baseline rates.`,
+        title: 'Scheme Type Added',
+        message: `Scheme Type '${created.name}' (${created.code}) created successfully.`,
+        type: 'success',
+      });
+      setIsSchemeTypeModalOpen(false);
+      setSchemeTypeForm({ code: '', name: '', description: '' });
+
+      // Refresh scheme types
+      const typesRes = await ApiClient.get<any>('/api/v1/pricing/scheme-types');
+      const types = typesRes.data?.data || typesRes.data || [];
+      setSchemeTypes(types);
+    } catch (err: any) {
+      showToast({ title: 'Error Creating Scheme Type', message: err.message, type: 'error' });
+    }
+  };
+
+  // ==========================================================
+  // RATE LIST ACTIONS (Select Scheme -> Auto Load Products)
+  // Requirements 6 - 11, 13, 21
+  // ==========================================================
+
+  /**
+   * Primary User Flow:
+   * Click "+ Create Rate List" -> Select Scheme First -> Auto Load Finished Products
+   */
+  const handleOpenCreateRateList = (preselectedSchemeId?: string) => {
+    setRateListForm({
+      schemeId: '',
+      schemeShortCode: '',
+      schemeName: '',
+      schemeTypeCode: '',
+      code: '',
+      name: '',
+      description: '',
+      category: 'SEASONAL',
+      currency: 'PKR',
+      isMobileVisible: true,
+      isMobileSelectable: true,
+      isInternalOnly: false,
+      priority: 10,
+      effectiveFrom: new Date().toISOString().split('T')[0],
+      effectiveTo: '',
+      notes: 'Initial Published Version',
+    });
+    setRateListItems([]);
+    setRateListItemSearch('');
+    setBulkAdjustmentPct('');
+    setIsRateListModalOpen(true);
+
+    if (preselectedSchemeId) {
+      handleSchemeSelectForRateList(preselectedSchemeId);
+    }
+  };
+
+  /**
+   * Auto-loader: When Scheme is selected, retrieve ONLY Sellable Finished Products
+   * and auto-calculate scheme rates based on commercial rules (Requirements 7, 8, 9, 10, 11)
+   */
+  const handleSchemeSelectForRateList = async (schemeId: string) => {
+    if (!schemeId) {
+      setRateListForm((prev) => ({
+        ...prev,
+        schemeId: '',
+        schemeShortCode: '',
+        schemeName: '',
+        schemeTypeCode: '',
+      }));
+      setRateListItems([]);
+      return;
+    }
+
+    setIsLoadingSchemeProducts(true);
+    try {
+      const res = await ApiClient.get<any>(`/api/v1/pricing/schemes/${schemeId}/products`);
+      const { scheme, products } = res.data?.data || res.data;
+
+      const shortCode = scheme.shortCode || scheme.code;
+      const typeCode = scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR';
+      const year = new Date().getFullYear();
+
+      setRateListForm((prev) => ({
+        ...prev,
+        schemeId: scheme.id,
+        schemeShortCode: shortCode,
+        schemeName: scheme.name,
+        schemeTypeCode: typeCode,
+        code: `RL-${shortCode}-${year}`,
+        name: `${scheme.name} Rate List`,
+        description: `Official Rate List for ${scheme.name} (${typeCode})`,
+        category:
+          typeCode === 'CA'
+            ? 'CASH'
+            : typeCode === 'ABC'
+            ? 'ADVANCE_BOOKING'
+            : 'SEASONAL',
+        effectiveFrom: (scheme.startDate
+          ? new Date(scheme.startDate).toISOString().split('T')[0]
+          : prev.effectiveFrom) || '',
+        effectiveTo: (scheme.endDate
+          ? new Date(scheme.endDate).toISOString().split('T')[0]
+          : prev.effectiveTo) || '',
+      }));
+
+      // Map loaded products to editable rate list items
+      const mappedItems = (products || []).map((p: any) => ({
+        finishedProductId: p.finishedProductId,
+        productCode: p.productCode,
+        productName: p.productName,
+        category: p.category,
+        packagingMaterial: p.packagingMaterial,
+        packSize: p.packSize,
+        unit: p.unit || 'Unit',
+        baseRate: Number(p.baseSellingPrice || 0),
+        schemeRate: Number(p.schemeRate || p.baseSellingPrice || 0),
+        discountPercent: Number(p.discountPercent || 0),
+        rateType: p.rateType || 'DIRECT',
+        minAllowedRate: Math.round(Number(p.schemeRate || p.baseSellingPrice || 0) * 0.8),
+      }));
+
+      setRateListItems(mappedItems);
+
+      showToast({
+        title: 'Finished Products Auto-Loaded',
+        message: `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
         type: 'success',
       });
     } catch (err: any) {
       showToast({
-        title: 'Error Loading Products',
+        title: 'Error Loading Scheme Products',
         message: err.message,
         type: 'error',
       });
     } finally {
-      setIsPopulatingProducts(false);
+      setIsLoadingSchemeProducts(false);
     }
+  };
+
+  /**
+   * Update individual product rate in grid: supports both Direct Rate and Discount %
+   */
+  const handleItemRateChange = (index: number, newSchemeRate: number) => {
+    setRateListItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== index) return it;
+        const base = Number(it.baseRate) || 0;
+        let discountPct = 0;
+        if (base > 0 && newSchemeRate < base) {
+          discountPct = Math.round(((base - newSchemeRate) / base) * 1000) / 10;
+        }
+        return {
+          ...it,
+          schemeRate: newSchemeRate,
+          discountPercent: discountPct,
+          minAllowedRate: Math.round(newSchemeRate * 0.8),
+        };
+      })
+    );
+  };
+
+  const handleItemDiscountChange = (index: number, newDiscountPct: number) => {
+    setRateListItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== index) return it;
+        const base = Number(it.baseRate) || 0;
+        const calculatedRate = Math.round(base * (1 - newDiscountPct / 100));
+        return {
+          ...it,
+          discountPercent: newDiscountPct,
+          schemeRate: calculatedRate,
+          minAllowedRate: Math.round(calculatedRate * 0.8),
+        };
+      })
+    );
+  };
+
+  const handleItemRateTypeToggle = (index: number, newType: string) => {
+    setRateListItems((prev) =>
+      prev.map((it, i) => (i === index ? { ...it, rateType: newType } : it))
+    );
   };
 
   /**
@@ -246,14 +572,19 @@ export const PricingManagementView: React.FC = () => {
 
     setRateListItems((prev) =>
       prev.map((item) => {
-        const newBase = Math.round(Number(item.baseRate) * multiplier);
-        const newMin = Math.round(newBase * 0.75);
+        const newRate = Math.round(Number(item.schemeRate) * multiplier);
+        const base = Number(item.baseRate) || 0;
+        let discountPct = 0;
+        if (base > 0 && newRate < base) {
+          discountPct = Math.round(((base - newRate) / base) * 1000) / 10;
+        }
         return {
           ...item,
-          baseRate: newBase,
-          minAllowedRate: newMin,
+          schemeRate: newRate,
+          discountPercent: discountPct,
+          minAllowedRate: Math.round(newRate * 0.8),
         };
-      }),
+      })
     );
 
     showToast({
@@ -264,34 +595,22 @@ export const PricingManagementView: React.FC = () => {
     setBulkAdjustmentPct('');
   };
 
-  const handleOpenCreateRateList = () => {
-    setRateListForm({
-      code: `SEASONAL-${new Date().getFullYear()}`,
-      name: `Seasonal Rate List ${new Date().getFullYear()}`,
-      description: 'Standard baseline commercial rate list for all active products',
-      category: 'SEASONAL',
-      currency: 'PKR',
-      isMobileVisible: true,
-      isMobileSelectable: true,
-      isInternalOnly: false,
-      priority: 10,
-      effectiveFrom: new Date().toISOString().split('T')[0],
-      effectiveTo: '',
-      notes: 'Initial published version',
-    });
-    setRateListItems([]);
-    setIsRateListModalOpen(true);
-  };
-
+  /**
+   * Save & Publish Rate List with Duplicate Rate Protection (Requirement 12, 14)
+   */
   const handleSaveRateList = async () => {
+    if (!rateListForm.schemeId) {
+      showToast({ title: 'Validation Error', message: 'Please select a Scheme first.', type: 'error' });
+      return;
+    }
     if (!rateListForm.code.trim() || !rateListForm.name.trim()) {
-      showToast({ title: 'Validation Error', message: 'Code and Name are required.', type: 'error' });
+      showToast({ title: 'Validation Error', message: 'Rate List Code and Name are required.', type: 'error' });
       return;
     }
     if (rateListItems.length === 0) {
       showToast({
         title: 'Products Required',
-        message: 'Please click "Add All Active Finished Products" or add individual products.',
+        message: 'No finished products found for this scheme.',
         type: 'warning',
       });
       return;
@@ -299,19 +618,70 @@ export const PricingManagementView: React.FC = () => {
 
     try {
       await ApiClient.post('/api/v1/pricing/rate-lists', {
-        ...rateListForm,
-        items: rateListItems,
+        schemeId: rateListForm.schemeId,
+        schemeShortCode: rateListForm.schemeShortCode,
+        schemeName: rateListForm.schemeName,
+        code: rateListForm.code.trim().toUpperCase(),
+        name: rateListForm.name.trim(),
+        description: rateListForm.description,
+        category: rateListForm.category,
+        currency: rateListForm.currency,
+        isMobileVisible: rateListForm.isMobileVisible,
+        isMobileSelectable: rateListForm.isMobileSelectable,
+        isInternalOnly: rateListForm.isInternalOnly,
+        priority: rateListForm.priority,
+        effectiveFrom: rateListForm.effectiveFrom,
+        effectiveTo: rateListForm.effectiveTo || undefined,
+        notes: rateListForm.notes,
+        items: rateListItems.map((it) => ({
+          finishedProductId: it.finishedProductId,
+          baseRate: it.baseRate,
+          schemeRate: it.schemeRate,
+          discountPercent: it.discountPercent,
+          rateType: it.rateType,
+          minAllowedRate: it.minAllowedRate,
+        })),
       });
 
       showToast({
         title: 'Rate List Created',
-        message: `Rate list '${rateListForm.code}' published successfully with ${rateListItems.length} products.`,
+        message: `Rate list '${rateListForm.code}' published successfully with ${rateListItems.length} finished products.`,
         type: 'success',
       });
       setIsRateListModalOpen(false);
       loadData();
     } catch (err: any) {
-      showToast({ title: 'Error Saving Rate List', message: err.message, type: 'error' });
+      // Duplicate rate protection warning
+      showToast({
+        title: 'Error Saving Rate List',
+        message: err.message || 'Duplicate active rate list already exists for this scheme and validity period.',
+        type: 'error',
+      });
+    }
+  };
+
+  /**
+   * Requirement 21: Auto-generate / Add Newly Created Finished Products to Rate List
+   */
+  const handleAddNewProductsToRateList = async (rateListId: string) => {
+    try {
+      const res = await ApiClient.post<any>(`/api/v1/pricing/rate-lists/${rateListId}/add-products`, {});
+      const data = res.data?.data || res.data;
+      showToast({
+        title: 'Finished Products Synced',
+        message: data.message || `Added ${data.addedCount || 0} newly created finished products to rate list.`,
+        type: 'success',
+      });
+      loadData();
+      if (selectedRateList && selectedRateList.id === rateListId) {
+        handleViewRateListDetail(rateListId);
+      }
+    } catch (err: any) {
+      showToast({
+        title: 'Sync Failed',
+        message: err.message,
+        type: 'error',
+      });
     }
   };
 
@@ -325,12 +695,28 @@ export const PricingManagementView: React.FC = () => {
     }
   };
 
+  /**
+   * Requirement 19: Rate List PDF Export
+   */
+  const handleExportPdf = (rl: any) => {
+    exportRateListToPdf(rl);
+    showToast({
+      title: 'Rate List PDF',
+      message: `Print document opened for ${rl.schemeName || rl.name}.`,
+      type: 'info',
+    });
+  };
+
+  // ==========================================
+  // VERSIONING (Requirement 13)
+  // ==========================================
+
   const handleOpenNewVersionModal = (rl: any) => {
     setVersionTargetRateList(rl);
     setNewVersionForm({
       effectiveFrom: new Date().toISOString().split('T')[0],
       effectiveTo: '',
-      notes: `Version ${(rl.totalVersionsCount || 1) + 1} Update`,
+      notes: `Version ${(rl.totalVersionsCount || 1) + 1} Commercial Revision`,
     });
     setIsVersionModalOpen(true);
   };
@@ -338,7 +724,6 @@ export const PricingManagementView: React.FC = () => {
   const handleSaveNewVersion = async () => {
     if (!versionTargetRateList) return;
     try {
-      // Fetch latest items from target rate list to clone
       const fullDetail = await ApiClient.get<any>(`/api/v1/pricing/rate-lists/${versionTargetRateList.id}`);
       const rlData = fullDetail.data?.data || fullDetail.data;
       const activeVersion = rlData.versions?.find((v: any) => v.status === 'ACTIVE') || rlData.versions?.[0];
@@ -346,9 +731,10 @@ export const PricingManagementView: React.FC = () => {
         finishedProductId: it.finishedProductId,
         packSizeId: it.packSizeId,
         baseRate: Number(it.baseRate),
+        schemeRate: Number(it.schemeRate ?? it.customPrice ?? it.baseRate),
+        discountPercent: Number(it.discountPercent || 0),
+        rateType: it.rateType || 'DIRECT',
         unit: it.unit,
-        discountType: it.discountType,
-        discountValue: Number(it.discountValue || 0),
         minAllowedRate: it.minAllowedRate ? Number(it.minAllowedRate) : null,
         freeQuantity: Number(it.freeQuantity || 0),
         isActive: it.isActive,
@@ -362,68 +748,14 @@ export const PricingManagementView: React.FC = () => {
       });
 
       showToast({
-        title: 'New Version Created',
-        message: `Version successfully added without overwriting historical transactions.`,
+        title: 'New Version Published',
+        message: `Incremental rate version created without altering historical transaction records.`,
         type: 'success',
       });
       setIsVersionModalOpen(false);
       loadData();
     } catch (err: any) {
       showToast({ title: 'Error Creating Version', message: err.message, type: 'error' });
-    }
-  };
-
-  // ==========================================
-  // SCHEME ACTIONS
-  // ==========================================
-
-  const handleOpenCreateScheme = () => {
-    setSelectedScheme(null);
-    setSchemeForm({
-      code: 'SCHEME-NEW',
-      name: '',
-      description: '',
-      schemeType: 'CASH_DISCOUNT',
-      calculationMethod: 'ADDITIVE',
-      paymentTerm: 'CASH',
-      paidQuantity: 0,
-      freeQuantity: 0,
-      minQuantity: 0,
-      isMobileVisible: true,
-      isMobileSelectable: true,
-      priority: 10,
-      effectiveFrom: new Date().toISOString().split('T')[0],
-      effectiveTo: '',
-    });
-    setDiscountComponents([{ name: 'Cash Discount', type: 'PERCENTAGE', value: 15.0 }]);
-    setIsSchemeModalOpen(true);
-  };
-
-  const handleSaveScheme = async () => {
-    if (!schemeForm.code.trim() || !schemeForm.name.trim()) {
-      showToast({ title: 'Validation Error', message: 'Scheme Code and Name are required.', type: 'error' });
-      return;
-    }
-
-    try {
-      const payload = {
-        ...schemeForm,
-        discountComponents,
-        effectiveTo: schemeForm.effectiveTo || undefined,
-      };
-
-      if (selectedScheme?.id) {
-        await ApiClient.put(`/api/v1/pricing/schemes/${selectedScheme.id}`, payload);
-        showToast({ title: 'Scheme Updated', message: `Scheme '${schemeForm.code}' updated.`, type: 'success' });
-      } else {
-        await ApiClient.post('/api/v1/pricing/schemes', payload);
-        showToast({ title: 'Scheme Created', message: `Commercial scheme '${schemeForm.code}' created.`, type: 'success' });
-      }
-
-      setIsSchemeModalOpen(false);
-      loadData();
-    } catch (err: any) {
-      showToast({ title: 'Error Saving Scheme', message: err.message, type: 'error' });
     }
   };
 
@@ -460,7 +792,7 @@ export const PricingManagementView: React.FC = () => {
   };
 
   // ==========================================
-  // SIMULATOR / LIVE RESOLUTION (REQUIREMENT 18, 19, 20)
+  // SIMULATOR
   // ==========================================
 
   const handleRunSimulation = async () => {
@@ -488,21 +820,42 @@ export const PricingManagementView: React.FC = () => {
   const filteredRateLists = useMemo(() => {
     return rateLists.filter((rl) => {
       const matchesSearch =
-        rl.name.toLowerCase().includes(rateListSearch.toLowerCase()) ||
-        rl.code.toLowerCase().includes(rateListSearch.toLowerCase());
-      const matchesCat = rateListCategoryFilter === 'ALL' || rl.category === rateListCategoryFilter;
-      return matchesSearch && matchesCat;
+        (rl.name || '').toLowerCase().includes(rateListSearch.toLowerCase()) ||
+        (rl.code || '').toLowerCase().includes(rateListSearch.toLowerCase()) ||
+        (rl.schemeShortCode || '').toLowerCase().includes(rateListSearch.toLowerCase()) ||
+        (rl.schemeName || '').toLowerCase().includes(rateListSearch.toLowerCase());
+      const matchesScheme =
+        rateListSchemeFilter === 'ALL' ||
+        rl.schemeId === rateListSchemeFilter ||
+        rl.schemeShortCode === rateListSchemeFilter;
+      return matchesSearch && matchesScheme;
     });
-  }, [rateLists, rateListSearch, rateListCategoryFilter]);
+  }, [rateLists, rateListSearch, rateListSchemeFilter]);
 
   const filteredSchemes = useMemo(() => {
     return schemes.filter((s) => {
-      return (
-        s.name.toLowerCase().includes(schemeSearch.toLowerCase()) ||
-        s.code.toLowerCase().includes(schemeSearch.toLowerCase())
-      );
+      const matchesSearch =
+        (s.name || '').toLowerCase().includes(schemeSearch.toLowerCase()) ||
+        (s.code || '').toLowerCase().includes(schemeSearch.toLowerCase()) ||
+        (s.shortCode || '').toLowerCase().includes(schemeSearch.toLowerCase());
+      const matchesType =
+        schemeTypeFilter === 'ALL' ||
+        s.schemeTypeCode === schemeTypeFilter ||
+        s.schemeTypeId === schemeTypeFilter;
+      return matchesSearch && matchesType;
     });
-  }, [schemes, schemeSearch]);
+  }, [schemes, schemeSearch, schemeTypeFilter]);
+
+  const filteredModalItems = useMemo(() => {
+    if (!rateListItemSearch.trim()) return rateListItems;
+    const q = rateListItemSearch.toLowerCase();
+    return rateListItems.filter(
+      (it) =>
+        (it.productName || '').toLowerCase().includes(q) ||
+        (it.productCode || '').toLowerCase().includes(q) ||
+        (it.category || '').toLowerCase().includes(q)
+    );
+  }, [rateListItems, rateListItemSearch]);
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto' }}>
@@ -524,22 +877,22 @@ export const PricingManagementView: React.FC = () => {
                 width: '40px',
                 height: '40px',
                 borderRadius: '10px',
-                background: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
+                background: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
-                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
               }}
             >
               <IconTag size={22} />
             </div>
             <div>
               <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                Pricing & Dynamic Rate Lists
+                Rate Lists & Commercial Schemes
               </h1>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-                Enterprise multi-scheme pricing, versioned commercial tables, and authoritative rate resolution
+                Integrated flow: Scheme Master → Scheme Selection → Finished Products Auto-Load → Scheme Rates → Sales Orders
               </p>
             </div>
           </div>
@@ -550,14 +903,19 @@ export const PricingManagementView: React.FC = () => {
             <IconRefresh size={16} /> Refresh
           </Button>
           {activeTab === 'rate-lists' && (
-            <Button variant="primary" onClick={handleOpenCreateRateList}>
+            <Button variant="primary" onClick={() => handleOpenCreateRateList()}>
               <IconPlus size={16} /> Create Rate List
             </Button>
           )}
           {activeTab === 'schemes' && (
-            <Button variant="primary" onClick={handleOpenCreateScheme}>
-              <IconPlus size={16} /> Create Commercial Scheme
-            </Button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button variant="secondary" onClick={() => setIsSchemeTypeModalOpen(true)}>
+                <IconLayers size={16} /> + Scheme Type
+              </Button>
+              <Button variant="primary" onClick={handleOpenCreateScheme}>
+                <IconPlus size={16} /> + Add Scheme
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -574,26 +932,26 @@ export const PricingManagementView: React.FC = () => {
         <KpiCard
           title="Active Rate Lists"
           value={rateLists.filter((r) => r.status === 'ACTIVE').length.toString()}
-          subtitle="Database-driven pricing tables"
-          icon={<IconLayers size={22} color="#2563EB" />}
+          subtitle="Scheme-bound pricing matrices"
+          icon={<IconLayers size={22} color="#059669" />}
         />
         <KpiCard
           title="Commercial Schemes"
-          value={schemes.filter((s) => s.status === 'ACTIVE').length.toString()}
-          subtitle="Cash, Advance, Package & Special"
-          icon={<IconPercent size={22} color="#10B981" />}
+          value={schemes.filter((s) => (s.computedStatus || s.status) === 'ACTIVE').length.toString()}
+          subtitle="CA, ABC, SR, NNR & Custom"
+          icon={<IconPercent size={22} color="#2563EB" />}
         />
         <KpiCard
-          title="Mobile Published"
-          value={schemes.filter((s) => s.isMobileVisible).length.toString()}
-          subtitle="Visible to Sales Officers"
-          icon={<IconCreditCard size={22} color="#8B5CF6" />}
+          title="Sellable Finished Goods"
+          value={allProducts.length.toString()}
+          subtitle="Only finished goods in rate lists"
+          icon={<IconCheck size={22} color="#10B981" />}
         />
         <KpiCard
-          title="Authority Levels"
-          value={authorityLimits.length.toString()}
-          subtitle="SO, AM, BM, Admin Governance"
-          icon={<IconShield size={22} color="#F59E0B" />}
+          title="Scheme Types"
+          value={schemeTypes.length.toString()}
+          subtitle="Dynamic commercial structures"
+          icon={<IconShield size={22} color="#8B5CF6" />}
         />
       </div>
 
@@ -610,10 +968,10 @@ export const PricingManagementView: React.FC = () => {
       >
         {[
           { id: 'rate-lists', label: 'Rate Lists', count: rateLists.length, icon: <IconLayers size={16} /> },
-          { id: 'schemes', label: 'Pricing Schemes & Phases', count: schemes.length, icon: <IconPercent size={16} /> },
-          { id: 'active-matrix', label: 'Active Pricing Matrix', icon: <IconTag size={16} /> },
-          { id: 'authority', label: 'Pricing Authority & Governance', count: authorityLimits.length, icon: <IconShield size={16} /> },
-          { id: 'simulator', label: 'Live Price Resolution Simulator', icon: <IconCheck size={16} /> },
+          { id: 'schemes', label: 'Scheme Master', count: schemes.length, icon: <IconPercent size={16} /> },
+          { id: 'active-matrix', label: 'Active Finished Goods Matrix', icon: <IconTag size={16} /> },
+          { id: 'authority', label: 'Authority Governance', count: authorityLimits.length, icon: <IconShield size={16} /> },
+          { id: 'simulator', label: 'Live Price Engine Simulator', icon: <IconCheck size={16} /> },
         ].map((tab) => {
           const isActive = activeTab === tab.id;
           return (
@@ -627,10 +985,10 @@ export const PricingManagementView: React.FC = () => {
                 padding: '12px 18px',
                 fontWeight: isActive ? 700 : 500,
                 fontSize: '14px',
-                color: isActive ? '#2563EB' : 'var(--text-secondary)',
+                color: isActive ? '#059669' : 'var(--text-secondary)',
                 backgroundColor: 'transparent',
                 border: 'none',
-                borderBottom: isActive ? '3px solid #2563EB' : '3px solid transparent',
+                borderBottom: isActive ? '3px solid #059669' : '3px solid transparent',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
                 whiteSpace: 'nowrap',
@@ -641,8 +999,8 @@ export const PricingManagementView: React.FC = () => {
               {tab.count !== undefined && (
                 <span
                   style={{
-                    backgroundColor: isActive ? '#DBEAFE' : 'var(--bg-subtle)',
-                    color: isActive ? '#1D4ED8' : 'var(--text-muted)',
+                    backgroundColor: isActive ? '#d1fae5' : 'var(--bg-subtle)',
+                    color: isActive ? '#065f46' : 'var(--text-muted)',
                     fontSize: '11px',
                     fontWeight: 700,
                     padding: '2px 8px',
@@ -657,9 +1015,9 @@ export const PricingManagementView: React.FC = () => {
         })}
       </div>
 
-      {/* ========================================== */}
-      {/* TAB 1: RATE LISTS TABLE */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* TAB 1: RATE LISTS TABLE (Requirements 6 - 14, 19, 21)     */}
+      {/* ========================================================== */}
       {activeTab === 'rate-lists' && (
         <div>
           {/* Filter Bar */}
@@ -676,22 +1034,20 @@ export const PricingManagementView: React.FC = () => {
             <div style={{ display: 'flex', gap: '12px', flex: 1, minWidth: '300px' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <Input
-                  placeholder="Search by rate list code or name..."
+                  placeholder="Search rate lists by scheme name, short code, or list code..."
                   value={rateListSearch}
                   onChange={(e) => setRateListSearch(e.target.value)}
                 />
               </div>
               <Select
-                value={rateListCategoryFilter}
-                onChange={(e) => setRateListCategoryFilter(e.target.value)}
+                value={rateListSchemeFilter}
+                onChange={(e) => setRateListSchemeFilter(e.target.value)}
                 options={[
-                  { value: 'ALL', label: 'All Categories' },
-                  { value: 'SEASONAL', label: 'Seasonal' },
-                  { value: 'CASH', label: 'Cash' },
-                  { value: 'ADVANCE_BOOKING', label: 'Advance Booking' },
-                  { value: 'PACKAGE', label: 'Package Deal' },
-                  { value: 'SPECIAL', label: 'Special' },
-                  { value: 'GENERAL', label: 'General' },
+                  { value: 'ALL', label: 'All Schemes' },
+                  ...schemes.map((s) => ({
+                    value: s.id,
+                    label: `${s.shortCode || s.code} - ${s.name}`,
+                  })),
                 ]}
               />
             </div>
@@ -705,10 +1061,10 @@ export const PricingManagementView: React.FC = () => {
             <TableSkeleton rows={5} columns={8} />
           ) : filteredRateLists.length === 0 ? (
             <EmptyState
-              title="No Rate Lists Found"
-              description="Create a dynamic rate list or use 'Add All Active Finished Products' to begin."
+              title="No Rate Lists Created Yet"
+              description="Click '+ Create Rate List', select a Scheme, and the system will automatically load finished products with scheme rates."
               actionLabel="Create First Rate List"
-              onAction={handleOpenCreateRateList}
+              onAction={() => handleOpenCreateRateList()}
             />
           ) : (
             <div
@@ -723,112 +1079,158 @@ export const PricingManagementView: React.FC = () => {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Code</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Name & Description</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Category</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scheme & Code</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Rate List Name</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scheme Type</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Version</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Products</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Validity</th>
-                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Mobile</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Finished Goods</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Validity Window</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Status</th>
                     <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRateLists.map((rl) => (
-                    <tr
-                      key={rl.id}
-                      style={{
-                        borderBottom: '1px solid var(--border-default)',
-                        transition: 'background 0.15s ease',
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <td style={{ padding: '14px 16px', fontWeight: 700, color: '#2563EB' }}>
-                        {rl.code}
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{rl.name}</div>
-                        {rl.description && (
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {rl.description}
+                  {filteredRateLists.map((rl) => {
+                    const shortCode = rl.schemeShortCode || rl.scheme?.shortCode || rl.code;
+                    const schemeName = rl.schemeName || rl.scheme?.name || rl.name;
+                    const typeCode = rl.scheme?.schemeTypeRef?.code || rl.schemeTypeCode || rl.category;
+
+                    return (
+                      <tr
+                        key={rl.id}
+                        style={{
+                          borderBottom: '1px solid var(--border-default)',
+                          transition: 'background 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              style={{
+                                fontWeight: 800,
+                                fontSize: '13px',
+                                color: '#047857',
+                                backgroundColor: '#ecfdf5',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #a7f3d0',
+                              }}
+                            >
+                              {shortCode}
+                            </span>
                           </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <span
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: '6px',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            backgroundColor: rl.category === 'SEASONAL' ? '#eff6ff' : '#f3f4f6',
-                            color: rl.category === 'SEASONAL' ? '#1d4ed8' : '#374151',
-                          }}
-                        >
-                          {rl.category}
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <span style={{ fontWeight: 700 }}>v{rl.activeVersionNumber || 1}</span>
-                        {rl.totalVersionsCount > 1 && (
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px' }}>
-                            ({rl.totalVersionsCount} total)
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                            {rl.code}
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{schemeName}</div>
+                          {rl.description && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {rl.description}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor:
+                                typeCode === 'CA'
+                                  ? '#eff6ff'
+                                  : typeCode === 'ABC'
+                                  ? '#fef3c7'
+                                  : typeCode === 'NNR'
+                                  ? '#f3e8ff'
+                                  : '#ecfdf5',
+                              color:
+                                typeCode === 'CA'
+                                  ? '#1d4ed8'
+                                  : typeCode === 'ABC'
+                                  ? '#b45309'
+                                  : typeCode === 'NNR'
+                                  ? '#7e22ce'
+                                  : '#047857',
+                            }}
+                          >
+                            {typeCode}
                           </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <span
-                          style={{
-                            fontWeight: 700,
-                            backgroundColor: '#ecfdf5',
-                            color: '#047857',
-                            padding: '3px 8px',
-                            borderRadius: '10px',
-                          }}
-                        >
-                          {rl.productCount || 0} items
-                        </span>
-                      </td>
-                      <td style={{ padding: '14px 16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        <div>{new Date(rl.effectiveFrom).toLocaleDateString()}</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-                          to {rl.effectiveTo ? new Date(rl.effectiveTo).toLocaleDateString() : 'Indefinite'}
-                        </div>
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        {rl.isMobileVisible ? (
-                          <span style={{ color: '#059669', fontSize: '12px', fontWeight: 600 }}>● Published</span>
-                        ) : (
-                          <span style={{ color: '#9ca3af', fontSize: '12px' }}>○ Hidden</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '14px 16px' }}>
-                        <StatusBadge status={rl.status} />
-                      </td>
-                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleViewRateListDetail(rl.id)}
-                            title="View Products & Rates"
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span style={{ fontWeight: 700 }}>v{rl.activeVersionNumber || 1}.0</span>
+                          {rl.totalVersionsCount > 1 && (
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                              ({rl.totalVersionsCount} revisions)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              backgroundColor: '#f1f5f9',
+                              color: '#334155',
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                            }}
                           >
-                            <IconEye size={14} /> View
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleOpenNewVersionModal(rl)}
-                            title="Create New Version"
-                          >
-                            <IconClock size={14} /> +Version
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {rl.productCount || rl.items?.length || 0} Products
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          <div>{new Date(rl.effectiveFrom || rl.validFrom).toLocaleDateString()}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                            to {rl.effectiveTo || rl.validTo ? new Date(rl.effectiveTo || rl.validTo).toLocaleDateString() : 'Active/Indefinite'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <StatusBadge status={rl.status} />
+                        </td>
+                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleViewRateListDetail(rl.id)}
+                              title="View Products & Scheme Rates"
+                            >
+                              <IconEye size={14} /> View
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleExportPdf(rl)}
+                              title="Print Official Rate List PDF (Requirement 19)"
+                              style={{ color: '#047857' }}
+                            >
+                              <IconPrinter size={14} /> PDF
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleAddNewProductsToRateList(rl.id)}
+                              title="Sync & Add Any Newly Created Finished Goods (Requirement 21)"
+                            >
+                              <IconPlus size={14} /> Sync FG
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleOpenNewVersionModal(rl)}
+                              title="Create New Version (Preserves Historical Transactions)"
+                            >
+                              <IconClock size={14} /> +Ver
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -836,9 +1238,9 @@ export const PricingManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* TAB 2: PRICING SCHEMES & PHASES */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* TAB 2: SCHEME MASTER (Requirements 1 - 5, 12, 14)          */}
+      {/* ========================================================== */}
       {activeTab === 'schemes' && (
         <div>
           <div
@@ -848,13 +1250,22 @@ export const PricingManagementView: React.FC = () => {
               marginBottom: '18px',
               justifyContent: 'space-between',
               alignItems: 'center',
+              flexWrap: 'wrap',
             }}
           >
-            <div style={{ width: '360px' }}>
+            <div style={{ display: 'flex', gap: '12px', flex: 1, minWidth: '320px' }}>
               <Input
-                placeholder="Search schemes by code or name..."
+                placeholder="Search schemes by name, short code (e.g. MCCM), or type code..."
                 value={schemeSearch}
                 onChange={(e) => setSchemeSearch(e.target.value)}
+              />
+              <Select
+                value={schemeTypeFilter}
+                onChange={(e) => setSchemeTypeFilter(e.target.value)}
+                options={[
+                  { value: 'ALL', label: 'All Scheme Types' },
+                  ...schemeTypes.map((t) => ({ value: t.code, label: `${t.code} - ${t.name}` })),
+                ]}
               />
             </div>
             <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
@@ -870,7 +1281,12 @@ export const PricingManagementView: React.FC = () => {
             }}
           >
             {filteredSchemes.map((sc) => {
-              const components: any[] = Array.isArray(sc.discountComponents) ? sc.discountComponents : [];
+              const typeCode = sc.schemeTypeCode || sc.schemeTypeRef?.code || 'SR';
+              const typeName = sc.schemeTypeRef?.name || typeCode;
+              const shortCode = sc.shortCode || sc.code;
+              const status = sc.computedStatus || sc.status || 'ACTIVE';
+              const attachedRateLists = rateLists.filter((rl) => rl.schemeId === sc.id);
+
               return (
                 <Card key={sc.id} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <CardHeader
@@ -884,12 +1300,22 @@ export const PricingManagementView: React.FC = () => {
                   >
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#2563EB', letterSpacing: '0.5px' }}>
-                          {sc.code}
+                        <span
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 900,
+                            color: '#047857',
+                            backgroundColor: '#ecfdf5',
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #a7f3d0',
+                          }}
+                        >
+                          {shortCode}
                         </span>
-                        <StatusBadge status={sc.status} />
+                        <StatusBadge status={status} />
                       </div>
-                      <CardTitle style={{ fontSize: '16px', fontWeight: 700, marginTop: '4px' }}>
+                      <CardTitle style={{ fontSize: '16px', fontWeight: 800, marginTop: '6px' }}>
                         {sc.name}
                       </CardTitle>
                     </div>
@@ -899,11 +1325,11 @@ export const PricingManagementView: React.FC = () => {
                         borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 700,
-                        backgroundColor: '#f3e8ff',
-                        color: '#7e22ce',
+                        backgroundColor: '#f1f5f9',
+                        color: '#334155',
                       }}
                     >
-                      {sc.schemeType}
+                      {typeName} ({typeCode})
                     </span>
                   </CardHeader>
                   <CardContent style={{ flex: 1, paddingTop: '14px', fontSize: '13px' }}>
@@ -913,48 +1339,69 @@ export const PricingManagementView: React.FC = () => {
                       </p>
                     )}
 
-                    {/* Commercial Benefit Components */}
+                    {/* Commercial Benefit Parameters */}
                     <div style={{ marginBottom: '14px' }}>
                       <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                        DISCOUNT COMPONENTS ({sc.calculationMethod || 'ADDITIVE'})
+                        COMMERCIAL TERMS
                       </div>
-                      {components.length > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {components.map((c, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: '12px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                backgroundColor: '#dcfce7',
-                                color: '#15803d',
-                                border: '1px solid #bbf7d0',
-                              }}
-                            >
-                              {c.name}: {c.value}{c.type === 'PERCENTAGE' ? '%' : ' PKR'}
-                            </span>
-                          ))}
-                        </div>
-                      ) : sc.paidQuantity > 0 && sc.freeQuantity > 0 ? (
-                        <div
-                          style={{
-                            padding: '6px 12px',
-                            borderRadius: '8px',
-                            backgroundColor: '#fef3c7',
-                            color: '#b45309',
-                            fontWeight: 700,
-                            display: 'inline-block',
-                          }}
-                        >
-                          Package: Buy {sc.paidQuantity} Bags → Get {sc.freeQuantity} Free
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          Direct negotiated rate / net rate
-                        </span>
-                      )}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {sc.defaultDiscountPct > 0 && (
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              backgroundColor: '#eff6ff',
+                              color: '#1d4ed8',
+                            }}
+                          >
+                            Default: {Number(sc.defaultDiscountPct)}%
+                          </span>
+                        )}
+                        {sc.cashDiscountPct > 0 && (
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              backgroundColor: '#ecfdf5',
+                              color: '#047857',
+                            }}
+                          >
+                            Cash Discount: {Number(sc.cashDiscountPct)}%
+                          </span>
+                        )}
+                        {sc.additionalBookingPct > 0 && (
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              backgroundColor: '#fef3c7',
+                              color: '#b45309',
+                            }}
+                          >
+                            Booking Benefit: {Number(sc.additionalBookingPct)}%
+                          </span>
+                        )}
+                        {typeCode === 'NNR' && (
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '10px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              backgroundColor: '#f3e8ff',
+                              color: '#7e22ce',
+                            }}
+                          >
+                            Direct Net Net Pricing
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Metadata details */}
@@ -968,24 +1415,44 @@ export const PricingManagementView: React.FC = () => {
                         backgroundColor: 'var(--bg-subtle)',
                         fontSize: '11px',
                         color: 'var(--text-secondary)',
+                        marginBottom: '14px',
                       }}
                     >
                       <div>
-                        <strong>Payment Term:</strong>{' '}
-                        <span style={{ color: sc.paymentTerm === 'CASH' ? '#059669' : '#2563EB', fontWeight: 700 }}>
-                          {sc.paymentTerm}
-                        </span>
+                        <strong>Validity Start:</strong>{' '}
+                        {new Date(sc.startDate || sc.effectiveFrom).toLocaleDateString()}
+                      </div>
+                      <div>
+                        <strong>Validity End:</strong>{' '}
+                        {sc.endDate || sc.effectiveTo
+                          ? new Date(sc.endDate || sc.effectiveTo).toLocaleDateString()
+                          : 'Ongoing'}
                       </div>
                       <div>
                         <strong>Mobile:</strong>{' '}
                         {sc.isMobileVisible ? <span style={{ color: '#059669' }}>Published</span> : 'Internal'}
                       </div>
                       <div>
-                        <strong>Valid From:</strong> {new Date(sc.effectiveFrom).toLocaleDateString()}
+                        <strong>Rate Lists:</strong>{' '}
+                        <span style={{ fontWeight: 700, color: attachedRateLists.length > 0 ? '#047857' : '#d97706' }}>
+                          {attachedRateLists.length > 0 ? `${attachedRateLists.length} Attached` : 'Pending'}
+                        </span>
                       </div>
-                      <div>
-                        <strong>Valid To:</strong> {sc.effectiveTo ? new Date(sc.effectiveTo).toLocaleDateString() : 'Ongoing'}
-                      </div>
+                    </div>
+
+                    {/* Quick Action buttons */}
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      <Button variant="secondary" size="sm" onClick={() => handleOpenEditScheme(sc)}>
+                        <IconEdit size={14} /> Edit
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => handleOpenCreateRateList(sc.id)}
+                        style={{ backgroundColor: '#059669' }}
+                      >
+                        <IconLayers size={14} /> + Rate List
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -995,9 +1462,9 @@ export const PricingManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* TAB 3: ACTIVE PRICING MATRIX */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* TAB 3: ACTIVE FINISHED GOODS MATRIX                        */}
+      {/* ========================================================== */}
       {activeTab === 'active-matrix' && (
         <div>
           <div
@@ -1011,7 +1478,7 @@ export const PricingManagementView: React.FC = () => {
               marginBottom: '18px',
             }}
           >
-            <strong>Dynamic Multi-Price Reality:</strong> The exact same product can have different authorized selling rates on the same day depending on payment term, volume, and applied commercial scheme.
+            <strong>Centralized Finished Product Master:</strong> Showing active sellable finished products only (no raw materials, packing materials, bottles, cartons, or tape). Each finished product can have scheme-wise rates configured across active rate lists.
           </div>
 
           <div
@@ -1026,49 +1493,45 @@ export const PricingManagementView: React.FC = () => {
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '2px solid var(--border-default)' }}>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Product Code</th>
-                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Product Name</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Finished Product Name</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Category</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Pack Size</th>
-                  <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#f0fdf4' }}>Seasonal Base</th>
-                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Cash -15%</th>
-                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>PPG Adv -20%</th>
-                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Credit Net 30</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Base Selling Price</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#ecfdf5' }}>CA (-10%)</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#fef3c7' }}>ABC (-15%)</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Min Allowed Floor</th>
                 </tr>
               </thead>
               <tbody>
                 {allProducts.map((p) => {
-                  const base = Number(p.baseRate || p.defaultSellingPrice || 1200);
-                  const cashRate = Math.round(base * 0.85);
-                  const advRate = Math.round(base * 0.8);
-                  const creditRate = Math.round(base * 0.94);
+                  const base = Number(p.baseRate || p.defaultSellingPrice || 0);
+                  const caRate = Math.round(base * 0.9);
+                  const abcRate = Math.round(base * 0.85);
                   const minFloor = Number(p.minAllowedRate || Math.round(base * 0.75));
 
                   return (
-                    <tr
-                      key={p.finishedProductId || p.id}
-                      style={{ borderBottom: '1px solid var(--border-default)' }}
-                    >
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#2563EB' }}>
+                    <tr key={p.finishedProductId || p.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                      <td style={{ padding: '14px 16px', fontWeight: 700, color: '#047857' }}>
                         {p.productCode}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 600 }}>{p.productName}</td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        {p.packSizeName || p.unit || 'Bag'}
+                      <td style={{ padding: '14px 16px', fontWeight: 600 }}>{p.productName}</td>
+                      <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
+                        {p.category || 'Finished Goods'}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 800, color: '#047857', backgroundColor: '#f0fdf4' }}>
-                        {base.toLocaleString()} PKR
+                      <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
+                        {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#059669' }}>
-                        {cashRate.toLocaleString()} PKR
+                      <td style={{ padding: '14px 16px', fontWeight: 700 }}>
+                        PKR {base.toLocaleString()}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#7c3aed' }}>
-                        {advRate.toLocaleString()} PKR
+                      <td style={{ padding: '14px 16px', fontWeight: 700, color: '#047857', backgroundColor: '#f0fdf4' }}>
+                        PKR {caRate.toLocaleString()}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 700, color: '#2563EB' }}>
-                        {creditRate.toLocaleString()} PKR
+                      <td style={{ padding: '14px 16px', fontWeight: 700, color: '#b45309', backgroundColor: '#fffbeb' }}>
+                        PKR {abcRate.toLocaleString()}
                       </td>
-                      <td style={{ padding: '12px 16px', color: '#dc2626', fontWeight: 600 }}>
-                        {minFloor.toLocaleString()} PKR
+                      <td style={{ padding: '14px 16px', color: '#dc2626' }}>
+                        PKR {minFloor.toLocaleString()}
                       </td>
                     </tr>
                   );
@@ -1079,25 +1542,11 @@ export const PricingManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* TAB 4: PRICING AUTHORITY GOVERNANCE */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* TAB 4: AUTHORITY GOVERNANCE                                */}
+      {/* ========================================================== */}
       {activeTab === 'authority' && (
         <div>
-          <div
-            style={{
-              padding: '16px 20px',
-              backgroundColor: '#fffbeb',
-              borderRadius: '8px',
-              border: '1px solid #fde68a',
-              color: '#92400e',
-              fontSize: '13px',
-              marginBottom: '20px',
-            }}
-          >
-            <strong>Role-Based Discount Authority Engine:</strong> Orders exceeding an officer's configured threshold are automatically escalated to Area Manager, Business Manager, or Admin for mandatory approval.
-          </div>
-
           <div
             style={{
               backgroundColor: 'var(--bg-surface)',
@@ -1190,12 +1639,11 @@ export const PricingManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* TAB 5: LIVE PRICE RESOLUTION SIMULATOR */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* TAB 5: LIVE PRICE RESOLUTION SIMULATOR                     */}
+      {/* ========================================================== */}
       {activeTab === 'simulator' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 420px) 1fr', gap: '24px' }}>
-          {/* Simulation Inputs */}
           <Card>
             <CardHeader>
               <CardTitle>Authoritative Engine Simulator</CardTitle>
@@ -1214,14 +1662,14 @@ export const PricingManagementView: React.FC = () => {
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Select Product
+                  Select Finished Product
                 </label>
                 <Select
                   value={simProductId}
                   onChange={(e) => setSimProductId(e.target.value)}
                   options={allProducts.map((p) => ({
                     value: p.finishedProductId || p.id,
-                    label: `${p.productCode} - ${p.productName} (Base: ${p.baseRate || 1200} PKR)`,
+                    label: `${p.productCode} - ${p.productName} (Base: ${p.baseRate || p.defaultSellingPrice || 0} PKR)`,
                   }))}
                 />
               </div>
@@ -1229,7 +1677,7 @@ export const PricingManagementView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                    Quantity (Bags)
+                    Quantity
                   </label>
                   <Input
                     type="number"
@@ -1255,31 +1703,31 @@ export const PricingManagementView: React.FC = () => {
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Commercial Pricing Scheme
+                  Commercial Scheme (Requirement 15, 16)
                 </label>
                 <Select
                   value={simSchemeId}
                   onChange={(e) => setSimSchemeId(e.target.value)}
                   options={[
-                    { value: '', label: '-- Auto-Resolve Default for Payment Term --' },
-                    ...schemes.map((s) => ({ value: s.id, label: `${s.code} - ${s.name} (${s.paymentTerm})` })),
+                    { value: '', label: '-- Standard Catalogue (No Scheme) --' },
+                    ...schemes.map((s) => ({
+                      value: s.id,
+                      label: `${s.shortCode || s.code} - ${s.name} (${s.schemeTypeCode || 'SR'})`,
+                    })),
                   ]}
                 />
               </div>
 
               <div>
                 <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Custom Requested Selling Rate (PKR / Unit)
+                  Custom Requested Selling Rate (PKR)
                 </label>
                 <Input
                   type="number"
-                  placeholder="Leave empty for standard scheme rate"
+                  placeholder="Leave empty for scheme rate"
                   value={simRequestedRate}
                   onChange={(e) => setSimRequestedRate(e.target.value === '' ? '' : Number(e.target.value))}
                 />
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Tests role authority thresholds & escalation requirements
-                </span>
               </div>
 
               <Button variant="primary" onClick={handleRunSimulation} isLoading={isSimulating} style={{ marginTop: '8px' }}>
@@ -1307,7 +1755,7 @@ export const PricingManagementView: React.FC = () => {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text-muted)' }}>
-                        CALCULATED RESULT
+                        RESOLVED PRICE
                       </span>
                       <h3 style={{ margin: '2px 0 0 0', fontSize: '18px', fontWeight: 800 }}>
                         {simResult.productName}
@@ -1354,26 +1802,25 @@ export const PricingManagementView: React.FC = () => {
                     <div style={{ padding: '14px', borderRadius: '8px', backgroundColor: 'var(--bg-subtle)' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>BASE RATE</div>
                       <div style={{ fontSize: '20px', fontWeight: 800, marginTop: '4px' }}>
-                        {simResult.baseRate.toLocaleString()} PKR
+                        PKR {Number(simResult.baseRate || 0).toLocaleString()}
                       </div>
                     </div>
                     <div style={{ padding: '14px', borderRadius: '8px', backgroundColor: 'var(--bg-subtle)' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600 }}>
-                        FINAL UNIT RATE
+                        SCHEME UNIT RATE
                       </div>
-                      <div style={{ fontSize: '20px', fontWeight: 800, color: '#2563EB', marginTop: '4px' }}>
-                        {simResult.finalUnitRate.toLocaleString()} PKR
+                      <div style={{ fontSize: '20px', fontWeight: 800, color: '#047857', marginTop: '4px' }}>
+                        PKR {Number(simResult.finalUnitRate || 0).toLocaleString()}
                       </div>
                     </div>
                     <div style={{ padding: '14px', borderRadius: '8px', backgroundColor: '#f0fdf4' }}>
-                      <div style={{ fontSize: '11px', color: '#047857', fontWeight: 600 }}>TOTAL AMOUNT</div>
+                      <div style={{ fontSize: '11px', color: '#047857', fontWeight: 600 }}>TOTAL ORDER VALUE</div>
                       <div style={{ fontSize: '20px', fontWeight: 800, color: '#047857', marginTop: '4px' }}>
-                        {simResult.finalAmount.toLocaleString()} PKR
+                        PKR {Number(simResult.finalAmount || 0).toLocaleString()}
                       </div>
                     </div>
                   </div>
 
-                  {/* Scheme & Traceability Details */}
                   <div
                     style={{
                       display: 'flex',
@@ -1386,38 +1833,18 @@ export const PricingManagementView: React.FC = () => {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Applied Scheme:</span>
-                      <strong>{simResult.schemeName || 'None (Direct Base)'}</strong>
+                      <strong>{simResult.schemeName || 'None (Base Rate)'}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Discount Per Unit:</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Unit Discount / Benefit:</span>
                       <strong style={{ color: '#059669' }}>
-                        -{simResult.discountAmount.toLocaleString()} PKR ({simResult.discountPercent}%)
+                        -PKR {Number(simResult.discountAmount || 0).toLocaleString()} ({simResult.discountPercent}%)
                       </strong>
                     </div>
-                    {simResult.freeQuantity > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Free Quantity Benefit:</span>
-                        <strong style={{ color: '#7c3aed' }}>+{simResult.freeQuantity} Free Bags</strong>
-                      </div>
-                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Payment Term:</span>
                       <strong>{simResult.paymentTerm}</strong>
                     </div>
-                    {simResult.reason && (
-                      <div
-                        style={{
-                          marginTop: '8px',
-                          padding: '10px 14px',
-                          borderRadius: '8px',
-                          backgroundColor: '#fffbeb',
-                          fontSize: '12px',
-                          color: '#b45309',
-                        }}
-                      >
-                        <strong>Governance Reason:</strong> {simResult.reason}
-                      </div>
-                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1436,10 +1863,10 @@ export const PricingManagementView: React.FC = () => {
                 <div>
                   <IconPercent size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
                   <h4 style={{ margin: '0 0 6px 0', fontSize: '16px', color: 'var(--text-primary)' }}>
-                    Live Price Engine Ready
+                    Authoritative Pricing Engine Ready
                   </h4>
                   <p style={{ margin: 0, fontSize: '13px' }}>
-                    Select dealer, product and parameters on the left and click "Resolve Authoritative Price" to inspect calculations.
+                    Select dealer, product and scheme on the left to verify real-time price resolution from the database.
                   </p>
                 </div>
               </Card>
@@ -1448,23 +1875,63 @@ export const PricingManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* MODAL: CREATE RATE LIST */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* MODAL: CREATE RATE LIST (First Field: Select Scheme)       */}
+      {/* Requirements 6, 7, 8, 9, 10, 11, 14                        */}
+      {/* ========================================================== */}
       <Modal
         isOpen={isRateListModalOpen}
         onClose={() => setIsRateListModalOpen(false)}
-        title="Create Dynamic Rate List"
+        title="Create Scheme Rate List"
         size="xl"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* STEP 1: FIRST FIELD MUST BE SELECT SCHEME (Requirement 6, 7) */}
+          <div
+            style={{
+              padding: '16px',
+              backgroundColor: '#ecfdf5',
+              borderRadius: '8px',
+              border: '1.5px solid #a7f3d0',
+            }}
+          >
+            <label
+              style={{
+                fontSize: '13px',
+                fontWeight: 800,
+                display: 'block',
+                marginBottom: '6px',
+                color: '#065f46',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+              }}
+            >
+              1. Select Scheme * (Searchable Dropdown)
+            </label>
+            <Select
+              value={rateListForm.schemeId}
+              onChange={(e) => handleSchemeSelectForRateList(e.target.value)}
+              options={[
+                { value: '', label: '-- Select a Scheme to Auto-Load Finished Products --' },
+                ...schemes.map((s) => ({
+                  value: s.id,
+                  label: `${s.shortCode || s.code} - ${s.name} (${s.schemeTypeCode || s.schemeTypeRef?.code || 'SR'})`,
+                })),
+              ]}
+            />
+            <div style={{ fontSize: '12px', color: '#047857', marginTop: '6px' }}>
+              Selecting a scheme automatically retrieves active sellable finished products from the database and precalculates scheme rates.
+            </div>
+          </div>
+
+          {/* Rate List Metadata */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                 Rate List Code *
               </label>
               <Input
-                placeholder="e.g. SEASONAL-2026"
+                placeholder="e.g. RL-MCCM-2026"
                 value={rateListForm.code}
                 onChange={(e) => setRateListForm({ ...rateListForm, code: e.target.value.toUpperCase() })}
               />
@@ -1474,34 +1941,23 @@ export const PricingManagementView: React.FC = () => {
                 Rate List Name *
               </label>
               <Input
-                placeholder="e.g. Seasonal Commercial Rate List 2026"
+                placeholder="e.g. Mega Carnival Open Mela Official Rate List"
                 value={rateListForm.name}
                 onChange={(e) => setRateListForm({ ...rateListForm, name: e.target.value })}
               />
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Category
+                Scheme Type
               </label>
-              <Select
-                value={rateListForm.category}
-                onChange={(e) => setRateListForm({ ...rateListForm, category: e.target.value })}
-                options={[
-                  { value: 'SEASONAL', label: 'Seasonal Base' },
-                  { value: 'CASH', label: 'Cash Discount' },
-                  { value: 'ADVANCE_BOOKING', label: 'Advance Booking' },
-                  { value: 'PACKAGE', label: 'Package Scheme' },
-                  { value: 'SPECIAL', label: 'Special Rate' },
-                  { value: 'GENERAL', label: 'General Commercial' },
-                ]}
-              />
+              <Input value={rateListForm.schemeTypeCode || 'SR'} disabled />
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Effective From *
+                Validity From *
               </label>
               <Input
                 type="date"
@@ -1511,7 +1967,7 @@ export const PricingManagementView: React.FC = () => {
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Effective To (Optional)
+                Validity To (Optional)
               </label>
               <Input
                 type="date"
@@ -1532,10 +1988,10 @@ export const PricingManagementView: React.FC = () => {
             </div>
           </div>
 
-          {/* Product Items Section */}
+          {/* STEP 2: FINISHED PRODUCTS AUTO-LOADED GRID (Requirements 7 - 11) */}
           <div
             style={{
-              marginTop: '12px',
+              marginTop: '8px',
               padding: '16px',
               backgroundColor: 'var(--bg-subtle)',
               borderRadius: '8px',
@@ -1553,26 +2009,22 @@ export const PricingManagementView: React.FC = () => {
               }}
             >
               <div>
-                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700 }}>
-                  Product Rate Items ({rateListItems.length} Products)
+                <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800 }}>
+                  2. Sellable Finished Products ({rateListItems.length} Products Auto-Loaded)
                 </h4>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Populate all active finished products or adjust prices below
+                  Only sellable finished products from FinishedProduct Master (No raw materials, packaging, cartons, or tape)
                 </span>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handlePopulateAllProducts}
-                  isLoading={isPopulatingProducts}
-                  style={{ backgroundColor: '#059669' }}
-                >
-                  Add All Active Finished Products
-                </Button>
-
-                {rateListItems.length > 0 && (
+              {rateListItems.length > 0 && (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <Input
+                    placeholder="Search product..."
+                    style={{ width: '150px', padding: '4px 8px', fontSize: '12px' }}
+                    value={rateListItemSearch}
+                    onChange={(e) => setRateListItemSearch(e.target.value)}
+                  />
                   <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <Input
                       type="number"
@@ -1585,88 +2037,118 @@ export const PricingManagementView: React.FC = () => {
                       Adjust All
                     </Button>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
 
-            {/* Products Table */}
-            {rateListItems.length === 0 ? (
+            {isLoadingSchemeProducts ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <p style={{ fontWeight: 600, color: '#047857' }}>Auto-loading active finished goods for scheme...</p>
+              </div>
+            ) : rateListItems.length === 0 ? (
               <div
                 style={{
-                  padding: '30px',
+                  padding: '36px',
                   textAlign: 'center',
                   backgroundColor: 'var(--bg-surface)',
                   borderRadius: '6px',
                   border: '1px dashed var(--border-default)',
                 }}
               >
-                <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  No products added to this rate list yet.
+                <p style={{ margin: '0 0 6px 0', fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  Please select a Scheme above to auto-generate the product rate list.
                 </p>
-                <Button variant="primary" size="sm" onClick={handlePopulateAllProducts} isLoading={isPopulatingProducts}>
-                  Click to Auto-Populate All Active Finished Products from Database
-                </Button>
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)' }}>
+                  The user does NOT manually add products one by one. All active finished products are loaded automatically.
+                </p>
               </div>
             ) : (
-              <div style={{ maxHeight: '320px', overflowY: 'auto', borderRadius: '6px', border: '1px solid var(--border-default)' }}>
+              <div style={{ maxHeight: '360px', overflowY: 'auto', borderRadius: '6px', border: '1px solid var(--border-default)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', backgroundColor: 'var(--bg-surface)' }}>
                   <thead>
-                    <tr style={{ backgroundColor: 'var(--bg-subtle)', position: 'sticky', top: 0, borderBottom: '1px solid var(--border-default)' }}>
+                    <tr style={{ backgroundColor: 'var(--bg-subtle)', position: 'sticky', top: 0, borderBottom: '1px solid var(--border-default)', zIndex: 1 }}>
                       <th style={{ padding: '8px 12px' }}>Code</th>
-                      <th style={{ padding: '8px 12px' }}>Product</th>
-                      <th style={{ padding: '8px 12px' }}>Base Selling Rate (PKR)</th>
-                      <th style={{ padding: '8px 12px' }}>Min Allowed Floor (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
+                      <th style={{ padding: '8px 12px' }}>Finished Product & Packaging</th>
+                      <th style={{ padding: '8px 12px' }}>Pack Size</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Base Price (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Pricing Mode</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'center' }}>Discount %</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Scheme Rate (PKR)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rateListItems.map((item, idx) => (
-                      <tr key={item.finishedProductId || idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
-                        <td style={{ padding: '8px 12px', fontWeight: 700, color: '#2563EB' }}>
-                          {item.productCode}
-                        </td>
-                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{item.productName}</td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <Input
-                            type="number"
-                            value={item.baseRate}
-                            style={{ width: '130px', padding: '4px 8px', fontSize: '12px' }}
-                            onChange={(e) => {
-                              const newRate = Number(e.target.value);
-                              setRateListItems((prev) =>
-                                prev.map((it, i) =>
-                                  i === idx
-                                    ? { ...it, baseRate: newRate, minAllowedRate: Math.round(newRate * 0.75) }
-                                    : it,
-                                ),
-                              );
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <Input
-                            type="number"
-                            value={item.minAllowedRate || ''}
-                            style={{ width: '130px', padding: '4px 8px', fontSize: '12px' }}
-                            onChange={(e) => {
-                              const newMin = Number(e.target.value);
-                              setRateListItems((prev) =>
-                                prev.map((it, i) => (i === idx ? { ...it, minAllowedRate: newMin } : it)),
-                              );
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setRateListItems((prev) => prev.filter((_, i) => i !== idx))}
-                          >
-                            <IconTrash size={12} color="#dc2626" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredModalItems.map((item, idx) => {
+                      const basePrice = Number(item.baseRate || 0);
+                      const schemeRate = Number(item.schemeRate || 0);
+                      const isNetNet = rateListForm.schemeTypeCode === 'NNR' || item.rateType === 'NET_NET';
+
+                      return (
+                        <tr key={item.finishedProductId || idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#047857' }}>
+                            {item.productCode}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.productName}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {item.category || 'Finished Good'} {item.packagingMaterial ? `• ${item.packagingMaterial}` : ''}
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
+                            {item.packSize || item.unit || 'Unit'}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>
+                            {basePrice.toLocaleString()}
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleItemRateTypeToggle(
+                                  idx,
+                                  item.rateType === 'DIRECT' ? 'DISCOUNT' : 'DIRECT'
+                                )
+                              }
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                border: '1px solid #cbd5e1',
+                                backgroundColor: isNetNet ? '#f3e8ff' : item.rateType === 'DISCOUNT' ? '#eff6ff' : '#f8fafc',
+                                color: isNetNet ? '#7e22ce' : item.rateType === 'DISCOUNT' ? '#1d4ed8' : '#334155',
+                              }}
+                            >
+                              {isNetNet ? 'Net Net' : item.rateType === 'DISCOUNT' ? 'Discount %' : 'Direct Rate'}
+                            </button>
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            <Input
+                              type="number"
+                              value={item.discountPercent || ''}
+                              style={{ width: '70px', padding: '4px 6px', fontSize: '12px', textAlign: 'center' }}
+                              onChange={(e) => handleItemDiscountChange(idx, Number(e.target.value))}
+                              disabled={isNetNet}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                            <Input
+                              type="number"
+                              value={schemeRate}
+                              style={{
+                                width: '110px',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                color: '#047857',
+                                textAlign: 'right',
+                              }}
+                              onChange={(e) => handleItemRateChange(idx, Number(e.target.value))}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1677,28 +2159,47 @@ export const PricingManagementView: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsRateListModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSaveRateList}>
-              Publish Rate List
+            <Button variant="primary" onClick={handleSaveRateList} style={{ backgroundColor: '#059669' }}>
+              Save & Publish Rate List
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* ========================================== */}
-      {/* MODAL: RATE LIST DETAIL & PRODUCTS */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* MODAL: RATE LIST DETAIL & PRODUCTS (Requirements 19, 21)   */}
+      {/* ========================================================== */}
       {selectedRateList && (
         <Modal
           isOpen={isRateListDetailModalOpen}
           onClose={() => setIsRateListDetailModalOpen(false)}
-          title={`Rate List: ${selectedRateList.name} (${selectedRateList.code})`}
+          title={`Rate List: ${selectedRateList.schemeName || selectedRateList.name} (${selectedRateList.schemeShortCode || selectedRateList.code})`}
           size="xl"
         >
           <div>
-            <div style={{ display: 'flex', gap: '20px', marginBottom: '16px', fontSize: '13px' }}>
-              <div><strong>Category:</strong> {selectedRateList.category}</div>
-              <div><strong>Status:</strong> <StatusBadge status={selectedRateList.status} /></div>
-              <div><strong>Versions:</strong> {selectedRateList.versions?.length || 1}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '20px', fontSize: '13px' }}>
+                <div><strong>Scheme:</strong> {selectedRateList.schemeName || selectedRateList.name}</div>
+                <div><strong>Short Code:</strong> {selectedRateList.schemeShortCode || selectedRateList.code}</div>
+                <div><strong>Status:</strong> <StatusBadge status={selectedRateList.status} /></div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleExportPdf(selectedRateList)}
+                  style={{ color: '#047857' }}
+                >
+                  <IconPrinter size={14} /> Print / Export PDF
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleAddNewProductsToRateList(selectedRateList.id)}
+                >
+                  <IconPlus size={14} /> Sync New Finished Goods
+                </Button>
+              </div>
             </div>
 
             {selectedRateList.versions?.map((ver: any) => (
@@ -1714,36 +2215,57 @@ export const PricingManagementView: React.FC = () => {
                     justifyContent: 'space-between',
                   }}
                 >
-                  <span>Version {ver.versionNumber} ({ver.status})</span>
+                  <span>Version {ver.versionNumber}.0 ({ver.status})</span>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                     Effective: {new Date(ver.effectiveFrom).toLocaleDateString()} to{' '}
-                    {ver.effectiveTo ? new Date(ver.effectiveTo).toLocaleDateString() : 'Active'}
+                    {ver.effectiveTo ? new Date(ver.effectiveTo).toLocaleDateString() : 'Active/Indefinite'}
                   </span>
                 </div>
 
-                <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                     <thead>
                       <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
-                        <th style={{ padding: '8px 12px' }}>Product</th>
-                        <th style={{ padding: '8px 12px' }}>Base Rate</th>
-                        <th style={{ padding: '8px 12px' }}>Min Allowed Rate</th>
+                        <th style={{ padding: '8px 12px' }}>Product Code</th>
+                        <th style={{ padding: '8px 12px' }}>Sellable Finished Product</th>
+                        <th style={{ padding: '8px 12px' }}>Pack Size</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Base Price</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'center' }}>Discount</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Scheme Rate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(ver.items || []).map((it: any) => (
-                        <tr key={it.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>
-                            {it.finishedProduct?.productName || 'Product'}
-                          </td>
-                          <td style={{ padding: '8px 12px', fontWeight: 700, color: '#059669' }}>
-                            {Number(it.baseRate).toLocaleString()} PKR
-                          </td>
-                          <td style={{ padding: '8px 12px', color: '#dc2626' }}>
-                            {it.minAllowedRate ? `${Number(it.minAllowedRate).toLocaleString()} PKR` : '-'}
-                          </td>
-                        </tr>
-                      ))}
+                      {(ver.items || []).map((it: any) => {
+                        const product = it.product || it.finishedProduct || {};
+                        const basePrice = Number(it.basePrice || it.baseRate || product.defaultSellingPrice || 0);
+                        const schemeRate = Number(it.schemeRate ?? it.customPrice ?? it.baseRate ?? 0);
+                        const discount = Number(it.discountPercent || 0);
+
+                        return (
+                          <tr key={it.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: 700, color: '#047857' }}>
+                              {product.productCode || it.productCode || '-'}
+                            </td>
+                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                              {product.productName || it.productName || 'Product'}
+                            </td>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
+                              {product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : it.unit || '-'}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>
+                              {basePrice > 0 ? `PKR ${basePrice.toLocaleString()}` : '-'}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 600, color: discount > 0 ? '#1d4ed8' : '#64748b' }}>
+                                {discount > 0 ? `${discount}%` : '-'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: '#047857' }}>
+                              PKR {schemeRate.toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1759,14 +2281,14 @@ export const PricingManagementView: React.FC = () => {
         </Modal>
       )}
 
-      {/* ========================================== */}
-      {/* MODAL: CREATE RATE LIST VERSION */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* MODAL: CREATE NEW VERSION (Requirement 13)                 */}
+      {/* ========================================================== */}
       {versionTargetRateList && (
         <Modal
           isOpen={isVersionModalOpen}
           onClose={() => setIsVersionModalOpen(false)}
-          title={`Create New Version for ${versionTargetRateList.code}`}
+          title={`Create New Version for ${versionTargetRateList.schemeShortCode || versionTargetRateList.code}`}
           size="md"
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1820,127 +2342,121 @@ export const PricingManagementView: React.FC = () => {
         </Modal>
       )}
 
-      {/* ========================================== */}
-      {/* MODAL: CREATE/EDIT PRICING SCHEME */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* MODAL: CREATE / EDIT SCHEME MASTER (Requirements 1 - 5)   */}
+      {/* ========================================================== */}
       <Modal
         isOpen={isSchemeModalOpen}
         onClose={() => setIsSchemeModalOpen(false)}
-        title={selectedScheme ? 'Edit Commercial Scheme' : 'Create Commercial Scheme'}
+        title={selectedScheme ? 'Edit Commercial Scheme' : 'Add Scheme Master'}
         size="lg"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
+          {/* Scheme Type & Predefined Type Code */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
             <div>
-              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Scheme Code *
-              </label>
-              <Input
-                placeholder="e.g. PPG-ADV-JAN"
-                value={schemeForm.code}
-                onChange={(e) => setSchemeForm({ ...schemeForm, code: e.target.value.toUpperCase() })}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700 }}>
+                  Scheme Type *
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsSchemeTypeModalOpen(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#059669',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  + Add Scheme Type
+                </button>
+              </div>
+              <Select
+                value={schemeForm.schemeTypeId}
+                onChange={(e) => handleSchemeTypeChange(e.target.value)}
+                options={schemeTypes.map((t) => ({
+                  value: t.id,
+                  label: `${t.name} (${t.code})`,
+                }))}
               />
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Scheme Name *
+                Type Code (Predefined)
+              </label>
+              <Input value={schemeForm.schemeTypeCode} disabled />
+            </div>
+          </div>
+
+          {/* Scheme Name & Scheme Short Code */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Scheme Name * (Business/User-Friendly Name)
               </label>
               <Input
-                placeholder="e.g. PPG Advance January Booking Benefit"
+                placeholder="e.g. Mega Carnival Open Mela, January Advance Booking 2027"
                 value={schemeForm.name}
                 onChange={(e) => setSchemeForm({ ...schemeForm, name: e.target.value })}
               />
             </div>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Scheme Short Code *
+              </label>
+              <Input
+                placeholder="e.g. MCCM, ABC-27"
+                value={schemeForm.shortCode}
+                onChange={(e) => setSchemeForm({ ...schemeForm, shortCode: e.target.value.toUpperCase() })}
+              />
+            </div>
           </div>
 
+          {/* Dates & Status */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Scheme Type
+                Start Date *
               </label>
-              <Select
-                value={schemeForm.schemeType}
-                onChange={(e) => setSchemeForm({ ...schemeForm, schemeType: e.target.value })}
-                options={[
-                  { value: 'CASH_DISCOUNT', label: 'Cash Discount' },
-                  { value: 'ADVANCE_BOOKING', label: 'Advance Booking' },
-                  { value: 'PACKAGE', label: 'Package Scheme' },
-                  { value: 'VOLUME_DISCOUNT', label: 'Volume Discount' },
-                  { value: 'SPECIAL_RATE', label: 'Special Rate' },
-                  { value: 'MELA_EVENT', label: 'Mela / Event Rate' },
-                  { value: 'CREDIT_COMMERCIAL', label: 'Credit Commercial' },
-                  { value: 'NET_RATE', label: 'Net Rate' },
-                ]}
+              <Input
+                type="date"
+                value={schemeForm.startDate}
+                onChange={(e) => setSchemeForm({ ...schemeForm, startDate: e.target.value })}
               />
             </div>
-
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Calculation Method
+                End Date (Optional)
               </label>
-              <Select
-                value={schemeForm.calculationMethod}
-                onChange={(e) => setSchemeForm({ ...schemeForm, calculationMethod: e.target.value })}
-                options={[
-                  { value: 'ADDITIVE', label: 'Additive (Sum %)' },
-                  { value: 'SEQUENTIAL', label: 'Sequential (Step-by-step)' },
-                ]}
+              <Input
+                type="date"
+                value={schemeForm.endDate}
+                onChange={(e) => setSchemeForm({ ...schemeForm, endDate: e.target.value })}
               />
             </div>
-
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Target Payment Term
+                Status
               </label>
               <Select
-                value={schemeForm.paymentTerm}
-                onChange={(e) => setSchemeForm({ ...schemeForm, paymentTerm: e.target.value })}
+                value={schemeForm.status}
+                onChange={(e) => setSchemeForm({ ...schemeForm, status: e.target.value })}
                 options={[
-                  { value: 'CASH', label: 'CASH' },
-                  { value: 'CREDIT', label: 'CREDIT' },
-                  { value: 'ADVANCE', label: 'ADVANCE' },
-                  { value: 'ANY', label: 'ANY Payment Term' },
+                  { value: 'ACTIVE', label: 'Active' },
+                  { value: 'SCHEDULED', label: 'Scheduled' },
+                  { value: 'DRAFT', label: 'Draft' },
+                  { value: 'EXPIRED', label: 'Expired' },
+                  { value: 'INACTIVE', label: 'Inactive' },
                 ]}
               />
             </div>
           </div>
 
-          {/* Package Deal Inputs if PACKAGE */}
-          {schemeForm.schemeType === 'PACKAGE' && (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '12px',
-                padding: '12px',
-                backgroundColor: '#fef3c7',
-                borderRadius: '8px',
-              }}
-            >
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Paid Quantity Required
-                </label>
-                <Input
-                  type="number"
-                  value={schemeForm.paidQuantity}
-                  onChange={(e) => setSchemeForm({ ...schemeForm, paidQuantity: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                  Free Promotional Quantity
-                </label>
-                <Input
-                  type="number"
-                  value={schemeForm.freeQuantity}
-                  onChange={(e) => setSchemeForm({ ...schemeForm, freeQuantity: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Multi-Component Discounts Section */}
+          {/* Optional Commercial Fields (Requirement 5) */}
           <div
             style={{
               padding: '14px',
@@ -1949,73 +2465,146 @@ export const PricingManagementView: React.FC = () => {
               border: '1px solid var(--border-default)',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <strong style={{ fontSize: '13px' }}>Multi-Component Discounts (Additive or Sequential)</strong>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  setDiscountComponents([...discountComponents, { name: 'Additional Benefit', type: 'PERCENTAGE', value: 5.0 }])
-                }
-              >
-                + Add Component
-              </Button>
+            <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '10px' }}>
+              OPTIONAL COMMERCIAL PARAMETERS (Auto-Populates Rate Calculations)
             </div>
-
-            {discountComponents.map((comp, idx) => (
-              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '8px', marginBottom: '6px' }}>
-                <Input
-                  placeholder="Component name (e.g. Booking Benefit)"
-                  value={comp.name}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setDiscountComponents((prev) => prev.map((c, i) => (i === idx ? { ...c, name: val } : c)));
-                  }}
-                />
-                <Select
-                  value={comp.type}
-                  onChange={(e) => {
-                    const val = e.target.value as any;
-                    setDiscountComponents((prev) => prev.map((c, i) => (i === idx ? { ...c, type: val } : c)));
-                  }}
-                  options={[
-                    { value: 'PERCENTAGE', label: 'Percent (%)' },
-                    { value: 'FLAT', label: 'Flat PKR' },
-                  ]}
-                />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Default Discount %
+                </label>
                 <Input
                   type="number"
-                  value={comp.value}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setDiscountComponents((prev) => prev.map((c, i) => (i === idx ? { ...c, value: val } : c)));
-                  }}
+                  placeholder="e.g. 15"
+                  value={schemeForm.defaultDiscountPct}
+                  onChange={(e) =>
+                    setSchemeForm({
+                      ...schemeForm,
+                      defaultDiscountPct: e.target.value === '' ? '' : Number(e.target.value),
+                    })
+                  }
                 />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setDiscountComponents(discountComponents.filter((_, i) => i !== idx))}
-                >
-                  <IconTrash size={14} color="#dc2626" />
-                </Button>
               </div>
-            ))}
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Cash Discount % (CA)
+                </label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 10"
+                  value={schemeForm.cashDiscountPct}
+                  onChange={(e) =>
+                    setSchemeForm({
+                      ...schemeForm,
+                      cashDiscountPct: e.target.value === '' ? '' : Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Additional Booking % (ABC)
+                </label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 5"
+                  value={schemeForm.additionalBookingPct}
+                  onChange={(e) =>
+                    setSchemeForm({
+                      ...schemeForm,
+                      additionalBookingPct: e.target.value === '' ? '' : Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Description / Notes
+            </label>
+            <Textarea
+              rows={2}
+              placeholder="e.g. Mega Open Mela scheme applicable across all dealers for Rabi campaign"
+              value={schemeForm.description}
+              onChange={(e) => setSchemeForm({ ...schemeForm, description: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
             <Button variant="secondary" onClick={() => setIsSchemeModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSaveScheme}>
+            <Button variant="primary" onClick={handleSaveScheme} style={{ backgroundColor: '#059669' }}>
               Save Scheme
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* ========================================== */}
-      {/* MODAL: EDIT AUTHORITY LIMIT */}
-      {/* ========================================== */}
+      {/* ========================================================== */}
+      {/* MODAL: ADD SCHEME TYPE (Requirement 2 - Dynamic Types)     */}
+      {/* ========================================================== */}
+      <Modal
+        isOpen={isSchemeTypeModalOpen}
+        onClose={() => setIsSchemeTypeModalOpen(false)}
+        title="Add Dynamic Scheme Type"
+        size="md"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+            Create a new scheme type to support future commercial structures without modifying codebase.
+          </p>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Scheme Type Code * (e.g. FLR, DL, VIP)
+            </label>
+            <Input
+              placeholder="e.g. VIP"
+              value={schemeTypeForm.code}
+              onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, code: e.target.value.toUpperCase() })}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Scheme Type Name *
+            </label>
+            <Input
+              placeholder="e.g. VIP Club Rate List"
+              value={schemeTypeForm.name}
+              onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, name: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Description
+            </label>
+            <Textarea
+              rows={2}
+              placeholder="Commercial logic and description"
+              value={schemeTypeForm.description}
+              onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, description: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+            <Button variant="secondary" onClick={() => setIsSchemeTypeModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleSaveSchemeType} style={{ backgroundColor: '#059669' }}>
+              Save Scheme Type
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================== */}
+      {/* MODAL: EDIT AUTHORITY LIMIT                               */}
+      {/* ========================================================== */}
       {selectedAuthority && (
         <Modal
           isOpen={isAuthorityModalOpen}

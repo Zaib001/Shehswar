@@ -24,6 +24,7 @@ export interface CreateUnifiedItemDto {
   fertilizerType?: string;
   productForm?: string;
   packagingMaterialId?: string; // Physical PackingMaterial (e.g. 2L HDPE Bottle)
+  packagingContainer?: number;  // Numeric Container (e.g. 100, 200)
   packSizeQuantity?: number;    // Numeric Pack Size (e.g. 2)
   packSizeUnit?: string;        // Unit (e.g. Liter)
   packSizeId?: string;          // Optional PackSize reference
@@ -169,6 +170,51 @@ export class UnifiedItemsService {
         baseUomId = uom?.id;
       }
 
+      // Dynamic PackSize Resolution & Auto Code Generation
+      let packSizeId = dto.packSizeId;
+      const packQty = dto.packSizeQuantity !== undefined ? Number(dto.packSizeQuantity) : 1;
+      const packUnit = dto.packSizeUnit?.trim() || 'Liter';
+
+      if (!packSizeId && packQty && packUnit) {
+        const uom = await this.prisma.unitOfMeasure.findFirst({
+          where: {
+            OR: [
+              { code: { equals: packUnit, mode: 'insensitive' } },
+              { symbol: { equals: packUnit, mode: 'insensitive' } },
+              { name: { equals: packUnit, mode: 'insensitive' } },
+            ],
+          },
+        });
+        const uomId = uom?.id;
+
+        let existingPs = uomId
+          ? await this.prisma.packSize.findFirst({
+              where: { organizationId, quantity: packQty, uomId },
+              include: { uom: true },
+            })
+          : null;
+
+        if (!existingPs) {
+          const psCode = await this.codeGen.generateCode({
+            companyId,
+            organizationId,
+            entityType: 'PACK_SIZE',
+          });
+          existingPs = await this.prisma.packSize.create({
+            data: {
+              organizationId,
+              code: psCode,
+              name: `${packQty} ${uom?.name || packUnit}`,
+              quantity: packQty,
+              uomId: uomId || undefined,
+              status: 'ACTIVE',
+            },
+            include: { uom: true },
+          });
+        }
+        packSizeId = existingPs.id;
+      }
+
       const product = await this.prisma.finishedProduct.create({
         data: {
           organizationId,
@@ -184,9 +230,9 @@ export class UnifiedItemsService {
           fertilizerType: dto.fertilizerType?.trim() || null,
           productForm: dto.productForm?.trim() || 'LIQUID',
           packagingMaterialId: dto.packagingMaterialId || null,
-          packingQuantity: dto.packSizeQuantity ? Number(dto.packSizeQuantity) : 1,
-          packingUnit: dto.packSizeUnit?.trim() || 'Liter',
-          packSizeId: dto.packSizeId || null,
+          packingQuantity: packQty,
+          packingUnit: packUnit,
+          packSizeId: packSizeId || null,
           ppc: dto.ppc ? Number(dto.ppc) : 1,
           baseUomId: baseUomId || undefined,
           salesUomId: dto.salesUomId || baseUomId || undefined,
@@ -195,12 +241,15 @@ export class UnifiedItemsService {
           defaultSellingPrice: dto.baseSellingPrice ? Number(dto.baseSellingPrice) : null,
           standardCost: null, // Zero or null until costed in Product Costing!
           status: 'ACTIVE',
-          customFields: dto.customFields || undefined,
+          customFields: {
+            ...(dto.customFields || {}),
+            ...(dto.packagingContainer !== undefined ? { packagingContainer: Number(dto.packagingContainer) } : {}),
+          },
         },
         include: {
           category: true,
           packagingMaterial: true,
-          packSize: true,
+          packSize: { include: { uom: true } },
           baseUom: true,
         },
       });
@@ -246,7 +295,10 @@ export class UnifiedItemsService {
           minimumStock: dto.minimumStock ? Number(dto.minimumStock) : 0,
           reorderLevel: dto.reorderLevel ? Number(dto.reorderLevel) : 0,
           status: 'ACTIVE',
-          customFields: dto.customFields || undefined,
+          customFields: {
+            ...(dto.customFields || {}),
+            ...(dto.packagingContainer !== undefined ? { packagingContainer: Number(dto.packagingContainer) } : {}),
+          },
         },
         include: {
           category: true,
@@ -327,29 +379,51 @@ export class UnifiedItemsService {
       include: {
         category: true,
         packagingMaterial: true,
-        packSize: true,
+        packSize: { include: { uom: true } },
         baseUom: true,
         salesUom: true,
       },
     });
 
     if (fp) {
+      const commercialVol = fp.packingQuantity !== null && fp.packingQuantity !== undefined
+        ? Number(fp.packingQuantity)
+        : (fp.packSize?.quantity ? Number(fp.packSize.quantity) : 1);
+      const volUnit = fp.packingUnit ?? fp.packSize?.uom?.name ?? fp.baseUom?.name ?? 'Liter';
+      const commercialPack = fp.packSize?.name ?? `${commercialVol} ${volUnit}`;
+
       return {
         found: true,
         entityType: 'FINISHED_PRODUCT',
         id: fp.id,
+
+        // Rule 12 Canonical Product Lookup Fields
+        productCode: fp.productCode,
+        productName: fp.productName,
+        category: fp.category?.name ?? 'Finished Goods',
+        categoryCode: fp.category?.code ?? '41-01',
+        commercialPackSize: commercialPack,
+        packSizeCode: fp.packSize?.code ?? null,
+        commercialVolume: commercialVol,
+        volumeUnit: volUnit,
+        packagingMaterial: fp.packagingMaterial?.materialName ?? null,
+        packagingMaterialCode: fp.packagingMaterial?.materialCode ?? null,
+        unit: volUnit,
+        ppc: fp.ppc ?? 1,
+        mType: fp.mType,
+        productType: fp.productType,
+        price: fp.defaultSellingPrice ? Number(fp.defaultSellingPrice) : null,
+        standardCost: fp.standardCost ? Number(fp.standardCost) : null,
+
+        // Backwards Compatibility Fields
         code: fp.productCode,
         name: fp.productName,
         urduName: fp.urduName,
-        categoryCode: fp.category?.code ?? '41-01',
         categoryName: fp.category?.name ?? 'Finished Goods',
-        productType: fp.productType,
-        mType: fp.mType,
         packagingMaterialId: fp.packagingMaterialId,
         packagingMaterialName: fp.packagingMaterial?.materialName,
-        packSizeQuantity: fp.packingQuantity ? Number(fp.packingQuantity) : Number(fp.packSize?.quantity ?? 1),
-        packSizeUnit: fp.packingUnit ?? fp.baseUom?.name ?? 'Liter',
-        ppc: fp.ppc ?? 1,
+        packSizeQuantity: commercialVol,
+        packSizeUnit: volUnit,
         baseSellingPrice: fp.defaultSellingPrice ? Number(fp.defaultSellingPrice) : null,
         currentManufacturingCost: fp.standardCost ? Number(fp.standardCost) : null,
         companyId: fp.companyId,

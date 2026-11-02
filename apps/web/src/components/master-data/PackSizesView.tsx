@@ -66,14 +66,15 @@ export const PackSizesView: React.FC = () => {
   );
 
   const handleSave = async () => {
-    if (!formData.code || !formData.name || !formData.quantity) {
-      showToast({ title: 'Validation Error', message: 'Code, name, and quantity are required', type: 'error' });
+    if (!formData.name || !formData.quantity) {
+      showToast({ title: 'Validation Error', message: 'Name and quantity are required', type: 'error' });
       return;
     }
     setIsSaving(true);
     try {
       const payload = {
         ...formData,
+        code: formData.code || 'AUTO',
         quantity: Number(formData.quantity),
         uomId: formData.uomId || undefined,
       };
@@ -193,14 +194,13 @@ export const PackSizesView: React.FC = () => {
             title: 'Pack Size Specification',
             fields: [
               {
-                label: 'Pack Size Code *',
-                required: true,
+                label: 'Pack Size Code (Auto-Generated: PS-XXXXXX)',
                 field: (
                   <Input
-                    value={formData.code}
+                    value={mode === 'create' ? (formData.code || 'AUTO (System Generated)') : formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    placeholder="e.g. PK-50KG"
-                    disabled={mode === 'edit'}
+                    placeholder="Auto-generated e.g. PS-000001"
+                    disabled={mode === 'create' || mode === 'edit'}
                     style={{ fontFamily: 'var(--font-mono)' }}
                   />
                 ),

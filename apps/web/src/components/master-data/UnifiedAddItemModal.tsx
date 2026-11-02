@@ -59,10 +59,9 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
   // Form Fields - Finished Goods Specific
   const [productType, setProductType] = useState('Insecticide');
   const [mType, setMType] = useState('Insecticides');
-  const [packagingMaterials, setPackagingMaterials] = useState<any[]>([]);
-  const [selectedPackagingId, setSelectedPackagingId] = useState<string>('');
-  const [packSizeQuantity, setPackSizeQuantity] = useState<number>(2);
-  const [packSizeUnit, setPackSizeUnit] = useState('Liter');
+  const [packagingContainer, setPackagingContainer] = useState<number | ''>(100);
+  const [packSizeQuantity, setPackSizeQuantity] = useState<number>(100);
+  const [packSizeUnit, setPackSizeUnit] = useState('Gram');
   const [uoms, setUoms] = useState<any[]>([]);
   const [selectedBaseUomId, setSelectedBaseUomId] = useState<string>('');
   const [ppc, setPpc] = useState<number>(12); // Pack Per Carton
@@ -96,7 +95,7 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
   // 1. Fetch Categories, Packaging Materials & UOMs on Open
   const loadPrerequisites = useCallback(async () => {
     try {
-      const [catsRes, pmRes, uomRes] = await Promise.all([
+      const [catsRes, , uomRes] = await Promise.all([
         ApiClient.get<any[]>('/api/v1/master-data/unified-categories'),
         ApiClient.get<any[]>('/api/v1/master-data/packing-materials'),
         ApiClient.get<any[]>('/api/v1/master-data/units-of-measure'),
@@ -104,9 +103,6 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
 
       const catList = Array.isArray(catsRes.data) ? catsRes.data : (catsRes.data as any)?.data || [];
       setCategories(catList);
-
-      const pmList = Array.isArray(pmRes.data) ? pmRes.data : (pmRes.data as any)?.data || [];
-      setPackagingMaterials(pmList);
 
       const uomList = Array.isArray(uomRes.data) ? uomRes.data : (uomRes.data as any)?.data || [];
       setUoms(uomList);
@@ -206,7 +202,7 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
       if (routeInfo?.targetEntity === 'FINISHED_PRODUCT') {
         payload.productType = productType;
         payload.mType = mType;
-        payload.packagingMaterialId = selectedPackagingId || undefined;
+        payload.packagingContainer = packagingContainer !== '' ? Number(packagingContainer) : undefined;
         payload.packSizeQuantity = packSizeQuantity;
         payload.packSizeUnit = packSizeUnit;
         payload.ppc = ppc;
@@ -459,31 +455,27 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', marginBottom: '4px' }}>
-                        Physical Packaging (Bottle/Bag)
+                        Packaging Container (e.g. 100, 200) *
                       </label>
-                      <Select
-                        value={selectedPackagingId}
-                        onChange={(e) => setSelectedPackagingId(typeof e === 'string' ? e : e.target?.value || '')}
-                        options={[
-                          { label: '-- Select Physical Packaging --', value: '' },
-                          ...packagingMaterials.map((pm) => ({
-                            label: `${pm.materialCode} ${pm.materialName}`,
-                            value: pm.id,
-                          })),
-                        ]}
+                      <Input
+                        type="number"
+                        placeholder="100, 200"
+                        value={packagingContainer}
+                        onChange={(e) => setPackagingContainer(e.target.value === '' ? '' : Number(e.target.value))}
+                        style={{ fontFamily: 'var(--font-mono, monospace)' }}
                       />
                     </div>
 
                     <div>
                       <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', marginBottom: '4px' }}>
-                        Pack Size Quantity *
+                        Pack Size / Weight (e.g. 100, 150, 250, 1) *
                       </label>
                       <Input
                         type="number"
-                        step="0.01"
-                        required
+                        step="any"
+                        placeholder="100, 150, 1"
                         value={packSizeQuantity}
-                        onChange={(e) => setPackSizeQuantity(parseFloat(e.target.value) || 1)}
+                        onChange={(e) => setPackSizeQuantity(parseFloat(e.target.value) || 100)}
                         style={{ fontFamily: 'var(--font-mono, monospace)' }}
                       />
                     </div>
@@ -501,12 +493,12 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
                       </div>
                       <Select
                         value={packSizeUnit}
-                        onChange={(e) => setPackSizeUnit(typeof e === 'string' ? e : e.target?.value || 'Liter')}
+                        onChange={(e) => setPackSizeUnit(typeof e === 'string' ? e : e.target?.value || 'Gram')}
                         options={[
-                          { label: 'Liter', value: 'Liter' },
-                          { label: 'KG', value: 'KG' },
-                          { label: 'ML', value: 'ML' },
-                          { label: 'GM', value: 'GM' },
+                          { label: 'Gram (g / GM)', value: 'Gram' },
+                          { label: 'Kilogram (kg / KG)', value: 'KG' },
+                          { label: 'Milliliter (ml / ML)', value: 'ML' },
+                          { label: 'Liter (L)', value: 'Liter' },
                           { label: 'Pack', value: 'Pack' },
                         ]}
                       />
@@ -754,9 +746,8 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
       <InlinePackagingModal
         isOpen={isPackagingModalOpen}
         onClose={() => setIsPackagingModalOpen(false)}
-        onCreated={(created) => {
-          setPackagingMaterials((prev) => [created, ...prev]);
-          setSelectedPackagingId(created.id);
+        onCreated={() => {
+          setIsPackagingModalOpen(false);
         }}
       />
 

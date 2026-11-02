@@ -610,7 +610,16 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
 
   const handleCustomizeSchemeChange = (newSchemeId: string) => {
     setCustomizeSchemeId(newSchemeId);
-    recalculateCustomizePricing(customizeItems, newSchemeId, customizeRateListId, customizePaymentTerm);
+    const matchedScheme = schemes.find((s) => s.id === newSchemeId);
+    let linkedRlId = customizeRateListId;
+    if (matchedScheme) {
+      const linked = rateLists.find((rl) => rl.schemeId === newSchemeId || (matchedScheme.shortCode && rl.schemeShortCode === matchedScheme.shortCode));
+      if (linked) {
+        linkedRlId = linked.id;
+        setCustomizeRateListId(linked.id);
+      }
+    }
+    recalculateCustomizePricing(customizeItems, newSchemeId, linkedRlId, customizePaymentTerm);
   };
 
   const handleCustomizeRateListChange = (newRateListId: string) => {
@@ -822,7 +831,16 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
 
   const handleConvertSchemeChange = (newSchemeId: string) => {
     setConvertSchemeId(newSchemeId);
-    recalculateConvertPricing(convertItems, newSchemeId, convertRateListId, convertPaymentTerm);
+    const matchedScheme = schemes.find((s) => s.id === newSchemeId);
+    let linkedRlId = convertRateListId;
+    if (matchedScheme) {
+      const linked = rateLists.find((rl) => rl.schemeId === newSchemeId || (matchedScheme.shortCode && rl.schemeShortCode === matchedScheme.shortCode));
+      if (linked) {
+        linkedRlId = linked.id;
+        setConvertRateListId(linked.id);
+      }
+    }
+    recalculateConvertPricing(convertItems, newSchemeId, linkedRlId, convertPaymentTerm);
   };
 
   const handleConvertRateListChange = (newRateListId: string) => {
@@ -1595,7 +1613,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               options={[
                 { label: 'Standard Catalogue (No Scheme)', value: '' },
                 ...schemes.map((s) => ({
-                  label: `${s.code} - ${s.name}`,
+                  label: s.shortCode ? `${s.shortCode} - ${s.name} (${s.schemeTypeCode || s.code})` : `${s.code} - ${s.name}`,
                   value: s.id,
                 })),
               ]}
@@ -1933,7 +1951,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               options={[
                 { label: 'Standard Catalogue (No Scheme)', value: '' },
                 ...schemes.map((s) => ({
-                  label: `${s.code} - ${s.name}`,
+                  label: s.shortCode ? `${s.shortCode} - ${s.name} (${s.schemeTypeCode || s.code})` : `${s.code} - ${s.name}`,
                   value: s.id,
                 })),
               ]}

@@ -127,6 +127,24 @@ export class PricingController {
     return this.pricingService.archiveRateList(id, user);
   }
 
+  @Post('rate-lists/:id/add-products')
+  async addNewProductsToRateList(
+    @Param('id') id: string,
+    @Body() body: { productIds: string[] },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.addNewProductsToRateList(id, body.productIds || [], user);
+  }
+
+  @Get('rate-lists/:id/pdf')
+  async getRateListPdfHtml(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const html = await this.pricingService.generateRateListPdfHtml(id, user.companyId);
+    return { html };
+  }
+
   // ==========================================
   // ACTIVE FINISHED PRODUCTS LOADER (REQUIREMENT 8)
   // ==========================================
@@ -137,7 +155,24 @@ export class PricingController {
   }
 
   // ==========================================
-  // PRICING SCHEMES
+  // SCHEME TYPES (REQUIREMENTS 2, 4, 25)
+  // ==========================================
+
+  @Get('scheme-types')
+  async getSchemeTypes(@CurrentUser() user: AuthUser) {
+    return this.pricingService.getSchemeTypes(user.organizationId, user.companyId);
+  }
+
+  @Post('scheme-types')
+  async createSchemeType(
+    @Body() body: { code: string; name: string; description?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.createSchemeType(body, user);
+  }
+
+  // ==========================================
+  // PRICING SCHEMES (REQUIREMENTS 1, 3, 5, 7, 12, 14)
   // ==========================================
 
   @Get('schemes')
@@ -154,6 +189,19 @@ export class PricingController {
       isMobileVisible: isMobileVisible !== undefined ? isMobileVisible === 'true' : undefined,
       paymentTerm,
     });
+  }
+
+  @Get('schemes/active')
+  async getActiveSchemes(@CurrentUser() user: AuthUser) {
+    return this.pricingService.getActiveSchemes(user.companyId);
+  }
+
+  @Get('schemes/:id/products')
+  async getSchemeRateListProducts(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.getRateListProductsForScheme(id, user.companyId);
   }
 
   @Get('schemes/:id')
