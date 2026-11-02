@@ -88,6 +88,7 @@ model Organization {
   rateLists        RateList[]
   pricingSchemes   PricingScheme[]
   schemeTypes      SchemeType[]
+  schemePaymentTypes SchemePaymentType[]
   accounts         Account[]
   journalEntries   JournalEntry[]
   expenseEntries   ExpenseEntry[]
@@ -182,6 +183,7 @@ model Company {
   rateLists        RateList[]
   pricingSchemes   PricingScheme[]
   schemeTypes      SchemeType[]
+  schemePaymentTypes SchemePaymentType[]
   accounts         Account[]
   journalEntries   JournalEntry[]
   expenseEntries   ExpenseEntry[]
@@ -2813,7 +2815,9 @@ model SchemeType {
   companyId      String?         @db.Uuid
   code           String          @db.VarChar(50) // CA, ABC, SR, NNR, etc.
   name           String          @db.VarChar(100) // Cash Advance, Advance Booking, Seasonal Rate List, Net Net Rate List
+  defaultShortCode String?       @db.VarChar(50)
   description    String?         @db.Text
+  status         String          @default("ACTIVE") @db.VarChar(50)
   isPredefined   Boolean         @default(false)
   isActive       Boolean         @default(true)
   createdAt      DateTime        @default(now()) @db.Timestamptz(6)
@@ -2827,6 +2831,28 @@ model SchemeType {
   @@index([organizationId])
   @@index([companyId])
   @@map("scheme_types")
+}
+
+model SchemePaymentType {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  companyId      String?         @db.Uuid
+  code           String          @db.VarChar(50) // CASH, CREDIT, ADVANCE, BANK, OTHER
+  name           String          @db.VarChar(100) // Cash, Credit, Advance, Bank, Other
+  description    String?         @db.Text
+  status         String          @default("ACTIVE") @db.VarChar(50)
+  isPredefined   Boolean         @default(false)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(6)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company        Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([companyId])
+  @@map("scheme_payment_types")
 }
 
 model RateList {
@@ -2946,8 +2972,15 @@ model PricingScheme {
   maxQuantity          Decimal?        @db.Decimal(18, 4)
   applicableDealerTier String?         @default("ALL") @db.VarChar(50)
   paymentTerm          String?         @default("ANY") @db.VarChar(50) // CASH, CREDIT, ADVANCE, ANY
+  paymentType          String?         @default("CASH") @db.VarChar(50) // CASH, CREDIT, etc.
+  paymentTypes         Json?           // Array of payment types e.g. ["CASH", "CREDIT"]
   startDate            DateTime?       @db.Timestamptz(6)
   endDate              DateTime?       @db.Timestamptz(6)
+  collectionStartDate  DateTime?       @db.Timestamptz(6)
+  collectionEndDate    DateTime?       @db.Timestamptz(6)
+  invoiceStartDate     DateTime?       @db.Timestamptz(6)
+  invoiceEndDate       DateTime?       @db.Timestamptz(6)
+  discountPct          Decimal?        @db.Decimal(8, 2)
   defaultDiscountPct   Decimal?        @db.Decimal(8, 2)
   additionalBookingPct Decimal?        @db.Decimal(8, 2)
   cashDiscountPct      Decimal?        @db.Decimal(8, 2)

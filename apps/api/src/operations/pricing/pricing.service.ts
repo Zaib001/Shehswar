@@ -145,10 +145,10 @@ export class PricingService {
    */
   async ensureDefaultSchemeTypes(organizationId: string, companyId?: string) {
     const predefined = [
-      { code: 'CA', name: 'Cash Advance', description: 'Immediate cash advance scheme with cash discount commercial benefit' },
-      { code: 'ABC', name: 'Advance Booking', description: 'Advance booking campaign with cash discount and booking benefit' },
-      { code: 'SR', name: 'Seasonal Rate List', description: 'Seasonal promotional rate list with product-wise seasonal rates' },
-      { code: 'NNR', name: 'Net Net Rate List', description: 'Dealer net net rate list with direct commercial net rates' },
+      { code: 'CA', name: 'Cash Advance', defaultShortCode: 'CA', description: 'Immediate cash advance scheme with cash discount commercial benefit' },
+      { code: 'ABC', name: 'Advance Booking', defaultShortCode: 'ABC', description: 'Advance booking campaign with cash discount and booking benefit' },
+      { code: 'SR', name: 'Seasonal Scheme', defaultShortCode: 'SR', description: 'Seasonal promotional scheme with product-wise seasonal rates' },
+      { code: 'NNR', name: 'Net Net Rate', defaultShortCode: 'NNR', description: 'Dealer net net rate list with direct commercial net rates' },
     ];
 
     for (const item of predefined) {
@@ -163,13 +163,92 @@ export class PricingService {
             companyId: companyId || null,
             code: item.code,
             name: item.name,
+            defaultShortCode: item.defaultShortCode,
             description: item.description,
             isPredefined: true,
             isActive: true,
+            status: 'ACTIVE',
+          },
+        });
+      } else if (!existing.defaultShortCode) {
+        await this.prisma.schemeType.update({
+          where: { id: existing.id },
+          data: { defaultShortCode: item.defaultShortCode },
+        });
+      }
+    }
+  }
+
+  /**
+   * Ensure default Payment Types exist for the organization (CASH, CREDIT)
+   */
+  async ensureDefaultPaymentTypes(organizationId: string, companyId?: string) {
+    const predefined = [
+      { code: 'CASH', name: 'Cash', description: 'Cash / immediate payment terms' },
+      { code: 'CREDIT', name: 'Credit', description: 'Credit terms for commercial bookings' },
+    ];
+
+    for (const item of predefined) {
+      const existing = await this.prisma.schemePaymentType.findFirst({
+        where: { organizationId, code: item.code },
+      });
+      if (!existing) {
+        await this.prisma.schemePaymentType.create({
+          data: {
+            id: uuidv7(),
+            organizationId,
+            companyId: companyId || null,
+            code: item.code,
+            name: item.name,
+            description: item.description,
+            isPredefined: true,
+            isActive: true,
+            status: 'ACTIVE',
           },
         });
       }
     }
+  }
+
+  /**
+   * List all active Payment Types (predefined + custom user-created)
+   */
+  async getSchemePaymentTypes(organizationId: string, companyId?: string) {
+    await this.ensureDefaultPaymentTypes(organizationId, companyId);
+    return this.prisma.schemePaymentType.findMany({
+      where: { organizationId, isActive: true },
+      orderBy: [{ isPredefined: 'desc' }, { name: 'asc' }],
+    });
+  }
+
+  /**
+   * Create new Payment Type dynamically (Requirements 15, 16, 17, 18)
+   */
+  async createSchemePaymentType(
+    dto: { code: string; name: string; description?: string; status?: string },
+    actor: AuthUser,
+  ) {
+    const code = (dto.code || dto.name).trim().toUpperCase().replace(/\s+/g, '_');
+    const existing = await this.prisma.schemePaymentType.findFirst({
+      where: { organizationId: actor.organizationId, code },
+    });
+    if (existing) {
+      throw new BadRequestException(`Payment type with code '${code}' already exists`);
+    }
+
+    return this.prisma.schemePaymentType.create({
+      data: {
+        id: uuidv7(),
+        organizationId: actor.organizationId,
+        companyId: actor.companyId,
+        code,
+        name: dto.name.trim(),
+        description: dto.description || null,
+        status: dto.status || 'ACTIVE',
+        isPredefined: false,
+        isActive: true,
+      },
+    });
   }
 
   /**
@@ -186,7 +265,10 @@ export class PricingService {
   /**
    * Create new Scheme Type (Requirement 2 & 25: allows admins to add scheme types later without code changes)
    */
-  async createSchemeType(dto: { code: string; name: string; description?: string }, actor: AuthUser) {
+  async createSchemeType(
+    dto: { code: string; name: string; defaultShortCode?: string; description?: string; status?: string },
+    actor: AuthUser,
+  ) {
     const code = dto.code.trim().toUpperCase();
     const existing = await this.prisma.schemeType.findFirst({
       where: { organizationId: actor.organizationId, code },
@@ -202,7 +284,9 @@ export class PricingService {
         companyId: actor.companyId,
         code,
         name: dto.name.trim(),
+        defaultShortCode: dto.defaultShortCode?.trim() || code,
         description: dto.description || null,
+        status: dto.status || 'ACTIVE',
         isPredefined: false,
         isActive: true,
       },
@@ -297,7 +381,11 @@ export class PricingService {
   ) {
     const where: any = { companyId };
     if (filter?.category) where.category = filter.category;
-    if (filter?.status) where.status = filter.status;
+    if (filter?.status) {
+      where.status = filter.status;
+    } else {
+      where.status = { not: 'ARCHIVED' };
+    }
     if (filter?.schemeId) where.schemeId = filter.schemeId;
     if (filter?.isMobileVisible !== undefined) where.isMobileVisible = filter.isMobileVisible;
 
@@ -778,17 +866,27 @@ export class PricingService {
   }
 
   /**
-   * Archive or Deactivate Rate List (Never delete historical records used in transactions)
+   * Delete or Archive Rate List
+   * If never used in sales orders, deletes completely. If historical transactions exist, archives.
    */
   async archiveRateList(id: string, actor: AuthUser) {
     const rateList = await this.prisma.rateList.findFirst({
       where: { id, companyId: actor.companyId },
+      include: {
+        _count: { select: { salesOrders: true, salesOrderItems: true } },
+      },
     });
     if (!rateList) throw new NotFoundException('Rate list not found');
 
-    return this.prisma.rateList.update({
+    if (rateList._count.salesOrders > 0 || rateList._count.salesOrderItems > 0) {
+      return this.prisma.rateList.update({
+        where: { id },
+        data: { status: 'ARCHIVED' },
+      });
+    }
+
+    return this.prisma.rateList.delete({
       where: { id },
-      data: { status: 'ARCHIVED' },
     });
   }
 
@@ -1093,6 +1191,11 @@ export class PricingService {
     filter?: { schemeType?: string; status?: string; isMobileVisible?: boolean; paymentTerm?: string },
   ) {
     const where: any = { companyId };
+    if (filter?.status) {
+      where.status = filter.status;
+    } else {
+      where.status = { not: 'ARCHIVED' };
+    }
     if (filter?.schemeType) {
       where.OR = [
         { schemeType: filter.schemeType },
@@ -1257,18 +1360,33 @@ export class PricingService {
     // Retrieve all active Finished Products from master
     const allProducts = await this.getActiveFinishedProductsForRateList(companyId);
 
+    // Single Discount % field (Requirements 12, 13, 14, 20)
+    const schemeDiscountPct =
+      Number(scheme.discountPct) ||
+      Number(scheme.defaultDiscountPct) ||
+      Number(scheme.cashDiscountPct) ||
+      (scheme.additionalBookingPct ? Number(scheme.cashDiscountPct || 0) + Number(scheme.additionalBookingPct) : 0) ||
+      0;
+
     const generatedItems = allProducts.map((p) => {
       const existing = existingItemsMap.get(p.finishedProductId);
 
       if (existing) {
+        const existingDisc = Number(existing.discountPercent || existing.discountValue || 0);
+        // If existing rate list item had 0 discount, but the scheme specifies a discount, apply the scheme discount!
+        const effectiveDisc = existingDisc > 0 ? existingDisc : schemeDiscountPct;
+        const effectiveRate = effectiveDisc > 0
+          ? Math.round(Number(existing.baseRate) * (1 - effectiveDisc / 100))
+          : Number(existing.schemeRate ?? existing.fixedNetRate ?? existing.baseRate);
+
         return {
           ...p,
           baseRate: Number(existing.baseRate),
           baseSellingPrice: Number(existing.baseRate),
-          schemeRate: Number(existing.schemeRate ?? existing.fixedNetRate ?? existing.baseRate),
-          discountPercent: Number(existing.discountPercent || existing.discountValue || 0),
-          discountValue: Number(existing.discountValue || 0),
-          rateType: existing.rateType || (schemeTypeCode === 'NNR' ? 'NET_NET' : 'DIRECT'),
+          schemeRate: effectiveRate,
+          discountPercent: effectiveDisc,
+          discountValue: effectiveDisc,
+          rateType: effectiveDisc > 0 ? 'DISCOUNT' : (schemeTypeCode === 'NNR' ? 'NET_NET' : 'DIRECT'),
           unit: existing.unit || p.unit,
           fixedNetRate: existing.fixedNetRate ? Number(existing.fixedNetRate) : null,
           minAllowedRate: existing.minAllowedRate ? Number(existing.minAllowedRate) : Math.round(Number(existing.baseRate) * 0.8),
@@ -1276,34 +1394,10 @@ export class PricingService {
         };
       }
 
-      // Fresh calculation based on Scheme Type Commercial Logic (Requirement 11)
       const basePrice = p.baseRate;
-      let discountPercent = 0;
-      let schemeRate = basePrice;
-      let rateType = 'DIRECT';
-
-      if (schemeTypeCode === 'CA') {
-        // Cash Advance: Base Rate -> Cash Discount -> Final Cash Rate
-        discountPercent = Number(scheme.cashDiscountPct || 15);
-        schemeRate = Math.round(basePrice * (1 - discountPercent / 100));
-        rateType = 'DISCOUNT';
-      } else if (schemeTypeCode === 'ABC') {
-        // Advance Booking: Base Rate -> Cash Discount + Advance Booking Benefit -> Final Booking Rate
-        discountPercent = Number(scheme.cashDiscountPct || 0) + Number(scheme.additionalBookingPct || 0);
-        if (discountPercent === 0) discountPercent = 20; // default 20% booking benefit
-        schemeRate = Math.round(basePrice * (1 - discountPercent / 100));
-        rateType = 'DISCOUNT';
-      } else if (schemeTypeCode === 'NNR') {
-        // Net Net Rate List: Direct final net rate. No unnecessary discount calculation
-        schemeRate = basePrice;
-        discountPercent = 0;
-        rateType = 'NET_NET';
-      } else {
-        // Seasonal Rate List (SR) & Others: Product-wise seasonal rates
-        discountPercent = Number(scheme.defaultDiscountPct || 0);
-        schemeRate = discountPercent > 0 ? Math.round(basePrice * (1 - discountPercent / 100)) : basePrice;
-        rateType = discountPercent > 0 ? 'DISCOUNT' : 'DIRECT';
-      }
+      const discountPercent = schemeDiscountPct;
+      const schemeRate = discountPercent > 0 ? Math.round(basePrice * (1 - discountPercent / 100)) : basePrice;
+      const rateType = schemeTypeCode === 'NNR' ? 'NET_NET' : discountPercent > 0 ? 'DISCOUNT' : 'DIRECT';
 
       return {
         ...p,
@@ -1327,11 +1421,16 @@ export class PricingService {
         name: scheme.name,
         schemeType: scheme.schemeType,
         schemeTypeCode,
-        startDate: scheme.startDate || scheme.effectiveFrom,
-        endDate: scheme.endDate || scheme.effectiveTo,
-        defaultDiscountPct: scheme.defaultDiscountPct,
-        additionalBookingPct: scheme.additionalBookingPct,
-        cashDiscountPct: scheme.cashDiscountPct,
+        discountPct: schemeDiscountPct,
+        defaultDiscountPct: schemeDiscountPct,
+        paymentType: scheme.paymentType || 'CASH',
+        paymentTypes: scheme.paymentTypes || [scheme.paymentType || 'CASH'],
+        collectionStartDate: scheme.collectionStartDate || scheme.startDate || scheme.effectiveFrom,
+        collectionEndDate: scheme.collectionEndDate || scheme.endDate || scheme.effectiveTo,
+        invoiceStartDate: scheme.invoiceStartDate || scheme.startDate || scheme.effectiveFrom,
+        invoiceEndDate: scheme.invoiceEndDate || scheme.endDate || scheme.effectiveTo,
+        startDate: scheme.collectionStartDate || scheme.startDate || scheme.effectiveFrom,
+        endDate: scheme.collectionEndDate || scheme.endDate || scheme.effectiveTo,
       },
       existingRateList: existingRateList
         ? {
@@ -1346,22 +1445,14 @@ export class PricingService {
   }
 
   /**
-   * Create a new Pricing Scheme (Requirements 1, 2, 3, 4, 5, 25)
+   * Create a new Pricing Scheme (Requirements 1 - 19)
    */
   async createPricingScheme(dto: CreatePricingSchemeDto, actor: AuthUser) {
     const companyId = actor.companyId;
     const organizationId = actor.organizationId;
 
-    const code = (dto.shortCode || dto.code).trim().toUpperCase();
-    const existing = await this.prisma.pricingScheme.findFirst({
-      where: { companyId, code },
-    });
-    if (existing) {
-      throw new BadRequestException(`Pricing scheme with code '${code}' already exists`);
-    }
-
     let schemeTypeCode = dto.schemeTypeCode || 'SR';
-    let schemeTypeName = dto.schemeType || 'Seasonal Rate List';
+    let schemeTypeName = dto.schemeType || 'Seasonal Scheme';
 
     if (dto.schemeTypeId) {
       const st = await this.prisma.schemeType.findUnique({ where: { id: dto.schemeTypeId } });
@@ -1371,10 +1462,72 @@ export class PricingService {
       }
     }
 
-    const startDate = dto.startDate ? new Date(dto.startDate) : dto.effectiveFrom ? new Date(dto.effectiveFrom) : new Date();
-    const endDate = dto.endDate ? new Date(dto.endDate) : dto.effectiveTo ? new Date(dto.effectiveTo) : null;
+    // Short Code is OPTIONAL (Requirement 6). Fallback if empty.
+    const shortCode = dto.shortCode?.trim().toUpperCase() || null;
+    const code = (shortCode || dto.code || `SCH-${schemeTypeCode}-${Date.now().toString().slice(-6)}`).trim().toUpperCase();
 
-    const initialStatus = dto.status || 'ACTIVE';
+    const existing = await this.prisma.pricingScheme.findFirst({
+      where: { companyId, code },
+    });
+    if (existing) {
+      throw new BadRequestException(`Pricing scheme with code '${code}' already exists`);
+    }
+
+    // Four Separate Dates & Validation (Requirements 8, 9, 10)
+    const rawColStart = dto.collectionStartDate || dto.startDate || dto.effectiveFrom;
+    const rawColEnd = dto.collectionEndDate || dto.endDate;
+    const rawInvStart = dto.invoiceStartDate || dto.startDate || dto.effectiveFrom;
+    const rawInvEnd = dto.invoiceEndDate || dto.endDate;
+
+    if (!rawColStart) {
+      throw new BadRequestException('Collection Start Date is required');
+    }
+    if (!rawInvStart) {
+      throw new BadRequestException('Invoice Start Date is required');
+    }
+
+    const colStart = new Date(rawColStart);
+    const colEnd = rawColEnd ? new Date(rawColEnd) : null;
+    const invStart = new Date(rawInvStart);
+    const invEnd = rawInvEnd ? new Date(rawInvEnd) : null;
+
+    if (isNaN(colStart.getTime())) throw new BadRequestException('Invalid Collection Start Date');
+    if (isNaN(invStart.getTime())) throw new BadRequestException('Invalid Invoice Start Date');
+
+    if (colEnd) {
+      if (isNaN(colEnd.getTime())) throw new BadRequestException('Invalid Collection End Date');
+      if (colStart > colEnd) {
+        throw new BadRequestException('Collection Start Date must be earlier than or equal to Collection End Date');
+      }
+    }
+
+    if (invEnd) {
+      if (isNaN(invEnd.getTime())) throw new BadRequestException('Invalid Invoice End Date');
+      if (invStart > invEnd) {
+        throw new BadRequestException('Invoice Start Date must be earlier than or equal to Invoice End Date');
+      }
+    }
+
+    // Status: Draft, Active, Inactive, Expired (Requirement 11)
+    let initialStatus = (dto.status || 'ACTIVE').toUpperCase();
+    if (initialStatus === 'ACTIVE' && invEnd && new Date() > invEnd) {
+      initialStatus = 'EXPIRED';
+    }
+
+    // Single Discount Field (Requirements 12, 13, 14)
+    const discountVal = dto.discountPct !== undefined && dto.discountPct !== null && String(dto.discountPct) !== ''
+      ? Number(dto.discountPct)
+      : dto.defaultDiscountPct !== undefined && dto.defaultDiscountPct !== null && String(dto.defaultDiscountPct) !== ''
+      ? Number(dto.defaultDiscountPct)
+      : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
+      ? Number(dto.cashDiscountPct)
+      : 0;
+
+    // Payment Type: Cash, Credit, etc. (Requirements 15, 16, 17, 18)
+    const paymentType = (dto.paymentType || 'CASH').toUpperCase();
+    const paymentTypes = dto.paymentTypes && Array.isArray(dto.paymentTypes) && dto.paymentTypes.length > 0
+      ? dto.paymentTypes
+      : [paymentType];
 
     const scheme = await this.prisma.pricingScheme.create({
       data: {
@@ -1384,7 +1537,7 @@ export class PricingService {
         schemeTypeId: dto.schemeTypeId || null,
         schemeTypeCode,
         code,
-        shortCode: dto.shortCode?.trim().toUpperCase() || code,
+        shortCode: shortCode || code,
         name: dto.name.trim(),
         description: dto.description || null,
         schemeType: schemeTypeName,
@@ -1396,14 +1549,21 @@ export class PricingService {
         minQuantity: dto.minQuantity ?? 0,
         maxQuantity: dto.maxQuantity ?? null,
         applicableDealerTier: dto.applicableDealerTier || 'ALL',
-        paymentTerm: dto.paymentTerm || (schemeTypeCode === 'CA' ? 'CASH' : 'ANY'),
-        startDate,
-        endDate,
-        defaultDiscountPct: dto.defaultDiscountPct ?? 0,
-        additionalBookingPct: dto.additionalBookingPct ?? 0,
-        cashDiscountPct: dto.cashDiscountPct ?? (schemeTypeCode === 'CA' ? 15 : 0),
-        effectiveFrom: startDate,
-        effectiveTo: endDate,
+        paymentTerm: paymentType,
+        paymentType,
+        paymentTypes: paymentTypes as any,
+        startDate: colStart,
+        endDate: colEnd || invEnd,
+        collectionStartDate: colStart,
+        collectionEndDate: colEnd,
+        invoiceStartDate: invStart,
+        invoiceEndDate: invEnd,
+        discountPct: discountVal,
+        defaultDiscountPct: discountVal,
+        additionalBookingPct: 0,
+        cashDiscountPct: discountVal,
+        effectiveFrom: invStart,
+        effectiveTo: invEnd,
         isMobileVisible: dto.isMobileVisible ?? true,
         isMobileSelectable: dto.isMobileSelectable ?? true,
         isInternalOnly: dto.isInternalOnly ?? false,
@@ -1414,7 +1574,7 @@ export class PricingService {
       include: { schemeTypeRef: true, baseRateList: true },
     });
 
-    this.logger.log(`Created Scheme: ${scheme.shortCode || scheme.code} - ${scheme.name} (${scheme.schemeTypeCode})`);
+    this.logger.log(`Created Scheme: ${scheme.shortCode || scheme.code} - ${scheme.name} (${scheme.schemeTypeCode}) [Discount: ${discountVal}%, Payment: ${paymentType}]`);
     return this.getPricingSchemeById(scheme.id, companyId);
   }
 
@@ -1438,43 +1598,93 @@ export class PricingService {
       }
     }
 
-    const startDate = dto.startDate ? new Date(dto.startDate) : dto.effectiveFrom ? new Date(dto.effectiveFrom) : scheme.startDate;
-    const endDate = dto.endDate !== undefined ? (dto.endDate ? new Date(dto.endDate) : null) : dto.effectiveTo !== undefined ? (dto.effectiveTo ? new Date(dto.effectiveTo) : null) : scheme.endDate;
+    const colStart = dto.collectionStartDate ? new Date(dto.collectionStartDate) : scheme.collectionStartDate || scheme.startDate;
+    const colEnd = dto.collectionEndDate !== undefined ? (dto.collectionEndDate ? new Date(dto.collectionEndDate) : null) : scheme.collectionEndDate;
+    const invStart = dto.invoiceStartDate ? new Date(dto.invoiceStartDate) : scheme.invoiceStartDate || scheme.effectiveFrom;
+    const invEnd = dto.invoiceEndDate !== undefined ? (dto.invoiceEndDate ? new Date(dto.invoiceEndDate) : null) : scheme.invoiceEndDate;
+
+    if (colStart && colEnd && colStart > colEnd) {
+      throw new BadRequestException('Collection Start Date must be earlier than or equal to Collection End Date');
+    }
+    if (invStart && invEnd && invStart > invEnd) {
+      throw new BadRequestException('Invoice Start Date must be earlier than or equal to Invoice End Date');
+    }
+
+    const discountVal = dto.discountPct !== undefined && dto.discountPct !== null && String(dto.discountPct) !== ''
+      ? Number(dto.discountPct)
+      : dto.defaultDiscountPct !== undefined && dto.defaultDiscountPct !== null && String(dto.defaultDiscountPct) !== ''
+      ? Number(dto.defaultDiscountPct)
+      : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
+      ? Number(dto.cashDiscountPct)
+      : Number(scheme.discountPct || scheme.defaultDiscountPct || scheme.cashDiscountPct || 0);
+
+    const paymentType = dto.paymentType ? dto.paymentType.toUpperCase() : scheme.paymentType || 'CASH';
+    const paymentTypes = dto.paymentTypes && Array.isArray(dto.paymentTypes)
+      ? dto.paymentTypes
+      : scheme.paymentTypes || [paymentType];
 
     await this.prisma.pricingScheme.update({
       where: { id },
       data: {
         schemeTypeId: dto.schemeTypeId !== undefined ? dto.schemeTypeId : scheme.schemeTypeId,
         schemeTypeCode,
-        shortCode: dto.shortCode?.trim().toUpperCase() || scheme.shortCode,
+        shortCode: dto.shortCode !== undefined ? (dto.shortCode ? dto.shortCode.trim().toUpperCase() : null) : scheme.shortCode,
         name: dto.name?.trim() || scheme.name,
         description: dto.description !== undefined ? dto.description : scheme.description,
         schemeType: schemeTypeName,
         calculationMethod: dto.calculationMethod || scheme.calculationMethod,
         discountComponents: dto.discountComponents !== undefined ? (dto.discountComponents as any) : (scheme.discountComponents as any),
         baseRateListId: dto.baseRateListId !== undefined ? dto.baseRateListId : scheme.baseRateListId,
-        paidQuantity: dto.paidQuantity !== undefined ? dto.paidQuantity : scheme.paidQuantity,
-        freeQuantity: dto.freeQuantity !== undefined ? dto.freeQuantity : scheme.freeQuantity,
-        minQuantity: dto.minQuantity !== undefined ? dto.minQuantity : scheme.minQuantity,
-        maxQuantity: dto.maxQuantity !== undefined ? dto.maxQuantity : scheme.maxQuantity,
-        applicableDealerTier: dto.applicableDealerTier || scheme.applicableDealerTier,
-        paymentTerm: dto.paymentTerm || scheme.paymentTerm,
-        startDate,
-        endDate,
-        defaultDiscountPct: dto.defaultDiscountPct !== undefined ? dto.defaultDiscountPct : scheme.defaultDiscountPct,
-        additionalBookingPct: dto.additionalBookingPct !== undefined ? dto.additionalBookingPct : scheme.additionalBookingPct,
-        cashDiscountPct: dto.cashDiscountPct !== undefined ? dto.cashDiscountPct : scheme.cashDiscountPct,
-        effectiveFrom: startDate || scheme.effectiveFrom,
-        effectiveTo: endDate,
-        isMobileVisible: dto.isMobileVisible !== undefined ? dto.isMobileVisible : scheme.isMobileVisible,
-        isMobileSelectable: dto.isMobileSelectable !== undefined ? dto.isMobileSelectable : scheme.isMobileSelectable,
-        isInternalOnly: dto.isInternalOnly !== undefined ? dto.isInternalOnly : scheme.isInternalOnly,
-        priority: dto.priority !== undefined ? dto.priority : scheme.priority,
+        paymentTerm: paymentType,
+        paymentType,
+        paymentTypes: paymentTypes as any,
+        startDate: colStart,
+        endDate: colEnd || invEnd,
+        collectionStartDate: colStart,
+        collectionEndDate: colEnd,
+        invoiceStartDate: invStart,
+        invoiceEndDate: invEnd,
+        discountPct: discountVal,
+        defaultDiscountPct: discountVal,
+        cashDiscountPct: discountVal,
+        effectiveFrom: invStart || scheme.effectiveFrom,
+        effectiveTo: invEnd !== undefined ? invEnd : scheme.effectiveTo,
         status: dto.status || scheme.status,
       },
     });
 
     return this.getPricingSchemeById(id, actor.companyId);
+  }
+
+  /**
+   * Delete or Archive a Pricing Scheme
+   * Completely removes if not referenced by sales orders; archives if historical data exists.
+   */
+  async deletePricingScheme(id: string, actor: AuthUser) {
+    const scheme = await this.prisma.pricingScheme.findFirst({
+      where: { id, companyId: actor.companyId },
+      include: {
+        _count: { select: { salesOrders: true, salesOrderItems: true } },
+      },
+    });
+    if (!scheme) throw new NotFoundException('Pricing scheme not found');
+
+    if (scheme._count.salesOrders > 0 || scheme._count.salesOrderItems > 0) {
+      return this.prisma.pricingScheme.update({
+        where: { id },
+        data: { status: 'ARCHIVED' },
+      });
+    }
+
+    // Unlink any rate lists pointing to this scheme
+    await this.prisma.rateList.updateMany({
+      where: { schemeId: id },
+      data: { schemeId: null },
+    });
+
+    return this.prisma.pricingScheme.delete({
+      where: { id },
+    });
   }
 
   // ============================================================
@@ -1526,28 +1736,43 @@ export class PricingService {
 
     // Check if requestedSchemeId provided
     if (dto.requestedSchemeId) {
-      resolvedScheme = await this.prisma.pricingScheme.findFirst({
+      const schemeRecord = await this.prisma.pricingScheme.findFirst({
         where: {
           id: dto.requestedSchemeId,
           companyId,
           status: { notIn: ['INACTIVE', 'DRAFT'] },
-          OR: [
-            { startDate: null, effectiveFrom: { lte: orderDate } },
-            { startDate: { lte: orderDate } },
-          ],
-          AND: [
-            {
-              OR: [
-                { endDate: null, effectiveTo: null },
-                { endDate: { gte: orderDate } },
-                { effectiveTo: { gte: orderDate } },
-              ],
-            },
-          ],
         },
         include: { schemeTypeRef: true },
       });
 
+      if (schemeRecord) {
+        // Requirement 21: Sales Order / Invoice Validation
+        const isInvoice = dto.pricingPhase === 'INVOICE';
+        const validStart = isInvoice
+          ? (schemeRecord.invoiceStartDate || schemeRecord.startDate || schemeRecord.effectiveFrom)
+          : (schemeRecord.collectionStartDate || schemeRecord.startDate || schemeRecord.effectiveFrom);
+        const validEnd = isInvoice
+          ? (schemeRecord.invoiceEndDate || schemeRecord.endDate || schemeRecord.effectiveTo)
+          : (schemeRecord.collectionEndDate || schemeRecord.endDate || schemeRecord.effectiveTo);
+
+        if (validStart && orderDate < validStart) {
+          const typeLabel = isInvoice ? 'invoice' : 'collection / sales order';
+          const periodStr = `${new Date(validStart).toLocaleDateString()} to ${validEnd ? new Date(validEnd).toLocaleDateString() : 'ongoing'}`;
+          throw new BadRequestException(
+            `This Scheme '${schemeRecord.name}' is not valid for the selected ${typeLabel} date. Valid ${typeLabel} period: ${periodStr}`,
+          );
+        }
+
+        if (validEnd && orderDate > validEnd) {
+          const typeLabel = isInvoice ? 'invoice' : 'collection / sales order';
+          const periodStr = `${new Date(validStart).toLocaleDateString()} to ${new Date(validEnd).toLocaleDateString()}`;
+          throw new BadRequestException(
+            `This Scheme '${schemeRecord.name}' is not valid for the selected ${typeLabel} date. Valid ${typeLabel} period: ${periodStr}`,
+          );
+        }
+
+        resolvedScheme = schemeRecord;
+      }
       // Find Rate List specifically linked to this scheme
       resolvedRateList = await this.prisma.rateList.findFirst({
         where: {

@@ -115,16 +115,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user } = useAuth();
   const [navSearch, setNavSearch] = useState('');
 
-  // Expandable groups state - auto-open active module
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
-    'products-master': true,
-    'inventory-mgmt': true,
-    'purchases-mgmt': true,
-    'sales-mgmt': true,
-  });
+  // Single active open dropdown group - all false (null) by default.
+  // When another menu dropdown is opened, the last one closes automatically.
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
 
   const toggleGroup = (id: string) => {
-    setExpandedGroups((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpenGroupId((prev) => (prev === id ? null : id));
   };
 
   /**
@@ -152,8 +148,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'plants', label: 'Plants' },
           { id: 'branches', label: 'Branches' },
           { id: 'departments', label: 'Departments' },
-          { id: 'employees', label: 'Employees & Cost Control', badge: '13% Cost' },
-          { id: 'vehicles', label: 'Vehicles & Fleet Management', badge: 'Fleet' },
+          { id: 'employees', label: 'Employees & Cost Control' },
+          { id: 'vehicles', label: 'Vehicles & Fleet Management' },
         ],
       },
       {
@@ -162,8 +158,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconFlask size={18} />,
         color: '#10B981',
         gradient: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
-        badge: 'Master',
-        badgeColor: '#10B981',
         children: [
           { id: 'finished-products', label: 'All Products & Items' },
           { id: 'raw-materials', label: 'Raw Materials' },
@@ -180,10 +174,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconPackage size={18} />,
         color: '#6366F1',
         gradient: 'linear-gradient(135deg, #4F46E5 0%, #6366F1 100%)',
-        badge: 'Costing',
-        badgeColor: '#6366F1',
         children: [
-          { id: 'product-costing', label: 'Cost Finished Product', badge: 'Active' },
+          { id: 'product-costing', label: 'Cost Finished Product' },
           { id: 'formula-boms', label: 'BOM / Formula Recipes' },
         ],
       },
@@ -207,12 +199,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         color: '#3B82F6',
         gradient: 'linear-gradient(135deg, #2563EB 0%, #3B82F6 100%)',
         children: [
-          { id: 'rate-lists', label: 'Pricing & Rate Lists', badge: 'Dynamic' },
-          { id: 'market-management', label: 'Market Hierarchy & Assignments', badge: 'Hierarchy' },
+          { id: 'rate-lists', label: 'Pricing & Rate Lists' },
+          { id: 'market-management', label: 'Market Hierarchy & Assignments' },
           { id: 'sales-orders', label: 'Sales Orders' },
           { id: 'sales-invoices', label: 'Sales Invoices' },
           { id: 'dealers', label: 'Dealers & Balances' },
-          { id: 'market-performance', label: 'Market Performance (4-Tier)', badge: '4-Tier' },
+          { id: 'market-performance', label: 'Market Performance (4-Tier)' },
           { id: 'sales-returns', label: 'Sales Returns' },
           { id: 'dealer-payments', label: 'Bank & Cash Receipts' },
         ],
@@ -223,12 +215,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconFinance size={18} />,
         color: '#059669',
         gradient: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
-        badge: 'GL',
-        badgeColor: '#059669',
         children: [
           { id: 'finance', label: 'Financial Control & P&L / BS' },
-          { id: 'financial-transactions', label: 'Cash & Bank Vouchers', badge: '5-Types' },
-          { id: 'provisional-receipts', label: 'Provisional Receipts (PR)', badge: 'PR' },
+          { id: 'financial-transactions', label: 'Cash & Bank Vouchers' },
+          { id: 'provisional-receipts', label: 'Provisional Receipts (PR)' },
         ],
       },
       {
@@ -237,8 +227,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconCreditCard size={18} />,
         color: '#DC2626',
         gradient: 'linear-gradient(135deg, #B91C1C 0%, #EF4444 100%)',
-        badge: '5-Tier',
-        badgeColor: '#DC2626',
         children: [
           { id: 'credit-control', label: 'Credit Dashboard, Limits & Percentage Lock' },
         ],
@@ -249,8 +237,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconShield size={18} />,
         color: '#7C3AED',
         gradient: 'linear-gradient(135deg, #6D28D9 0%, #8B5CF6 100%)',
-        badge: 'Audit',
-        badgeColor: '#7C3AED',
         children: [
           { id: 'control-audit', label: 'Order Control & Traceability' },
         ],
@@ -261,8 +247,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconReports size={18} />,
         color: '#2563EB',
         gradient: 'linear-gradient(135deg, #1D4ED8 0%, #3B82F6 100%)',
-        badge: '7-Tier',
-        badgeColor: '#2563EB',
         children: [
           { id: 'consolidated-reporting', label: 'Group & Regional Drill-Down' },
         ],
@@ -273,8 +257,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         icon: <IconInventory size={18} />,
         color: '#EA580C',
         gradient: 'linear-gradient(135deg, #C2410C 0%, #EA580C 100%)',
-        badge: 'Live',
-        badgeColor: '#EA580C',
         children: [
           { id: 'warehouses', label: 'Warehouses Master' },
           { id: 'warehouse-stock', label: 'Stock On Hand & Valuation' },
@@ -516,7 +498,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const hasChildren = Boolean(item.children && item.children.length > 0);
             const isChildActive = hasChildren && item.children!.some((c) => c.id === activeRoute);
             const isDirectActive = activeRoute === item.id;
-            const isExpanded = expandedGroups[item.id] || Boolean(navSearch);
+            const isExpanded = (openGroupId === item.id) || Boolean(navSearch);
             const isActive = isDirectActive || isChildActive;
 
             return (
@@ -608,21 +590,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                   {!isCollapsed && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {item.badge && (
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            padding: '2px 7px',
-                            borderRadius: '999px',
-                            backgroundColor: item.badgeColor ? `${item.badgeColor}18` : '#F1F5F9',
-                            color: item.badgeColor || '#475569',
-                            fontWeight: 700,
-                            border: `1px solid ${item.badgeColor || '#CBD5E1'}40`,
-                          }}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
                       {hasChildren && (
                         <span
                           style={{
@@ -707,20 +674,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             />
                           )}
                           <span style={{ flex: 1 }}>{child.label}</span>
-                          {child.badge && (
-                            <span
-                              style={{
-                                fontSize: '9px',
-                                padding: '1px 6px',
-                                borderRadius: '999px',
-                                backgroundColor: '#F1F5F9',
-                                color: '#64748B',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {child.badge}
-                            </span>
-                          )}
                         </div>
                       );
                     })}

@@ -248,6 +248,7 @@ export interface CreateSalesInvoiceDto {
   organizationId?: string;
   companyId?: string;
   salesOrderId?: string;
+  schemeId?: string;
   dealerId: string;
   salesOfficerId?: string;
   warehouseId: string;
@@ -593,8 +594,15 @@ export interface CreatePricingSchemeDto {
   maxQuantity?: number;
   applicableDealerTier?: string;
   paymentTerm?: string;
+  paymentType?: string;
+  paymentTypes?: string[];
   startDate?: string;
   endDate?: string;
+  collectionStartDate?: string;
+  collectionEndDate?: string;
+  invoiceStartDate?: string;
+  invoiceEndDate?: string;
+  discountPct?: number;
   defaultDiscountPct?: number;
   additionalBookingPct?: number;
   cashDiscountPct?: number;
@@ -623,8 +631,15 @@ export interface UpdatePricingSchemeDto {
   maxQuantity?: number;
   applicableDealerTier?: string;
   paymentTerm?: string;
+  paymentType?: string;
+  paymentTypes?: string[];
   startDate?: string;
   endDate?: string;
+  collectionStartDate?: string;
+  collectionEndDate?: string;
+  invoiceStartDate?: string;
+  invoiceEndDate?: string;
+  discountPct?: number;
   defaultDiscountPct?: number;
   additionalBookingPct?: number;
   cashDiscountPct?: number;
@@ -634,6 +649,21 @@ export interface UpdatePricingSchemeDto {
   isMobileSelectable?: boolean;
   isInternalOnly?: boolean;
   priority?: number;
+  status?: string;
+}
+
+export interface CreateSchemeTypeDto {
+  code: string;
+  name: string;
+  defaultShortCode?: string;
+  description?: string;
+  status?: string;
+}
+
+export interface CreateSchemePaymentTypeDto {
+  code: string;
+  name: string;
+  description?: string;
   status?: string;
 }
 

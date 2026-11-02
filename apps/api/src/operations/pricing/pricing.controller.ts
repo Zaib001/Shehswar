@@ -165,10 +165,27 @@ export class PricingController {
 
   @Post('scheme-types')
   async createSchemeType(
-    @Body() body: { code: string; name: string; description?: string },
+    @Body() body: { code: string; name: string; defaultShortCode?: string; description?: string; status?: string },
     @CurrentUser() user: AuthUser,
   ) {
     return this.pricingService.createSchemeType(body, user);
+  }
+
+  // ==========================================
+  // SCHEME PAYMENT TYPES (REQUIREMENTS 15 - 18)
+  // ==========================================
+
+  @Get('payment-types')
+  async getSchemePaymentTypes(@CurrentUser() user: AuthUser) {
+    return this.pricingService.getSchemePaymentTypes(user.organizationId, user.companyId);
+  }
+
+  @Post('payment-types')
+  async createSchemePaymentType(
+    @Body() body: { code: string; name: string; description?: string; status?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.createSchemePaymentType(body, user);
   }
 
   // ==========================================
@@ -227,6 +244,14 @@ export class PricingController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.pricingService.updatePricingScheme(id, dto, user);
+  }
+
+  @Delete('schemes/:id')
+  async deletePricingScheme(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.pricingService.deletePricingScheme(id, user);
   }
 
   // ==========================================

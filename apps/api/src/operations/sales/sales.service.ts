@@ -1108,6 +1108,26 @@ export class SalesService {
       throw new ConflictException('Order already converted to sale');
     }
 
+    // Requirement 21: Validate Invoice Date against Scheme Invoice Period
+    if (order.schemeId) {
+      const scheme = await this.prisma.pricingScheme.findUnique({
+        where: { id: order.schemeId },
+      });
+      if (scheme) {
+        const invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : new Date();
+        const invStart = scheme.invoiceStartDate || scheme.startDate || scheme.effectiveFrom;
+        const invEnd = scheme.invoiceEndDate || scheme.endDate || scheme.effectiveTo;
+        if (invStart && invoiceDate < invStart) {
+          const periodStr = `${new Date(invStart).toLocaleDateString()} to ${invEnd ? new Date(invEnd).toLocaleDateString() : 'ongoing'}`;
+          throw new BadRequestException(`This Scheme '${scheme.name}' is not valid for the selected invoice date. Valid invoice period: ${periodStr}`);
+        }
+        if (invEnd && invoiceDate > invEnd) {
+          const periodStr = `${new Date(invStart).toLocaleDateString()} to ${new Date(invEnd).toLocaleDateString()}`;
+          throw new BadRequestException(`This Scheme '${scheme.name}' is not valid for the selected invoice date. Valid invoice period: ${periodStr}`);
+        }
+      }
+    }
+
     const warehouseId = dto.warehouseId ?? order.warehouseId;
     if (!warehouseId) throw new BadRequestException('Warehouse required for sale posting');
 
@@ -1489,6 +1509,26 @@ export class SalesService {
       },
     });
     if (!dealer) throw new NotFoundException('Dealer not found');
+
+    // Requirement 21: Validate Invoice Date against Scheme Invoice Period
+    if (dto.schemeId) {
+      const scheme = await this.prisma.pricingScheme.findUnique({
+        where: { id: dto.schemeId },
+      });
+      if (scheme) {
+        const invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : new Date();
+        const invStart = scheme.invoiceStartDate || scheme.startDate || scheme.effectiveFrom;
+        const invEnd = scheme.invoiceEndDate || scheme.endDate || scheme.effectiveTo;
+        if (invStart && invoiceDate < invStart) {
+          const periodStr = `${new Date(invStart).toLocaleDateString()} to ${invEnd ? new Date(invEnd).toLocaleDateString() : 'ongoing'}`;
+          throw new BadRequestException(`This Scheme '${scheme.name}' is not valid for the selected invoice date. Valid invoice period: ${periodStr}`);
+        }
+        if (invEnd && invoiceDate > invEnd) {
+          const periodStr = `${new Date(invStart).toLocaleDateString()} to ${new Date(invEnd).toLocaleDateString()}`;
+          throw new BadRequestException(`This Scheme '${scheme.name}' is not valid for the selected invoice date. Valid invoice period: ${periodStr}`);
+        }
+      }
+    }
 
     const invoiceNumber = await this.documentNumbering.getNextDocumentNumber({
       organizationId,

@@ -43,6 +43,7 @@ import {
   IconPercent,
   IconClock,
   IconPrinter,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
@@ -67,6 +68,7 @@ export const PricingManagementView: React.FC = () => {
   const [authorityLimits, setAuthorityLimits] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [dealers, setDealers] = useState<any[]>([]);
+  const [paymentTypes, setPaymentTypes] = useState<any[]>([]);
 
   // Filter & Search states
   const [rateListSearch, setRateListSearch] = useState('');
@@ -86,24 +88,49 @@ export const PricingManagementView: React.FC = () => {
     shortCode: '',
     code: '',
     description: '',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '',
+    collectionStartDate: new Date().toISOString().split('T')[0],
+    collectionEndDate: '',
+    invoiceStartDate: new Date().toISOString().split('T')[0],
+    invoiceEndDate: '',
     status: 'ACTIVE',
-    defaultDiscountPct: '' as number | '',
-    additionalBookingPct: '' as number | '',
-    cashDiscountPct: '' as number | '',
-    calculationMethod: 'ADDITIVE',
-    paymentTerm: 'CASH',
-    isMobileVisible: true,
-    isMobileSelectable: true,
+    discountPct: '' as number | '',
+    paymentType: 'CASH',
   });
 
-  // Dynamic Scheme Type Modal State
+  // Scheme Type Searchable Combobox State
+  const [schemeTypeComboQuery, setSchemeTypeComboQuery] = useState('');
+  const [schemeTypeComboOpen, setSchemeTypeComboOpen] = useState(false);
+  const [schemeTypeComboHighlight, setSchemeTypeComboHighlight] = useState(0);
+  const schemeTypeComboInputRef = useRef<HTMLInputElement>(null);
+  const schemeTypeListRef = useRef<HTMLUListElement>(null);
+
+  // Scheme Form field refs for keyboard-first navigation (Requirement 22)
+  const schemeNameInputRef = useRef<HTMLInputElement>(null);
+  const schemeShortCodeInputRef = useRef<HTMLInputElement>(null);
+  const colStartInputRef = useRef<HTMLInputElement>(null);
+  const colEndInputRef = useRef<HTMLInputElement>(null);
+  const invStartInputRef = useRef<HTMLInputElement>(null);
+  const invEndInputRef = useRef<HTMLInputElement>(null);
+  const discountInputRef = useRef<HTMLInputElement>(null);
+  const saveSchemeBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Dynamic Scheme Type Modal State (Requirements 2, 3)
   const [isSchemeTypeModalOpen, setIsSchemeTypeModalOpen] = useState(false);
   const [schemeTypeForm, setSchemeTypeForm] = useState({
     code: '',
     name: '',
+    defaultShortCode: '',
     description: '',
+    status: 'ACTIVE',
+  });
+
+  // Dynamic Payment Type Modal State (Requirements 15, 16, 17)
+  const [isPaymentTypeModalOpen, setIsPaymentTypeModalOpen] = useState(false);
+  const [paymentTypeForm, setPaymentTypeForm] = useState({
+    name: '',
+    code: '',
+    description: '',
+    status: 'ACTIVE',
   });
 
   // ==========================================================
@@ -161,6 +188,12 @@ export const PricingManagementView: React.FC = () => {
     notes: '',
   });
 
+  // Deletion Modals State
+  const [rateListToDelete, setRateListToDelete] = useState<any | null>(null);
+  const [isDeletingRateList, setIsDeletingRateList] = useState(false);
+  const [schemeToDelete, setSchemeToDelete] = useState<any | null>(null);
+  const [isDeletingScheme, setIsDeletingScheme] = useState(false);
+
   // Authority Limit Edit Modal State
   const [isAuthorityModalOpen, setIsAuthorityModalOpen] = useState(false);
   const [selectedAuthority, setSelectedAuthority] = useState<any | null>(null);
@@ -190,7 +223,7 @@ export const PricingManagementView: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [rateListsRes, schemesRes, schemeTypesRes, limitsRes, productsRes, dealersRes] =
+      const [rateListsRes, schemesRes, schemeTypesRes, limitsRes, productsRes, dealersRes, paymentTypesRes] =
         await Promise.all([
           ApiClient.get<any>('/api/v1/pricing/rate-lists'),
           ApiClient.get<any>('/api/v1/pricing/schemes'),
@@ -198,6 +231,7 @@ export const PricingManagementView: React.FC = () => {
           ApiClient.get<any>('/api/v1/pricing/authority-limits'),
           ApiClient.get<any>('/api/v1/pricing/active-products'),
           ApiClient.get<any>('/api/v1/dealers'),
+          ApiClient.get<any>('/api/v1/pricing/payment-types'),
         ]);
 
       const rateListsData = rateListsRes.data?.data || rateListsRes.data || [];
@@ -206,6 +240,7 @@ export const PricingManagementView: React.FC = () => {
       const limitsData = limitsRes.data?.data || limitsRes.data || [];
       const productsData = productsRes.data?.data || productsRes.data || [];
       const dealersData = dealersRes.data?.data || dealersRes.data || [];
+      const paymentTypesData = paymentTypesRes.data?.data || paymentTypesRes.data || [];
 
       setRateLists(Array.isArray(rateListsData) ? rateListsData : []);
       setSchemes(Array.isArray(schemesData) ? schemesData : []);
@@ -213,6 +248,7 @@ export const PricingManagementView: React.FC = () => {
       setAuthorityLimits(Array.isArray(limitsData) ? limitsData : []);
       setAllProducts(Array.isArray(productsData) ? productsData : []);
       setDealers(Array.isArray(dealersData) ? dealersData : []);
+      setPaymentTypes(Array.isArray(paymentTypesData) ? paymentTypesData : []);
 
       // Pre-select simulator defaults
       if (productsData.length > 0 && !simProductId) {
@@ -248,119 +284,217 @@ export const PricingManagementView: React.FC = () => {
     const defaultType = schemeTypes.find((t) => t.code === 'SR') || schemeTypes[0] || {
       id: '',
       code: 'SR',
-      name: 'Seasonal Rate List',
+      name: 'Seasonal Scheme',
+      defaultShortCode: 'SR',
     };
 
     setSchemeForm({
       schemeTypeId: defaultType.id || '',
       schemeTypeCode: defaultType.code,
-      name: '',
-      shortCode: '',
+      name: defaultType.name || 'Seasonal Scheme',
+      shortCode: defaultType.defaultShortCode || defaultType.code || '',
       code: '',
       description: '',
-      startDate: new Date().toISOString().split('T')[0] as string,
-      endDate: '',
+      collectionStartDate: new Date().toISOString().split('T')[0],
+      collectionEndDate: '',
+      invoiceStartDate: new Date().toISOString().split('T')[0],
+      invoiceEndDate: '',
       status: 'ACTIVE',
-      defaultDiscountPct: '',
-      additionalBookingPct: '',
-      cashDiscountPct: '',
-      calculationMethod: 'ADDITIVE',
-      paymentTerm: 'CASH',
-      isMobileVisible: true,
-      isMobileSelectable: true,
+      discountPct: '',
+      paymentType: paymentTypes[0]?.code || 'CASH',
     });
+    setSchemeTypeComboQuery(defaultType.id ? `${defaultType.name} (${defaultType.code})` : '');
+    setSchemeTypeComboOpen(false);
     setIsSchemeModalOpen(true);
+    setTimeout(() => schemeTypeComboInputRef.current?.focus(), 80);
   };
 
   const handleOpenEditScheme = (scheme: any) => {
     setSelectedScheme(scheme);
-    const startStr = scheme.startDate
+    const colStartStr = (scheme.collectionStartDate
+      ? new Date(scheme.collectionStartDate).toISOString().split('T')[0]
+      : scheme.startDate
       ? new Date(scheme.startDate).toISOString().split('T')[0]
-      : new Date(scheme.effectiveFrom || Date.now()).toISOString().split('T')[0];
-    const endStr = scheme.endDate
+      : new Date().toISOString().split('T')[0]) || '';
+    const colEndStr = (scheme.collectionEndDate
+      ? new Date(scheme.collectionEndDate).toISOString().split('T')[0]
+      : scheme.endDate
       ? new Date(scheme.endDate).toISOString().split('T')[0]
+      : '') || '';
+    const invStartStr = (scheme.invoiceStartDate
+      ? new Date(scheme.invoiceStartDate).toISOString().split('T')[0]
+      : scheme.effectiveFrom
+      ? new Date(scheme.effectiveFrom).toISOString().split('T')[0]
+      : colStartStr) || '';
+    const invEndStr = (scheme.invoiceEndDate
+      ? new Date(scheme.invoiceEndDate).toISOString().split('T')[0]
       : scheme.effectiveTo
       ? new Date(scheme.effectiveTo).toISOString().split('T')[0]
+      : colEndStr) || '';
+
+    const disc = scheme.discountPct !== null && scheme.discountPct !== undefined
+      ? Number(scheme.discountPct)
+      : scheme.defaultDiscountPct !== null && scheme.defaultDiscountPct !== undefined
+      ? Number(scheme.defaultDiscountPct)
       : '';
+
+    const stCode = scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR';
+    const stName = scheme.schemeTypeRef?.name || scheme.schemeType || stCode;
 
     setSchemeForm({
       schemeTypeId: scheme.schemeTypeId || '',
-      schemeTypeCode: scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR',
+      schemeTypeCode: stCode,
       name: scheme.name || '',
       shortCode: scheme.shortCode || '',
       code: scheme.code || '',
       description: scheme.description || '',
-      startDate: startStr || '',
-      endDate: endStr || '',
+      collectionStartDate: colStartStr,
+      collectionEndDate: colEndStr,
+      invoiceStartDate: invStartStr,
+      invoiceEndDate: invEndStr,
       status: scheme.status || 'ACTIVE',
-      defaultDiscountPct:
-        scheme.defaultDiscountPct !== null && scheme.defaultDiscountPct !== undefined
-          ? Number(scheme.defaultDiscountPct)
-          : '',
-      additionalBookingPct:
-        scheme.additionalBookingPct !== null && scheme.additionalBookingPct !== undefined
-          ? Number(scheme.additionalBookingPct)
-          : '',
-      cashDiscountPct:
-        scheme.cashDiscountPct !== null && scheme.cashDiscountPct !== undefined
-          ? Number(scheme.cashDiscountPct)
-          : '',
-      calculationMethod: scheme.calculationMethod || 'ADDITIVE',
-      paymentTerm: scheme.paymentTerm || 'CASH',
-      isMobileVisible: scheme.isMobileVisible ?? true,
-      isMobileSelectable: scheme.isMobileSelectable ?? true,
+      discountPct: disc,
+      paymentType: scheme.paymentType || 'CASH',
     });
+    setSchemeTypeComboQuery(`${stName} (${stCode})`);
+    setSchemeTypeComboOpen(false);
     setIsSchemeModalOpen(true);
   };
 
-  const handleSchemeTypeChange = (typeId: string) => {
-    const selected = schemeTypes.find((t) => t.id === typeId);
-    if (selected) {
+  /**
+   * Requirements 4, 5, 6: Selecting Scheme Type auto-populates Type Code, Scheme Name, and Default Short Code
+   */
+  const handleSelectSchemeType = (typeId: string) => {
+    const st = schemeTypes.find((t) => t.id === typeId);
+    if (st) {
+      setSchemeTypeComboQuery(`${st.name} (${st.code})`);
       setSchemeForm((prev) => ({
         ...prev,
-        schemeTypeId: selected.id,
-        schemeTypeCode: selected.code,
-        // Set commercial hints based on type
-        cashDiscountPct: selected.code === 'CA' ? 10 : prev.cashDiscountPct,
-        additionalBookingPct: selected.code === 'ABC' ? 5 : prev.additionalBookingPct,
+        schemeTypeId: st.id,
+        schemeTypeCode: st.code,
+        name: st.name,
+        shortCode: st.defaultShortCode || st.code || '',
       }));
+      setSchemeTypeComboOpen(false);
+      setTimeout(() => schemeNameInputRef.current?.focus(), 60);
     }
   };
 
+  const schemeTypeComboResults = useMemo(() => {
+    const q = schemeTypeComboQuery.toLowerCase().trim();
+    if (!q) return schemeTypes;
+    return schemeTypes.filter(
+      (t) =>
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.code || '').toLowerCase().includes(q) ||
+        (t.defaultShortCode || '').toLowerCase().includes(q)
+    );
+  }, [schemeTypes, schemeTypeComboQuery]);
+
+  const handleSchemeTypeComboKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!schemeTypeComboOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      setSchemeTypeComboOpen(true);
+      setSchemeTypeComboHighlight(0);
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSchemeTypeComboHighlight((h) => Math.min(h + 1, schemeTypeComboResults.length - 1));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSchemeTypeComboHighlight((h) => Math.max(h - 1, 0));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (schemeTypeComboOpen && schemeTypeComboResults[schemeTypeComboHighlight]) {
+        handleSelectSchemeType(schemeTypeComboResults[schemeTypeComboHighlight].id);
+      } else {
+        schemeNameInputRef.current?.focus();
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      setSchemeTypeComboOpen(false);
+      return;
+    }
+  };
+
+  /**
+   * Save Scheme (Requirements 1, 6, 8, 9, 10, 11, 13, 14, 15)
+   */
   const handleSaveScheme = async () => {
     if (!schemeForm.name.trim()) {
       showToast({ title: 'Validation Error', message: 'Scheme Name is required.', type: 'error' });
+      schemeNameInputRef.current?.focus();
       return;
     }
-    if (!schemeForm.shortCode.trim()) {
-      showToast({ title: 'Validation Error', message: 'Scheme Short Code is required.', type: 'error' });
+    if (!schemeForm.collectionStartDate) {
+      showToast({ title: 'Validation Error', message: 'Collection Start Date is required.', type: 'error' });
+      colStartInputRef.current?.focus();
       return;
     }
+    if (!schemeForm.invoiceStartDate) {
+      showToast({ title: 'Validation Error', message: 'Invoice Start Date is required.', type: 'error' });
+      invStartInputRef.current?.focus();
+      return;
+    }
+
+    if (schemeForm.collectionEndDate && new Date(schemeForm.collectionStartDate) > new Date(schemeForm.collectionEndDate)) {
+      showToast({
+        title: 'Validation Error',
+        message: 'Collection Start Date must be earlier than or equal to Collection End Date.',
+        type: 'error',
+      });
+      return;
+    }
+
+    if (schemeForm.invoiceEndDate && new Date(schemeForm.invoiceStartDate) > new Date(schemeForm.invoiceEndDate)) {
+      showToast({
+        title: 'Validation Error',
+        message: 'Invoice Start Date must be earlier than or equal to Invoice End Date.',
+        type: 'error',
+      });
+      return;
+    }
+
+    const discountNum = schemeForm.discountPct !== '' && !isNaN(Number(schemeForm.discountPct))
+      ? Number(schemeForm.discountPct)
+      : 0;
+
+    const shortCodeVal = schemeForm.shortCode.trim() ? schemeForm.shortCode.trim().toUpperCase() : undefined;
+    const generatedCode = shortCodeVal
+      ? `${schemeForm.schemeTypeCode || 'SCH'}-${shortCodeVal}`
+      : `SCH-${schemeForm.schemeTypeCode || 'SR'}-${Date.now().toString().slice(-6)}`;
+
+    const payload = {
+      name: schemeForm.name.trim(),
+      code: schemeForm.code || generatedCode,
+      shortCode: shortCodeVal,
+      schemeTypeId: schemeForm.schemeTypeId || undefined,
+      schemeTypeCode: schemeForm.schemeTypeCode || 'SR',
+      description: schemeForm.description,
+      collectionStartDate: schemeForm.collectionStartDate,
+      collectionEndDate: schemeForm.collectionEndDate || undefined,
+      invoiceStartDate: schemeForm.invoiceStartDate,
+      invoiceEndDate: schemeForm.invoiceEndDate || undefined,
+      startDate: schemeForm.collectionStartDate,
+      endDate: schemeForm.collectionEndDate || schemeForm.invoiceEndDate || undefined,
+      effectiveFrom: schemeForm.invoiceStartDate,
+      effectiveTo: schemeForm.invoiceEndDate || undefined,
+      discountPct: discountNum,
+      defaultDiscountPct: discountNum,
+      cashDiscountPct: discountNum,
+      paymentType: schemeForm.paymentType || 'CASH',
+      paymentTypes: [schemeForm.paymentType || 'CASH'],
+      status: schemeForm.status || 'ACTIVE',
+      isMobileVisible: true,
+      isMobileSelectable: true,
+    };
 
     try {
-      const generatedCode = `${schemeForm.schemeTypeCode}-${schemeForm.shortCode.toUpperCase()}`;
-      const payload = {
-        name: schemeForm.name.trim(),
-        code: schemeForm.code || generatedCode,
-        shortCode: schemeForm.shortCode.trim().toUpperCase(),
-        schemeTypeId: schemeForm.schemeTypeId || undefined,
-        schemeTypeCode: schemeForm.schemeTypeCode,
-        description: schemeForm.description,
-        startDate: schemeForm.startDate ? new Date(schemeForm.startDate).toISOString() : undefined,
-        endDate: schemeForm.endDate ? new Date(schemeForm.endDate).toISOString() : undefined,
-        status: schemeForm.status,
-        defaultDiscountPct:
-          schemeForm.defaultDiscountPct !== '' ? Number(schemeForm.defaultDiscountPct) : undefined,
-        additionalBookingPct:
-          schemeForm.additionalBookingPct !== '' ? Number(schemeForm.additionalBookingPct) : undefined,
-        cashDiscountPct:
-          schemeForm.cashDiscountPct !== '' ? Number(schemeForm.cashDiscountPct) : undefined,
-        calculationMethod: schemeForm.calculationMethod,
-        paymentTerm: schemeForm.paymentTerm,
-        isMobileVisible: schemeForm.isMobileVisible,
-        isMobileSelectable: schemeForm.isMobileSelectable,
-      };
-
       if (selectedScheme?.id) {
         await ApiClient.put(`/api/v1/pricing/schemes/${selectedScheme.id}`, payload);
         showToast({
@@ -372,7 +506,7 @@ export const PricingManagementView: React.FC = () => {
         await ApiClient.post('/api/v1/pricing/schemes', payload);
         showToast({
           title: 'Scheme Created',
-          message: `Scheme '${schemeForm.name}' (${schemeForm.shortCode}) created successfully.`,
+          message: `Scheme '${schemeForm.name}' created successfully in database.`,
           type: 'success',
         });
       }
@@ -384,6 +518,9 @@ export const PricingManagementView: React.FC = () => {
     }
   };
 
+  /**
+   * Requirement 3: Add Scheme Type with immediate availability without page refresh
+   */
   const handleSaveSchemeType = async () => {
     if (!schemeTypeForm.code.trim() || !schemeTypeForm.name.trim()) {
       showToast({ title: 'Validation Error', message: 'Type Code and Name are required.', type: 'error' });
@@ -394,7 +531,9 @@ export const PricingManagementView: React.FC = () => {
       const res = await ApiClient.post<any>('/api/v1/pricing/scheme-types', {
         code: schemeTypeForm.code.trim().toUpperCase(),
         name: schemeTypeForm.name.trim(),
+        defaultShortCode: schemeTypeForm.defaultShortCode.trim().toUpperCase() || schemeTypeForm.code.trim().toUpperCase(),
         description: schemeTypeForm.description.trim(),
+        status: schemeTypeForm.status || 'ACTIVE',
       });
       const created = res.data?.data || res.data;
       showToast({
@@ -403,17 +542,60 @@ export const PricingManagementView: React.FC = () => {
         type: 'success',
       });
       setIsSchemeTypeModalOpen(false);
-      setSchemeTypeForm({ code: '', name: '', description: '' });
+      setSchemeTypeForm({ code: '', name: '', defaultShortCode: '', description: '', status: 'ACTIVE' });
 
-      // Refresh scheme types
+      // Refresh scheme types immediately without page refresh
       const typesRes = await ApiClient.get<any>('/api/v1/pricing/scheme-types');
       const types = typesRes.data?.data || typesRes.data || [];
       setSchemeTypes(types);
+
+      // Auto-select in scheme form and populate defaults
+      handleSelectSchemeType(created.id);
     } catch (err: any) {
       showToast({ title: 'Error Creating Scheme Type', message: err.message, type: 'error' });
     }
   };
 
+  /**
+   * Requirement 16, 17: Add Payment Type dynamically
+   */
+  const handleSavePaymentType = async () => {
+    if (!paymentTypeForm.name.trim()) {
+      showToast({ title: 'Validation Error', message: 'Payment Type Name is required.', type: 'error' });
+      return;
+    }
+    const code = (paymentTypeForm.code || paymentTypeForm.name).trim().toUpperCase().replace(/\s+/g, '_');
+
+    try {
+      const res = await ApiClient.post<any>('/api/v1/pricing/payment-types', {
+        name: paymentTypeForm.name.trim(),
+        code,
+        description: paymentTypeForm.description.trim(),
+        status: paymentTypeForm.status || 'ACTIVE',
+      });
+      const created = res.data?.data || res.data;
+      showToast({
+        title: 'Payment Type Added',
+        message: `Payment Type '${created.name}' (${created.code}) created successfully.`,
+        type: 'success',
+      });
+      setIsPaymentTypeModalOpen(false);
+      setPaymentTypeForm({ name: '', code: '', description: '', status: 'ACTIVE' });
+
+      // Refresh payment types immediately without page refresh
+      const ptRes = await ApiClient.get<any>('/api/v1/pricing/payment-types');
+      const pts = ptRes.data?.data || ptRes.data || [];
+      setPaymentTypes(pts);
+
+      // Auto-select in scheme form
+      setSchemeForm((prev) => ({
+        ...prev,
+        paymentType: created.code,
+      }));
+    } catch (err: any) {
+      showToast({ title: 'Error Creating Payment Type', message: err.message, type: 'error' });
+    }
+  };
   // ==========================================================
   // RATE LIST ACTIONS (Select Scheme -> Auto Load Products)
   // Requirements 6 - 11, 13, 21
@@ -509,27 +691,48 @@ export const PricingManagementView: React.FC = () => {
           : prev.effectiveTo) || '',
       }));
 
-      // Map loaded products to editable rate list items
-      const mappedItems = (products || []).map((p: any) => ({
-        finishedProductId: p.finishedProductId,
-        productCode: p.productCode,
-        productName: p.productName,
-        category: p.category,
-        packagingMaterial: p.packagingMaterial,
-        packSize: p.packSize,
-        unit: p.unit || 'Unit',
-        baseRate: Number(p.baseSellingPrice || 0),
-        schemeRate: Number(p.schemeRate || p.baseSellingPrice || 0),
-        discountPercent: Number(p.discountPercent || 0),
-        rateType: p.rateType || 'DIRECT',
-        minAllowedRate: Math.round(Number(p.schemeRate || p.baseSellingPrice || 0) * 0.8),
-      }));
+      const schemeDiscount = Number(
+        scheme.discountPct ||
+        scheme.defaultDiscountPct ||
+        scheme.cashDiscountPct ||
+        scheme.additionalBookingPct ||
+        0
+      );
+
+      setBulkAdjustmentPct(schemeDiscount > 0 ? schemeDiscount : '');
+
+      // Map loaded products to editable rate list items with automatic discount application!
+      const mappedItems = (products || []).map((p: any) => {
+        const baseRate = Number(p.baseSellingPrice || p.baseRate || 0);
+        const itemDisc = Number(p.discountPercent || p.discountValue || 0);
+        const effectiveDisc = itemDisc > 0 ? itemDisc : schemeDiscount;
+        const schemeRate = effectiveDisc > 0
+          ? Math.round(baseRate * (1 - effectiveDisc / 100))
+          : Number(p.schemeRate || baseRate);
+
+        return {
+          finishedProductId: p.finishedProductId,
+          productCode: p.productCode,
+          productName: p.productName,
+          category: p.category,
+          packagingMaterial: p.packagingMaterial,
+          packSize: p.packSize,
+          unit: p.unit || 'Unit',
+          baseRate,
+          schemeRate,
+          discountPercent: effectiveDisc,
+          rateType: effectiveDisc > 0 ? 'DISCOUNT' : (p.rateType || 'DIRECT'),
+          minAllowedRate: Math.round(schemeRate * 0.8),
+        };
+      });
 
       setRateListItems(mappedItems);
 
       showToast({
         title: 'Finished Products Auto-Loaded',
-        message: `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
+        message: schemeDiscount > 0
+          ? `Loaded ${mappedItems.length} products with ${schemeDiscount}% scheme discount applied.`
+          : `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
         type: 'success',
       });
     } catch (err: any) {
@@ -540,6 +743,55 @@ export const PricingManagementView: React.FC = () => {
       });
     } finally {
       setIsLoadingSchemeProducts(false);
+    }
+  };
+
+  /**
+   * Delete Handlers
+   */
+  const handleConfirmDeleteRateList = async () => {
+    if (!rateListToDelete) return;
+    setIsDeletingRateList(true);
+    try {
+      await ApiClient.delete(`/api/v1/pricing/rate-lists/${rateListToDelete.id}`);
+      showToast({
+        title: 'Rate List Deleted',
+        message: `Rate list '${rateListToDelete.name || rateListToDelete.code}' was removed successfully.`,
+        type: 'success',
+      });
+      setRateListToDelete(null);
+      loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Error Deleting Rate List',
+        message: err.message || 'Failed to delete rate list',
+        type: 'error',
+      });
+    } finally {
+      setIsDeletingRateList(false);
+    }
+  };
+
+  const handleConfirmDeleteScheme = async () => {
+    if (!schemeToDelete) return;
+    setIsDeletingScheme(true);
+    try {
+      await ApiClient.delete(`/api/v1/pricing/schemes/${schemeToDelete.id}`);
+      showToast({
+        title: 'Scheme Deleted',
+        message: `Commercial scheme '${schemeToDelete.name}' was removed successfully.`,
+        type: 'success',
+      });
+      setSchemeToDelete(null);
+      loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Error Deleting Scheme',
+        message: err.message || 'Failed to delete commercial scheme',
+        type: 'error',
+      });
+    } finally {
+      setIsDeletingScheme(false);
     }
   };
 
@@ -622,36 +874,23 @@ export const PricingManagementView: React.FC = () => {
   };
 
   /**
-   * Bulk Percentage Adjust on All Items in Modal
+   * Automatically apply scheme discount across all products in real time
    */
-  const handleApplyBulkAdjustment = () => {
-    if (bulkAdjustmentPct === '' || isNaN(Number(bulkAdjustmentPct))) return;
-    const pct = Number(bulkAdjustmentPct);
-    const multiplier = 1 + pct / 100;
-
+  const handleApplySchemeDiscount = (newDiscountPct: number) => {
+    const validPct = Math.max(0, Math.min(100, Number(newDiscountPct) || 0));
     setRateListItems((prev) =>
       prev.map((item) => {
-        const newRate = Math.round(Number(item.schemeRate) * multiplier);
         const base = Number(item.baseRate) || 0;
-        let discountPct = 0;
-        if (base > 0 && newRate < base) {
-          discountPct = Math.round(((base - newRate) / base) * 1000) / 10;
-        }
+        const newRate = validPct > 0 ? Math.round(base * (1 - validPct / 100)) : base;
         return {
           ...item,
+          discountPercent: validPct,
           schemeRate: newRate,
-          discountPercent: discountPct,
+          rateType: validPct > 0 ? 'DISCOUNT' : 'DIRECT',
           minAllowedRate: Math.round(newRate * 0.8),
         };
       })
     );
-
-    showToast({
-      title: 'Bulk Adjustment Applied',
-      message: `Adjusted all ${rateListItems.length} product rates by ${pct > 0 ? '+' : ''}${pct}%.`,
-      type: 'info',
-    });
-    setBulkAdjustmentPct('');
   };
 
   /**
@@ -1251,7 +1490,7 @@ export const PricingManagementView: React.FC = () => {
                           <StatusBadge status={rl.status} />
                         </td>
                         <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
                             <Button
                               variant="secondary"
                               size="sm"
@@ -1284,6 +1523,15 @@ export const PricingManagementView: React.FC = () => {
                               title="Create New Version (Preserves Historical Transactions)"
                             >
                               <IconClock size={14} /> +Ver
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setRateListToDelete(rl)}
+                              title="Delete Rate List"
+                              style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                            >
+                              <IconTrash size={14} />
                             </Button>
                           </div>
                         </td>
@@ -1332,192 +1580,176 @@ export const PricingManagementView: React.FC = () => {
             </div>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-              gap: '18px',
-            }}
-          >
-            {filteredSchemes.map((sc) => {
-              const typeCode = sc.schemeTypeCode || sc.schemeTypeRef?.code || 'SR';
-              const typeName = sc.schemeTypeRef?.name || typeCode;
-              const shortCode = sc.shortCode || sc.code;
-              const status = sc.computedStatus || sc.status || 'ACTIVE';
-              const attachedRateLists = rateLists.filter((rl) => rl.schemeId === sc.id);
+          {filteredSchemes.length === 0 ? (
+            <EmptyState
+              title="No Schemes Configured Yet"
+              description="Click '+ Add Scheme' to define a commercial pricing scheme."
+              actionLabel="Add First Scheme"
+              onAction={() => handleOpenCreateScheme()}
+            />
+          ) : (
+            <div
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+              }}
+            >
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scheme Code</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scheme Name</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Scheme Type</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Discount %</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Payment Type</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Validity Window</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Rate Lists</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)' }}>Status</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSchemes.map((sc) => {
+                    const typeCode = sc.schemeTypeCode || sc.schemeTypeRef?.code || 'SR';
+                    const typeName = sc.schemeTypeRef?.name || typeCode;
+                    const shortCode = sc.shortCode || sc.code;
+                    const status = sc.computedStatus || sc.status || 'ACTIVE';
+                    const attachedRateLists = rateLists.filter((rl) => rl.schemeId === sc.id);
+                    const disc = Number(sc.discountPct ?? sc.defaultDiscountPct ?? sc.cashDiscountPct ?? 0);
 
-              return (
-                <Card key={sc.id} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <CardHeader
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      borderBottom: '1px solid var(--border-default)',
-                      paddingBottom: '12px',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span
-                          style={{
-                            fontSize: '12px',
-                            fontWeight: 900,
-                            color: '#047857',
-                            backgroundColor: '#ecfdf5',
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            border: '1px solid #a7f3d0',
-                          }}
-                        >
-                          {shortCode}
-                        </span>
-                        <StatusBadge status={status} />
-                      </div>
-                      <CardTitle style={{ fontSize: '16px', fontWeight: 800, marginTop: '6px' }}>
-                        {sc.name}
-                      </CardTitle>
-                    </div>
-                    <span
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        backgroundColor: '#f1f5f9',
-                        color: '#334155',
-                      }}
-                    >
-                      {typeName} ({typeCode})
-                    </span>
-                  </CardHeader>
-                  <CardContent style={{ flex: 1, paddingTop: '14px', fontSize: '13px' }}>
-                    {sc.description && (
-                      <p style={{ color: 'var(--text-secondary)', margin: '0 0 14px 0', fontSize: '12px' }}>
-                        {sc.description}
-                      </p>
-                    )}
-
-                    {/* Commercial Benefit Parameters */}
-                    <div style={{ marginBottom: '14px' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                        COMMERCIAL TERMS
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {sc.defaultDiscountPct > 0 && (
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '10px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: '#eff6ff',
-                              color: '#1d4ed8',
-                            }}
-                          >
-                            Default: {Number(sc.defaultDiscountPct)}%
-                          </span>
-                        )}
-                        {sc.cashDiscountPct > 0 && (
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '10px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: '#ecfdf5',
-                              color: '#047857',
-                            }}
-                          >
-                            Cash Discount: {Number(sc.cashDiscountPct)}%
-                          </span>
-                        )}
-                        {sc.additionalBookingPct > 0 && (
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '10px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: '#fef3c7',
-                              color: '#b45309',
-                            }}
-                          >
-                            Booking Benefit: {Number(sc.additionalBookingPct)}%
-                          </span>
-                        )}
-                        {typeCode === 'NNR' && (
-                          <span
-                            style={{
-                              padding: '3px 8px',
-                              borderRadius: '10px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              backgroundColor: '#f3e8ff',
-                              color: '#7e22ce',
-                            }}
-                          >
-                            Direct Net Net Pricing
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Metadata details */}
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 1fr',
-                        gap: '8px',
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-subtle)',
-                        fontSize: '11px',
-                        color: 'var(--text-secondary)',
-                        marginBottom: '14px',
-                      }}
-                    >
-                      <div>
-                        <strong>Validity Start:</strong>{' '}
-                        {new Date(sc.startDate || sc.effectiveFrom).toLocaleDateString()}
-                      </div>
-                      <div>
-                        <strong>Validity End:</strong>{' '}
-                        {sc.endDate || sc.effectiveTo
-                          ? new Date(sc.endDate || sc.effectiveTo).toLocaleDateString()
-                          : 'Ongoing'}
-                      </div>
-                      <div>
-                        <strong>Mobile:</strong>{' '}
-                        {sc.isMobileVisible ? <span style={{ color: '#059669' }}>Published</span> : 'Internal'}
-                      </div>
-                      <div>
-                        <strong>Rate Lists:</strong>{' '}
-                        <span style={{ fontWeight: 700, color: attachedRateLists.length > 0 ? '#047857' : '#d97706' }}>
-                          {attachedRateLists.length > 0 ? `${attachedRateLists.length} Attached` : 'Pending'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Quick Action buttons */}
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <Button variant="secondary" size="sm" onClick={() => handleOpenEditScheme(sc)}>
-                        <IconEdit size={14} /> Edit
-                      </Button>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleOpenCreateRateList(sc.id)}
-                        style={{ backgroundColor: '#059669' }}
+                    return (
+                      <tr
+                        key={sc.id}
+                        style={{ borderBottom: '1px solid var(--border-default)', transition: 'background 0.15s ease' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
-                        <IconLayers size={14} /> + Rate List
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              fontWeight: 800,
+                              fontSize: '12px',
+                              color: '#047857',
+                              backgroundColor: '#ecfdf5',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #a7f3d0',
+                              fontFamily: 'var(--font-mono, monospace)',
+                            }}
+                          >
+                            {shortCode}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{sc.name}</div>
+                          {sc.description && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {sc.description}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: '#f1f5f9',
+                              color: '#334155',
+                            }}
+                          >
+                            {typeName} ({typeCode})
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              backgroundColor: disc > 0 ? '#eff6ff' : '#f8fafc',
+                              color: disc > 0 ? '#1d4ed8' : '#64748b',
+                              border: disc > 0 ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                            }}
+                          >
+                            {disc > 0 ? `${disc}% Off` : '0% Direct'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: sc.paymentType === 'CREDIT' ? '#fef3c7' : '#ecfdf5',
+                              color: sc.paymentType === 'CREDIT' ? '#b45309' : '#047857',
+                            }}
+                          >
+                            {sc.paymentType || 'CASH'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          <div>{new Date(sc.startDate || sc.effectiveFrom).toLocaleDateString()}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                            to {sc.endDate || sc.effectiveTo ? new Date(sc.endDate || sc.effectiveTo).toLocaleDateString() : 'Ongoing'}
+                          </div>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              fontSize: '11px',
+                              backgroundColor: attachedRateLists.length > 0 ? '#ecfdf5' : '#fffbeb',
+                              color: attachedRateLists.length > 0 ? '#047857' : '#b45309',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              border: attachedRateLists.length > 0 ? '1px solid #a7f3d0' : '1px solid #fde68a',
+                            }}
+                          >
+                            {attachedRateLists.length} Attached
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <StatusBadge status={status} />
+                        </td>
+                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <Button variant="secondary" size="sm" onClick={() => handleOpenEditScheme(sc)} title="Edit Scheme">
+                              <IconEdit size={14} /> Edit
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleOpenCreateRateList(sc.id)}
+                              style={{ color: '#047857', borderColor: '#a7f3d0' }}
+                              title="Create Rate List from Scheme"
+                            >
+                              <IconPlus size={14} /> + Rate List
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setSchemeToDelete(sc)}
+                              style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                              title="Delete Scheme"
+                            >
+                              <IconTrash size={14} /> Delete
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -2286,17 +2518,43 @@ export const PricingManagementView: React.FC = () => {
                     value={rateListItemSearch}
                     onChange={(e) => setRateListItemSearch(e.target.value)}
                   />
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <Input
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      backgroundColor: '#ecfdf5',
+                      padding: '4px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #a7f3d0',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#065f46' }}>
+                      Scheme Discount:
+                    </span>
+                    <input
                       type="number"
-                      placeholder="±%"
-                      style={{ width: '70px', padding: '4px 8px', fontSize: '12px' }}
+                      placeholder="0"
+                      style={{
+                        width: '60px',
+                        padding: '4px 8px',
+                        fontSize: '12px',
+                        fontWeight: 800,
+                        color: '#065f46',
+                        border: '1px solid #059669',
+                        borderRadius: '6px',
+                        textAlign: 'center',
+                        outline: 'none',
+                        backgroundColor: '#fff',
+                      }}
                       value={bulkAdjustmentPct}
-                      onChange={(e) => setBulkAdjustmentPct(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setBulkAdjustmentPct(val);
+                        handleApplySchemeDiscount(Number(val) || 0);
+                      }}
                     />
-                    <Button variant="secondary" size="sm" onClick={handleApplyBulkAdjustment}>
-                      Adjust All
-                    </Button>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: '#065f46' }}>% (Auto-Applied)</span>
                   </div>
                 </div>
               )}
@@ -2640,7 +2898,7 @@ export const PricingManagementView: React.FC = () => {
       )}
 
       {/* ========================================================== */}
-      {/* MODAL: CREATE / EDIT SCHEME MASTER (Requirements 1 - 5)   */}
+      {/* MODAL: CREATE / EDIT SCHEME MASTER (Requirements 1 - 22)  */}
       {/* ========================================================== */}
       <Modal
         isOpen={isSchemeModalOpen}
@@ -2649,12 +2907,12 @@ export const PricingManagementView: React.FC = () => {
         size="lg"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Scheme Type & Predefined Type Code */}
+          {/* STEP 1: SCHEME TYPE & PREDEFINED TYPE CODE (Requirements 2, 4) */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <label style={{ fontSize: '12px', fontWeight: 700 }}>
-                  Scheme Type *
+                <label style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  Scheme Type * (Searchable Dropdown)
                 </label>
                 <button
                   type="button"
@@ -2672,154 +2930,334 @@ export const PricingManagementView: React.FC = () => {
                   + Add Scheme Type
                 </button>
               </div>
-              <Select
-                value={schemeForm.schemeTypeId}
-                onChange={(e) => handleSchemeTypeChange(e.target.value)}
-                options={schemeTypes.map((t) => ({
-                  value: t.id,
-                  label: `${t.name} (${t.code})`,
-                }))}
-              />
+
+              {/* Searchable Scheme Type Combobox */}
+              <div style={{ position: 'relative' }}>
+                <input
+                  ref={schemeTypeComboInputRef}
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Search scheme type (e.g. Seasonal, Advance Booking, CA)..."
+                  value={schemeTypeComboQuery}
+                  onChange={(e) => {
+                    setSchemeTypeComboQuery(e.target.value);
+                    setSchemeTypeComboOpen(true);
+                    setSchemeTypeComboHighlight(0);
+                  }}
+                  onFocus={() => { setSchemeTypeComboOpen(true); setSchemeTypeComboHighlight(0); }}
+                  onBlur={() => setTimeout(() => setSchemeTypeComboOpen(false), 160)}
+                  onKeyDown={handleSchemeTypeComboKeyDown}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    fontSize: '13px',
+                    border: schemeForm.schemeTypeId ? '2px solid #059669' : '1px solid var(--border-default)',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    backgroundColor: '#fff',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                {schemeTypeComboOpen && schemeTypeComboResults.length > 0 && (
+                  <ul
+                    ref={schemeTypeListRef}
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 9999,
+                      maxHeight: '200px',
+                      overflowY: 'auto',
+                      margin: '2px 0 0 0',
+                      padding: 0,
+                      listStyle: 'none',
+                      backgroundColor: '#fff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '6px',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                    }}
+                  >
+                    {schemeTypeComboResults.map((t, idx) => {
+                      const isHighlighted = idx === schemeTypeComboHighlight;
+                      return (
+                        <li
+                          key={t.id}
+                          onMouseDown={() => handleSelectSchemeType(t.id)}
+                          onMouseEnter={() => setSchemeTypeComboHighlight(idx)}
+                          style={{
+                            padding: '9px 12px',
+                            cursor: 'pointer',
+                            backgroundColor: isHighlighted ? '#ecfdf5' : 'transparent',
+                            borderBottom: '1px solid #f1f5f9',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              backgroundColor: '#ecfdf5',
+                              color: '#065f46',
+                            }}
+                          >
+                            {t.code}
+                          </span>
+                          <span style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
+                            {t.name}
+                          </span>
+                          {t.defaultShortCode && (
+                            <span style={{ fontSize: '11px', color: '#64748b', marginLeft: 'auto' }}>
+                              Default: {t.defaultShortCode}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             </div>
+
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Type Code (Predefined)
+                Type Code (Predefined/Automatic)
               </label>
-              <Input value={schemeForm.schemeTypeCode} disabled />
+              <Input
+                value={schemeForm.schemeTypeCode}
+                disabled
+                style={{ backgroundColor: '#f8fafc', fontWeight: 700, color: '#047857' }}
+              />
             </div>
           </div>
 
-          {/* Scheme Name & Scheme Short Code */}
+          {/* STEP 2: SCHEME NAME & SCHEME SHORT CODE (Requirements 5, 6, 7) */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                 Scheme Name * (Business/User-Friendly Name)
               </label>
               <Input
+                ref={schemeNameInputRef}
                 placeholder="e.g. Mega Carnival Open Mela, January Advance Booking 2027"
                 value={schemeForm.name}
                 onChange={(e) => setSchemeForm({ ...schemeForm, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    colStartInputRef.current?.focus();
+                  }
+                }}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Auto-populated from Scheme Type, editable for individual campaign name.
+              </span>
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Scheme Short Code *
+                Scheme Short Code (Optional)
               </label>
               <Input
-                placeholder="e.g. MCCM, ABC-27"
+                ref={schemeShortCodeInputRef}
+                placeholder="Optional e.g. MCCM"
                 value={schemeForm.shortCode}
                 onChange={(e) => setSchemeForm({ ...schemeForm, shortCode: e.target.value.toUpperCase() })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    colStartInputRef.current?.focus();
+                  }
+                }}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Optional shortcut reference.
+              </span>
             </div>
           </div>
 
-          {/* Dates & Status */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+          {/* STEP 3: FOUR DATES (Requirements 8, 9, 10) */}
+          <div
+            style={{
+              padding: '12px 14px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '6px',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Validity Periods (Collection & Invoice Dates Kept Strictly Independent)
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#0369a1' }}>
+                  Collection Start Date *
+                </label>
+                <Input
+                  ref={colStartInputRef}
+                  type="date"
+                  value={schemeForm.collectionStartDate}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, collectionStartDate: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      colEndInputRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#0369a1' }}>
+                  Collection End Date (Optional)
+                </label>
+                <Input
+                  ref={colEndInputRef}
+                  type="date"
+                  value={schemeForm.collectionEndDate}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, collectionEndDate: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      invStartInputRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#047857' }}>
+                  Invoice Start Date *
+                </label>
+                <Input
+                  ref={invStartInputRef}
+                  type="date"
+                  value={schemeForm.invoiceStartDate}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, invoiceStartDate: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      invEndInputRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#047857' }}>
+                  Invoice End Date (Optional)
+                </label>
+                <Input
+                  ref={invEndInputRef}
+                  type="date"
+                  value={schemeForm.invoiceEndDate}
+                  onChange={(e) => setSchemeForm({ ...schemeForm, invoiceEndDate: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      discountInputRef.current?.focus();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* STEP 4: COMMERCIAL FIELDS - SINGLE DISCOUNT %, PAYMENT TYPE, STATUS (Requirements 11, 13, 14, 15) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                Start Date *
+                Discount % (Optional)
               </label>
               <Input
-                type="date"
-                value={schemeForm.startDate}
-                onChange={(e) => setSchemeForm({ ...schemeForm, startDate: e.target.value })}
+                ref={discountInputRef}
+                type="number"
+                placeholder="0"
+                value={schemeForm.discountPct}
+                onChange={(e) =>
+                  setSchemeForm({
+                    ...schemeForm,
+                    discountPct: e.target.value === '' ? '' : Number(e.target.value),
+                  })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveSchemeBtnRef.current?.focus();
+                  }
+                }}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Default discount on products (0% if direct/net).
+              </span>
             </div>
+
             <div>
-              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-                End Date (Optional)
-              </label>
-              <Input
-                type="date"
-                value={schemeForm.endDate}
-                onChange={(e) => setSchemeForm({ ...schemeForm, endDate: e.target.value })}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700 }}>
+                  Payment Type *
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsPaymentTypeModalOpen(true)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#059669',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  + Add Payment Type
+                </button>
+              </div>
+              <Select
+                value={schemeForm.paymentType}
+                onChange={(valOrEvent: any) => {
+                  const val = typeof valOrEvent === 'string' ? valOrEvent : valOrEvent?.target?.value || 'CASH';
+                  setSchemeForm({ ...schemeForm, paymentType: val });
+                }}
+                options={paymentTypes.map((pt) => ({
+                  value: String(pt.code),
+                  label: `${pt.name} (${pt.code})`,
+                }))}
               />
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Dynamic payment applicability (Cash, Credit, etc.).
+              </span>
             </div>
+
             <div>
               <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
                 Status
               </label>
               <Select
                 value={schemeForm.status}
-                onChange={(e) => setSchemeForm({ ...schemeForm, status: e.target.value })}
+                onChange={(valOrEvent: any) => {
+                  const val = typeof valOrEvent === 'string' ? valOrEvent : valOrEvent?.target?.value || 'ACTIVE';
+                  setSchemeForm({ ...schemeForm, status: val });
+                }}
                 options={[
                   { value: 'ACTIVE', label: 'Active' },
-                  { value: 'SCHEDULED', label: 'Scheduled' },
                   { value: 'DRAFT', label: 'Draft' },
-                  { value: 'EXPIRED', label: 'Expired' },
                   { value: 'INACTIVE', label: 'Inactive' },
+                  { value: 'EXPIRED', label: 'Expired' },
                 ]}
               />
             </div>
           </div>
 
-          {/* Optional Commercial Fields (Requirement 5) */}
-          <div
-            style={{
-              padding: '14px',
-              borderRadius: '8px',
-              backgroundColor: 'var(--bg-subtle)',
-              border: '1px solid var(--border-default)',
-            }}
-          >
-            <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '10px' }}>
-              OPTIONAL COMMERCIAL PARAMETERS (Auto-Populates Rate Calculations)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Default Discount %
-                </label>
-                <Input
-                  type="number"
-                  placeholder="e.g. 15"
-                  value={schemeForm.defaultDiscountPct}
-                  onChange={(e) =>
-                    setSchemeForm({
-                      ...schemeForm,
-                      defaultDiscountPct: e.target.value === '' ? '' : Number(e.target.value),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Cash Discount % (CA)
-                </label>
-                <Input
-                  type="number"
-                  placeholder="e.g. 10"
-                  value={schemeForm.cashDiscountPct}
-                  onChange={(e) =>
-                    setSchemeForm({
-                      ...schemeForm,
-                      cashDiscountPct: e.target.value === '' ? '' : Number(e.target.value),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
-                  Additional Booking % (ABC)
-                </label>
-                <Input
-                  type="number"
-                  placeholder="e.g. 5"
-                  value={schemeForm.additionalBookingPct}
-                  onChange={(e) =>
-                    setSchemeForm({
-                      ...schemeForm,
-                      additionalBookingPct: e.target.value === '' ? '' : Number(e.target.value),
-                    })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-
           <div>
             <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-              Description / Notes
+              Description / Notes (Optional)
             </label>
             <Textarea
               rows={2}
@@ -2833,7 +3271,12 @@ export const PricingManagementView: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsSchemeModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSaveScheme} style={{ backgroundColor: '#059669' }}>
+            <Button
+              ref={saveSchemeBtnRef}
+              variant="primary"
+              onClick={handleSaveScheme}
+              style={{ backgroundColor: '#059669' }}
+            >
               Save Scheme
             </Button>
           </div>
@@ -2841,48 +3284,74 @@ export const PricingManagementView: React.FC = () => {
       </Modal>
 
       {/* ========================================================== */}
-      {/* MODAL: ADD SCHEME TYPE (Requirement 2 - Dynamic Types)     */}
+      {/* MODAL: ADD SCHEME TYPE (Requirement 2 & 3)                 */}
       {/* ========================================================== */}
       <Modal
         isOpen={isSchemeTypeModalOpen}
         onClose={() => setIsSchemeTypeModalOpen(false)}
-        title="Add Dynamic Scheme Type"
+        title="Add Scheme Type"
         size="md"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-            Create a new scheme type to support future commercial structures without modifying codebase.
+            Create a new scheme type without code modification. Available immediately in Scheme Type dropdown.
           </p>
-
-          <div>
-            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-              Scheme Type Code * (e.g. FLR, DL, VIP)
-            </label>
-            <Input
-              placeholder="e.g. VIP"
-              value={schemeTypeForm.code}
-              onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, code: e.target.value.toUpperCase() })}
-            />
-          </div>
 
           <div>
             <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
               Scheme Type Name *
             </label>
             <Input
-              placeholder="e.g. VIP Club Rate List"
+              placeholder="e.g. Seasonal Scheme, Advance Booking"
               value={schemeTypeForm.name}
               onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, name: e.target.value })}
             />
           </div>
 
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Type Code *
+              </label>
+              <Input
+                placeholder="e.g. SR, ABC, CA"
+                value={schemeTypeForm.code}
+                onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, code: e.target.value.toUpperCase() })}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                Default Short Code (Optional)
+              </label>
+              <Input
+                placeholder="e.g. SR"
+                value={schemeTypeForm.defaultShortCode}
+                onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, defaultShortCode: e.target.value.toUpperCase() })}
+              />
+            </div>
+          </div>
+
           <div>
             <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-              Description
+              Status
+            </label>
+            <Select
+              value={schemeTypeForm.status}
+              onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, status: e.target.value })}
+              options={[
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'INACTIVE', label: 'Inactive' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Description (Optional)
             </label>
             <Textarea
               rows={2}
-              placeholder="Commercial logic and description"
+              placeholder="Commercial description"
               value={schemeTypeForm.description}
               onChange={(e) => setSchemeTypeForm({ ...schemeTypeForm, description: e.target.value })}
             />
@@ -2894,6 +3363,79 @@ export const PricingManagementView: React.FC = () => {
             </Button>
             <Button variant="primary" onClick={handleSaveSchemeType} style={{ backgroundColor: '#059669' }}>
               Save Scheme Type
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ========================================================== */}
+      {/* MODAL: ADD PAYMENT TYPE (Requirements 15, 16, 17)          */}
+      {/* ========================================================== */}
+      <Modal
+        isOpen={isPaymentTypeModalOpen}
+        onClose={() => setIsPaymentTypeModalOpen(false)}
+        title="Add Payment Type"
+        size="md"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+            Create a new payment type dynamically (e.g. Advance, Bank, PDC). Available immediately without page refresh.
+          </p>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Payment Type Name *
+            </label>
+            <Input
+              placeholder="e.g. Advance, Bank Transfer, PDC"
+              value={paymentTypeForm.name}
+              onChange={(e) => setPaymentTypeForm({ ...paymentTypeForm, name: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Code *
+            </label>
+            <Input
+              placeholder="e.g. ADVANCE, BANK, PDC"
+              value={paymentTypeForm.code}
+              onChange={(e) => setPaymentTypeForm({ ...paymentTypeForm, code: e.target.value.toUpperCase() })}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Status
+            </label>
+            <Select
+              value={paymentTypeForm.status}
+              onChange={(e) => setPaymentTypeForm({ ...paymentTypeForm, status: e.target.value })}
+              options={[
+                { value: 'ACTIVE', label: 'Active' },
+                { value: 'INACTIVE', label: 'Inactive' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+              Description (Optional)
+            </label>
+            <Textarea
+              rows={2}
+              placeholder="Payment terms description"
+              value={paymentTypeForm.description}
+              onChange={(e) => setPaymentTypeForm({ ...paymentTypeForm, description: e.target.value })}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+            <Button variant="secondary" onClick={() => setIsPaymentTypeModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleSavePaymentType} style={{ backgroundColor: '#059669' }}>
+              Save Payment Type
             </Button>
           </div>
         </div>
@@ -2956,6 +3498,108 @@ export const PricingManagementView: React.FC = () => {
               </Button>
               <Button variant="primary" onClick={handleSaveAuthority}>
                 Save Authority Settings
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Rate List Delete Confirmation Modal */}
+      {rateListToDelete && (
+        <Modal
+          isOpen={Boolean(rateListToDelete)}
+          onClose={() => setRateListToDelete(null)}
+          title="Delete Rate List"
+          size="sm"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#fef2f2',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <IconTrash size={20} />
+              </div>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                  Confirm Rate List Deletion
+                </h4>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                  Are you sure you want to delete rate list <strong>{rateListToDelete.name || rateListToDelete.code}</strong> ({rateListToDelete.code})?
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <Button variant="secondary" onClick={() => setRateListToDelete(null)} disabled={isDeletingRateList}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleConfirmDeleteRateList}
+                isLoading={isDeletingRateList}
+                style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff' }}
+              >
+                Delete Rate List
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Scheme Delete Confirmation Modal */}
+      {schemeToDelete && (
+        <Modal
+          isOpen={Boolean(schemeToDelete)}
+          onClose={() => setSchemeToDelete(null)}
+          title="Delete Commercial Scheme"
+          size="sm"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  backgroundColor: '#fef2f2',
+                  color: '#ef4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <IconTrash size={20} />
+              </div>
+              <div>
+                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                  Confirm Scheme Deletion
+                </h4>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                  Are you sure you want to delete commercial scheme <strong>{schemeToDelete.name}</strong> ({schemeToDelete.shortCode || schemeToDelete.code})?
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <Button variant="secondary" onClick={() => setSchemeToDelete(null)} disabled={isDeletingScheme}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleConfirmDeleteScheme}
+                isLoading={isDeletingScheme}
+                style={{ backgroundColor: '#ef4444', borderColor: '#ef4444', color: '#fff' }}
+              >
+                Delete Scheme
               </Button>
             </div>
           </div>

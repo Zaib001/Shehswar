@@ -60,8 +60,8 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
   const [productType, setProductType] = useState('Insecticide');
   const [mType, setMType] = useState('Insecticides');
   const [packagingContainer, setPackagingContainer] = useState<number | ''>(100);
-  const [packSizeQuantity, setPackSizeQuantity] = useState<number>(100);
-  const [packSizeUnit, setPackSizeUnit] = useState('Gram');
+  const [packSizeQuantity] = useState<number>(2);
+  const [packSizeUnit, setPackSizeUnit] = useState('Liter');
   const [uoms, setUoms] = useState<any[]>([]);
   const [selectedBaseUomId, setSelectedBaseUomId] = useState<string>('');
   const [ppc, setPpc] = useState<number>(12); // Pack Per Carton
@@ -467,20 +467,6 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', marginBottom: '4px' }}>
-                        Pack Size / Weight (e.g. 100, 150, 250, 1) *
-                      </label>
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="100, 150, 1"
-                        value={packSizeQuantity}
-                        onChange={(e) => setPackSizeQuantity(parseFloat(e.target.value) || 100)}
-                        style={{ fontFamily: 'var(--font-mono, monospace)' }}
-                      />
-                    </div>
-
-                    <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                         <label style={{ fontSize: '0.72rem', color: '#64748B' }}>Pack Size Unit</label>
                         <button
@@ -493,12 +479,12 @@ export const UnifiedAddItemModal: React.FC<UnifiedAddItemModalProps> = ({
                       </div>
                       <Select
                         value={packSizeUnit}
-                        onChange={(e) => setPackSizeUnit(typeof e === 'string' ? e : e.target?.value || 'Gram')}
+                        onChange={(e) => setPackSizeUnit(typeof e === 'string' ? e : e.target?.value || 'Liter')}
                         options={[
-                          { label: 'Gram (g / GM)', value: 'Gram' },
-                          { label: 'Kilogram (kg / KG)', value: 'KG' },
-                          { label: 'Milliliter (ml / ML)', value: 'ML' },
-                          { label: 'Liter (L)', value: 'Liter' },
+                          { label: 'Liter', value: 'Liter' },
+                          { label: 'KG', value: 'KG' },
+                          { label: 'ML', value: 'ML' },
+                          { label: 'GM', value: 'GM' },
                           { label: 'Pack', value: 'Pack' },
                         ]}
                       />
