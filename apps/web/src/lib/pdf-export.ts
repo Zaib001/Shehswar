@@ -5129,19 +5129,54 @@ export const exportRateListToPdf = (rateList: any) => {
   const schemeName = rateList.schemeName || rateList.scheme?.name || rateList.name || 'Official Rate List';
   const schemeCode = rateList.schemeShortCode || rateList.scheme?.shortCode || rateList.code || 'RL';
   const schemeType = rateList.scheme?.schemeTypeRef?.name || rateList.scheme?.schemeTypeCode || rateList.schemeTypeCode || 'General Rate List';
-  const validityStart = rateList.validFrom ? new Date(rateList.validFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A';
-  const validityEnd = rateList.validTo ? new Date(rateList.validTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Ongoing';
-  const version = rateList.version || 1;
-  const items = rateList.items || rateList.versions?.[0]?.items || [];
+  const activeVersion = rateList.versions?.find((v: any) => v.status === 'ACTIVE') || rateList.versions?.[0];
+  const validityStart = rateList.validFrom || activeVersion?.effectiveFrom || rateList.effectiveFrom
+    ? new Date(rateList.validFrom || activeVersion?.effectiveFrom || rateList.effectiveFrom).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Immediate';
+  const validityEnd = rateList.validTo || activeVersion?.effectiveTo || rateList.effectiveTo
+    ? new Date(rateList.validTo || activeVersion?.effectiveTo || rateList.effectiveTo).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Ongoing';
+  const version = activeVersion?.versionNumber || rateList.version || 1;
+  const items = (rateList.items && rateList.items.length > 0)
+    ? rateList.items
+    : (activeVersion?.items && activeVersion.items.length > 0)
+    ? activeVersion.items
+    : rateList.versions?.[0]?.items || [];
 
   const rowsHtml = items.map((item: any, index: number) => {
-    const product = item.product || item.finishedProduct || {};
+    const product = item.finishedProduct || item.product || {};
     const code = product.productCode || item.productCode || '-';
     const name = product.productName || item.productName || 'Product';
-    const packSize = product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : (item.packSize || item.packSizeName || '-');
-    const basePrice = Number(item.basePrice || item.baseRate || item.baseSellingPrice || product.defaultSellingPrice || 0);
-    const schemeRate = Number(item.schemeRate ?? item.customPrice ?? item.fixedNetRate ?? item.basePrice ?? 0);
-    const discount = Number(item.discountPercent || 0);
+
+    const packSizeStr =
+      product.packSize?.name
+        ? product.packSize.name
+        : typeof product.packSize === 'string'
+        ? product.packSize
+        : item.packSize?.name
+        ? item.packSize.name
+        : typeof item.packSize === 'string'
+        ? item.packSize
+        : product.packingQuantity
+        ? `${product.packingQuantity} ${product.packingUnit || ''}`.trim()
+        : '-';
+
+    const packagingStr =
+      product.packagingMaterial?.materialName
+        ? product.packagingMaterial.materialName
+        : typeof product.packagingMaterial === 'string'
+        ? product.packagingMaterial
+        : '';
+
+    const fullPackText = packagingStr && !packSizeStr.toLowerCase().includes(packagingStr.toLowerCase())
+      ? `${packSizeStr} • ${packagingStr}`
+      : packSizeStr;
+
+    const categoryText = product.category?.name || (typeof product.category === 'string' ? product.category : '') || product.mType || '';
+
+    const basePrice = Number(item.baseRate || item.basePrice || item.baseSellingPrice || product.defaultSellingPrice || product.standardCost || 0);
+    const schemeRate = Number(item.schemeRate ?? item.fixedNetRate ?? item.customPrice ?? item.baseRate ?? basePrice);
+    const discount = Number(item.discountPercent || item.discountValue || 0);
     const rateType = item.rateType || (discount > 0 ? 'DISCOUNT' : 'DIRECT');
 
     return `
@@ -5150,9 +5185,9 @@ export const exportRateListToPdf = (rateList: any) => {
         <td style="font-family: monospace; font-size: 8pt; font-weight: 700; color: #1e293b;">${code}</td>
         <td>
           <div style="font-weight: 700; color: #0f172a; font-size: 8.5pt;">${name}</div>
-          ${product.category || product.mType ? `<div style="font-size: 7pt; color: #64748b;">${product.category?.name || product.mType || product.category || ''}</div>` : ''}
+          ${categoryText ? `<div style="font-size: 7pt; color: #64748b;">${categoryText}</div>` : ''}
         </td>
-        <td style="font-size: 8pt; color: #334155; font-weight: 500;">${packSize}</td>
+        <td style="font-size: 8pt; color: #334155; font-weight: 500;">${fullPackText}</td>
         <td style="text-align: right; font-size: 8pt; color: #64748b;">
           ${basePrice > 0 ? `PKR ${basePrice.toLocaleString()}` : '-'}
         </td>

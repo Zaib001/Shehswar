@@ -409,6 +409,27 @@ export class PricingService {
           orderBy: { versionNumber: 'desc' },
           include: {
             _count: { select: { items: true } },
+            items: {
+              include: {
+                finishedProduct: {
+                  select: {
+                    id: true,
+                    productCode: true,
+                    productName: true,
+                    defaultSellingPrice: true,
+                    standardCost: true,
+                    category: { select: { name: true } },
+                    packagingMaterial: { select: { materialName: true } },
+                    packSize: { select: { name: true } },
+                    salesUom: { select: { code: true } },
+                    packingQuantity: true,
+                    packingUnit: true,
+                  },
+                },
+                packSize: { select: { id: true, code: true, name: true } },
+              },
+              orderBy: { finishedProduct: { productName: 'asc' } },
+            },
           },
         },
         _count: { select: { salesOrders: true } },
@@ -423,9 +444,10 @@ export class PricingService {
         activeVersionNumber: activeVersion?.versionNumber || 1,
         effectiveFrom: activeVersion?.effectiveFrom || rl.createdAt,
         effectiveTo: activeVersion?.effectiveTo || null,
-        productCount: activeVersion?._count.items || 0,
+        productCount: activeVersion?._count?.items ?? activeVersion?.items?.length ?? 0,
         totalVersionsCount: rl.versions.length,
         usageCount: rl._count.salesOrders,
+        items: activeVersion?.items || [],
       };
     });
   }
@@ -789,7 +811,15 @@ export class PricingService {
     if (!activeVersion) throw new BadRequestException('No active version found in rate list');
 
     const existingProductIds = new Set(activeVersion.items.map((it) => it.finishedProductId));
-    const missingProductIds = productIds.filter((pid) => !existingProductIds.has(pid));
+    let candidateIds = productIds;
+    if (!candidateIds || candidateIds.length === 0) {
+      const allActive = await this.prisma.finishedProduct.findMany({
+        where: { companyId: actor.companyId, status: 'ACTIVE', deletedAt: null },
+        select: { id: true },
+      });
+      candidateIds = allActive.map((p) => p.id);
+    }
+    const missingProductIds = candidateIds.filter((pid) => !existingProductIds.has(pid));
 
     if (missingProductIds.length === 0) {
       return this.getRateListById(rateList.id, actor.companyId);

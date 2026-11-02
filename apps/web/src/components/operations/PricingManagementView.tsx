@@ -998,13 +998,52 @@ export const PricingManagementView: React.FC = () => {
   /**
    * Requirement 19: Rate List PDF Export
    */
-  const handleExportPdf = (rl: any) => {
-    exportRateListToPdf(rl);
-    showToast({
-      title: 'Rate List PDF',
-      message: `Print document opened for ${rl.schemeName || rl.name}.`,
-      type: 'info',
-    });
+  const handleExportPdf = async (rl: any) => {
+    try {
+      let fullRateList = rl;
+      const hasItems = (rl?.items && rl.items.length > 0) || 
+                       (rl?.versions && rl.versions.some((v: any) => v.items && v.items.length > 0));
+
+      if (!hasItems && rl?.id) {
+        showToast({
+          title: 'Preparing PDF',
+          message: 'Loading finished products for official rate list document...',
+          type: 'info',
+        });
+        const res = await ApiClient.get<any>(`/api/v1/pricing/rate-lists/${rl.id}`);
+        fullRateList = res.data?.data || res.data;
+      }
+
+      const targetItems = fullRateList?.items?.length
+        ? fullRateList.items
+        : fullRateList?.versions?.find((v: any) => v.status === 'ACTIVE')?.items ||
+          fullRateList?.versions?.[0]?.items || [];
+
+      if (targetItems.length === 0 && fullRateList?.id) {
+        try {
+          const syncRes = await ApiClient.post<any>(`/api/v1/pricing/rate-lists/${fullRateList.id}/add-products`, {});
+          const synced = syncRes.data?.data || syncRes.data;
+          if (synced && (synced.items?.length > 0 || synced.versions?.[0]?.items?.length > 0)) {
+            fullRateList = synced;
+          }
+        } catch (_) {
+          // ignore sync failure
+        }
+      }
+
+      exportRateListToPdf(fullRateList);
+      showToast({
+        title: 'Rate List PDF',
+        message: `Print document opened for ${fullRateList.schemeName || fullRateList.name}.`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      showToast({
+        title: 'PDF Export Failed',
+        message: err.message || 'Unable to open PDF print preview.',
+        type: 'error',
+      });
+    }
   };
 
   // ==========================================
