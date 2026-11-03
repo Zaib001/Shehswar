@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, Button } from '../ui';
+import { Modal, Button, Input } from '../ui';
 import {
   IconCheck,
   IconEdit,
@@ -10,7 +10,6 @@ import {
   IconAlertTriangle,
   IconPackage,
   IconTag,
-  IconClock,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
@@ -106,7 +105,7 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
     if (isOpen && product?.id) {
       loadBatches();
       resetForm();
-      // Auto-focus the Batch Number input on open
+      // Auto-focus Batch Number on modal open
       setTimeout(() => {
         batchNumberInputRef.current?.focus();
         batchNumberInputRef.current?.select();
@@ -134,7 +133,7 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       b.manufacturingDate ? (new Date(b.manufacturingDate).toISOString().split('T')[0] || '') : ''
     );
     setExpiryDate(b.expiryDate ? (new Date(b.expiryDate).toISOString().split('T')[0] || '') : '');
-    setAvailableQuantity(Number(b.availableQuantity) || 0);
+    setAvailableQuantity(b.availableQuantity !== undefined && b.availableQuantity !== null ? Number(b.availableQuantity) : '');
     setIsActive(b.isActive);
     setNotes(b.notes || '');
 
@@ -148,7 +147,11 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
   const handleSetActive = async (batchId: string) => {
     try {
       const res = await ApiClient.patch<BatchRecord>(`/api/v1/batches/${batchId}/set-active`, {});
-      showToast({ type: 'success', title: 'Active Batch Updated', message: 'Designated as primary active batch for rate lists and invoices.' });
+      showToast({
+        type: 'success',
+        title: 'Active Batch Updated',
+        message: 'Designated as primary active batch for rate lists and invoices.',
+      });
       await loadBatches();
       if (onBatchSaved && res.data) {
         onBatchSaved(res.data);
@@ -185,7 +188,11 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       return;
     }
     if (expiryDate && new Date(expiryDate) <= new Date(manufacturingDate)) {
-      showToast({ type: 'error', title: 'Validation Error', message: 'Expiry Date must be after Manufacturing Date' });
+      showToast({
+        type: 'error',
+        title: 'Validation Error',
+        message: 'Expiry Date must be later than Manufacturing Date',
+      });
       expDateInputRef.current?.focus();
       return;
     }
@@ -205,7 +212,11 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
           notes: notes.trim() || undefined,
         });
         savedBatch = (res.data?.data || res.data) as BatchRecord;
-        showToast({ type: 'success', title: 'Batch Updated', message: `Batch ${savedBatch.batchNumber} updated successfully` });
+        showToast({
+          type: 'success',
+          title: 'Batch Updated',
+          message: `Batch ${savedBatch.batchNumber} updated successfully`,
+        });
       } else {
         const res = await ApiClient.post<any>('/api/v1/batches', {
           finishedProductId: product.id,
@@ -218,7 +229,11 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
           notes: notes.trim() || undefined,
         });
         savedBatch = (res.data?.data || res.data) as BatchRecord;
-        showToast({ type: 'success', title: 'Batch Assigned', message: `Batch ${savedBatch.batchNumber} created and assigned to ${product.productName}` });
+        showToast({
+          type: 'success',
+          title: 'Batch Assigned',
+          message: `Batch ${savedBatch.batchNumber} assigned to ${product.productName}`,
+        });
       }
 
       resetForm();
@@ -226,7 +241,6 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       if (onBatchSaved && savedBatch) {
         onBatchSaved(savedBatch);
       }
-      // Re-focus batch input for subsequent fast entries
       setTimeout(() => {
         batchNumberInputRef.current?.focus();
       }, 100);
@@ -237,7 +251,7 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
     }
   };
 
-  // Helper for fast agro-chemical shelf-life presets (+2 or +3 years)
+  // Helper for fast agrochemical shelf-life presets (+2 or +3 years)
   const applyExpiryPreset = (years: number) => {
     const base = manufacturingDate ? new Date(manufacturingDate) : new Date();
     if (isNaN(base.getTime())) return;
@@ -248,19 +262,19 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
 
   // Expiry badge helper
   const getExpiryDetails = (expStr?: string | null) => {
-    if (!expStr) return { text: 'No Expiry Set', className: 'bg-slate-100 text-slate-600 border-slate-200', isExpired: false };
+    if (!expStr) return { text: 'Open Shelf', bg: '#f8fafc', color: '#64748b', border: '#e2e8f0', isExpired: false };
     const exp = new Date(expStr);
     const now = new Date();
-    if (isNaN(exp.getTime())) return { text: 'Invalid Date', className: 'bg-slate-100 text-slate-600 border-slate-200', isExpired: false };
+    if (isNaN(exp.getTime())) return { text: 'Invalid Date', bg: '#f8fafc', color: '#64748b', border: '#e2e8f0', isExpired: false };
     if (exp < now) {
-      return { text: 'Expired', className: 'bg-rose-100 text-rose-800 border-rose-300 font-bold', isExpired: true };
+      return { text: 'Expired', bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', isExpired: true };
     }
     const diffDays = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     if (diffDays <= 60) {
-      return { text: `Expiring Soon (${diffDays}d)`, className: 'bg-amber-100 text-amber-900 border-amber-300 font-semibold', isExpired: false };
+      return { text: `Expiring Soon (${diffDays}d)`, bg: '#fef3c7', color: '#b45309', border: '#fde68a', isExpired: false };
     }
     const months = Math.round(diffDays / 30.4);
-    return { text: `Valid (${months}m left)`, className: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-medium', isExpired: false };
+    return { text: `Valid (${months}m left)`, bg: '#ecfdf5', color: '#047857', border: '#a7f3d0', isExpired: false };
   };
 
   const packText =
@@ -279,82 +293,218 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       onClose={onClose}
       title="Product Batch Number Management"
       size="xl"
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11px', color: '#64748b', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, color: '#334155' }}>Keyboard Shortcuts:</span>
+            <span>
+              <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '2px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>↵ Enter</kbd> Next Field
+            </span>
+            <span>•</span>
+            <span>
+              <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '2px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>Ctrl+Enter</kbd> Save Batch
+            </span>
+            <span>•</span>
+            <span>
+              <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '2px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>Esc</kbd> Close
+            </span>
+          </div>
+
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Close Window
+          </Button>
+        </div>
+      }
     >
-      <div className="space-y-5 text-slate-800 font-sans">
-        {/* Product Identity & Status Header */}
-        <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-900 text-white p-4 shadow-md border border-emerald-800/40">
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="w-11 h-11 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center shrink-0 shadow-inner">
-                <IconPackage size={22} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', fontFamily: "'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif" }}>
+
+        {/* 1. Top Executive Product Identification Banner */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #022c22 0%, #064e3b 45%, #0f172a 100%)',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            color: '#ffffff',
+            boxShadow: '0 4px 14px rgba(2, 44, 34, 0.18)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '14px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '10px',
+                background: 'rgba(16, 185, 129, 0.25)',
+                border: '1px solid rgba(110, 231, 183, 0.35)',
+                color: '#6ee7b7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <IconPackage size={22} />
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: '17px', fontWeight: 800, margin: 0, color: '#ffffff', letterSpacing: '-0.01em' }}>
+                  {product?.productName || 'Finished Product'}
+                </h3>
+                <span
+                  style={{
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    background: 'rgba(16, 185, 129, 0.25)',
+                    color: '#6ee7b7',
+                    padding: '2px 8px',
+                    borderRadius: '5px',
+                    border: '1px solid rgba(110, 231, 183, 0.4)',
+                  }}
+                >
+                  {product?.productCode || '-'}
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    color: '#e2e8f0',
+                    padding: '2px 8px',
+                    borderRadius: '5px',
+                  }}
+                >
+                  {categoryText}
+                </span>
+                {packText && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      background: 'rgba(255, 255, 255, 0.12)',
+                      color: '#e2e8f0',
+                      padding: '2px 8px',
+                      borderRadius: '5px',
+                    }}
+                  >
+                    Pack: {packText}
+                  </span>
+                )}
               </div>
-              <div>
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h3 className="font-bold text-white text-base tracking-tight">
-                    {product?.productName || 'Finished Product'}
-                  </h3>
-                  <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                    {product?.productCode || '-'}
-                  </span>
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white/10 text-slate-300 border border-white/10">
-                    {categoryText}
-                  </span>
-                  {packText && (
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white/10 text-slate-300 border border-white/10">
-                      Pack: {packText}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-300 mt-1 flex items-center gap-2">
-                  <span>Manufacturing Batch Control</span>
-                  <span>•</span>
-                  <span>Direct association with Sales Invoices & Rate Lists</span>
-                </p>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                Batch Tracking & Quality Control • Direct integration with Invoicing and Official Scheme Rate Lists
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Header KPI Chips */}
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div
+              style={{
+                background: 'rgba(0, 0, 0, 0.35)',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                textAlign: 'right',
+                minWidth: '115px',
+              }}
+            >
+              <div style={{ fontSize: '9.5px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Active Batch
+              </div>
+              <div
+                style={{
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  fontWeight: 800,
+                  color: activeBatch ? '#34d399' : '#fbbf24',
+                  marginTop: '1px',
+                }}
+              >
+                {activeBatch ? activeBatch.batchNumber : 'Not Assigned'}
               </div>
             </div>
 
-            {/* Quick KPI stats */}
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-right min-w-[110px]">
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Active Batch</div>
-                <div className="text-sm font-mono font-bold text-emerald-400 truncate max-w-[140px]">
-                  {activeBatch ? activeBatch.batchNumber : <span className="text-amber-400">Not Assigned</span>}
-                </div>
+            <div
+              style={{
+                background: 'rgba(0, 0, 0, 0.35)',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                textAlign: 'right',
+                minWidth: '95px',
+              }}
+            >
+              <div style={{ fontSize: '9.5px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Total Stock
               </div>
-              <div className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-right min-w-[95px]">
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Stock</div>
-                <div className="text-sm font-mono font-bold text-white">
-                  {totalStock.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">units</span>
-                </div>
+              <div style={{ fontSize: '13px', fontFamily: 'monospace', fontWeight: 800, color: '#ffffff', marginTop: '1px' }}>
+                {totalStock.toLocaleString()} <span style={{ fontSize: '10px', fontWeight: 400, color: '#94a3b8' }}>Units</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Keyboard-First Batch Entry Form */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-          <div className="bg-slate-50/80 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${editingBatchId ? 'bg-blue-600 animate-pulse' : 'bg-emerald-600'}`} />
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                {editingBatchId ? `Edit Batch Specifications (${batchNumber || 'Selected'})` : 'Assign New Batch to Product'}
+        {/* 2. Keyboard-First Batch Entry & Edit Card */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '16px 18px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          {/* Header row of form */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '14px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #f1f5f9',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: editingBatchId ? '#2563eb' : '#059669',
+                }}
+              />
+              <h4 style={{ margin: 0, fontSize: '12.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#1e293b' }}>
+                {editingBatchId ? `Edit Batch Specifications (${batchNumber})` : 'Assign New Batch to Product'}
               </h4>
             </div>
 
-            <div className="flex items-center gap-3">
-              {/* Keyboard sequence hint */}
-              <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
-                <kbd className="px-1.5 py-0.5 rounded bg-slate-200 border border-slate-300 text-[10px] font-mono text-slate-700 shadow-2xs">Tab</kbd>
-                <span>/</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-slate-200 border border-slate-300 text-[10px] font-mono text-slate-700 shadow-2xs">Enter</kbd>
-                <span>to navigate</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                Press <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>↵ Enter</kbd> to jump across fields
               </span>
 
               {editingBatchId && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="text-xs text-blue-700 hover:text-blue-900 font-semibold underline cursor-pointer"
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    color: '#2563eb',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
                 >
                   Cancel Edit (Add New)
                 </button>
@@ -362,22 +512,13 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
             </div>
           </div>
 
-          <form onSubmit={handleSave} className="p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-              {/* Field 1: Batch Number */}
+          <form onSubmit={handleSave}>
+            {/* Row 1: Batch Number, Mfg Date, Expiry Date */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '14px' }}>
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="batchNumberInput" className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <IconTag size={13} className="text-emerald-700" />
-                    <span>Batch Number</span>
-                    <span className="text-rose-600 font-bold">*</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400 font-mono">Manual Code</span>
-                </div>
-                <input
-                  id="batchNumberInput"
+                <Input
                   ref={batchNumberInputRef}
-                  type="text"
+                  label="Batch Number *"
                   required
                   placeholder="e.g. B-2026-001"
                   value={batchNumber}
@@ -388,23 +529,21 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       mfgDateInputRef.current?.focus();
                     }
                   }}
-                  className="w-full text-sm font-mono font-bold tracking-wide uppercase rounded-lg border border-slate-300 bg-emerald-50/20 px-3 py-2 text-slate-900 placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition-all shadow-2xs"
+                  helperText="Manual manufacturer code (e.g. B-2026-001)"
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                    textTransform: 'uppercase',
+                    color: '#064e3b',
+                  }}
                 />
               </div>
 
-              {/* Field 2: Manufacturing Date */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="mfgDateInput" className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <IconClock size={13} className="text-emerald-700" />
-                    <span>Manufacturing Date</span>
-                    <span className="text-rose-600 font-bold">*</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400 font-mono">Mfg</span>
-                </div>
-                <input
-                  id="mfgDateInput"
+                <Input
                   ref={mfgDateInputRef}
+                  label="Manufacturing Date *"
                   type="date"
                   required
                   value={manufacturingDate}
@@ -415,22 +554,30 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       expDateInputRef.current?.focus();
                     }
                   }}
-                  className="w-full text-sm font-medium rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition-all shadow-2xs"
+                  helperText="Production / formulation release date"
                 />
               </div>
 
-              {/* Field 3: Expiry Date + 1-Click Agro Presets */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="expDateInput" className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <span>Expiry Date</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '12.5px', fontWeight: 600, color: '#334155' }}>
+                    Expiry Date
                   </label>
-                  <div className="flex items-center gap-1">
+                  <div style={{ display: 'flex', gap: '4px' }}>
                     <button
                       type="button"
                       tabIndex={-1}
                       onClick={() => applyExpiryPreset(2)}
-                      className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-colors cursor-pointer"
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: '#ecfdf5',
+                        border: '1px solid #a7f3d0',
+                        color: '#065f46',
+                        cursor: 'pointer',
+                      }}
                       title="Set Expiry to 2 Years from Mfg Date (Agro Chemical Standard)"
                     >
                       +2 Yrs
@@ -439,15 +586,24 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       type="button"
                       tabIndex={-1}
                       onClick={() => applyExpiryPreset(3)}
-                      className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 transition-colors cursor-pointer"
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: '#ecfdf5',
+                        border: '1px solid #a7f3d0',
+                        color: '#065f46',
+                        cursor: 'pointer',
+                      }}
                       title="Set Expiry to 3 Years from Mfg Date"
                     >
                       +3 Yrs
                     </button>
                   </div>
                 </div>
-                <input
-                  id="expDateInput"
+
+                <Input
                   ref={expDateInputRef}
                   type="date"
                   value={expiryDate}
@@ -458,23 +614,17 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       qtyInputRef.current?.focus();
                     }
                   }}
-                  className="w-full text-sm font-medium rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition-all shadow-2xs"
+                  helperText="Expired batches are blocked from invoices"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {/* Field 4: Available Quantity / Initial Units */}
+            {/* Row 2: Available Units & QC Remarks */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.8fr', gap: '14px', marginBottom: '14px' }}>
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="qtyInput" className="text-xs font-bold text-slate-700">
-                    Available Stock / Units (Optional)
-                  </label>
-                  <span className="text-[10px] text-slate-400">Inventory Units</span>
-                </div>
-                <input
-                  id="qtyInput"
+                <Input
                   ref={qtyInputRef}
+                  label="Available Quantity (Stock Units)"
                   type="number"
                   min="0"
                   step="any"
@@ -487,23 +637,16 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       notesInputRef.current?.focus();
                     }
                   }}
-                  className="w-full text-sm font-mono font-semibold rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition-all shadow-2xs"
+                  helperText="Initial or available units for this batch"
+                  style={{ fontFamily: 'monospace', fontWeight: 600 }}
                 />
               </div>
 
-              {/* Field 5: Notes & QC Remarks */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="notesInput" className="text-xs font-bold text-slate-700">
-                    QC Approval & Batch Remarks
-                  </label>
-                  <span className="text-[10px] text-slate-400">Optional</span>
-                </div>
-                <input
-                  id="notesInput"
+                <Input
                   ref={notesInputRef}
-                  type="text"
-                  placeholder="e.g. QC Formulation Lab Line 1 - Released"
+                  label="QC Approval & Batch Remarks"
+                  placeholder="e.g. QC Formulation Lab Line 1 - Approved for Commercial Release"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   onKeyDown={(e) => {
@@ -512,102 +655,157 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       handleSave(e);
                     }
                   }}
-                  className="w-full text-sm rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 transition-all shadow-2xs"
+                  helperText="Optional technical notes or QC sign-off reference"
                 />
               </div>
             </div>
 
             {/* Bottom Actions Row with Active Toggle */}
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-100">
-              <label className="inline-flex items-center gap-2.5 cursor-pointer select-none group">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingTop: '12px',
+                borderTop: '1px solid #f1f5f9',
+                flexWrap: 'wrap',
+                gap: '10px',
+              }}
+            >
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  color: '#0f172a',
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={isActive}
                   onChange={(e) => setIsActive(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  style={{
+                    width: '16px',
+                    height: '16px',
+                    accentColor: '#059669',
+                    cursor: 'pointer',
+                  }}
                 />
-                <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-800 transition-colors">
-                  ⭐ Designate as Active Batch
-                </span>
-                <span className="text-[11px] text-slate-500">
+                <span>⭐ Designate as Active Batch</span>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>
                   (Default for Rate Lists and Sales Invoices)
                 </span>
               </label>
 
-              <div className="flex items-center gap-2 justify-end">
-                <span className="hidden md:inline-flex items-center text-[11px] text-slate-400 font-medium mr-1">
-                  <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono text-slate-600 mr-1">Ctrl+Enter</kbd>
-                  to save
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                  <kbd style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '1px 5px', borderRadius: '4px', fontFamily: 'monospace' }}>Ctrl+Enter</kbd> to save
                 </span>
 
                 {editingBatchId && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={resetForm}
-                  >
+                  <Button variant="secondary" size="sm" type="button" onClick={resetForm}>
                     Cancel
                   </Button>
                 )}
 
-                <button
+                <Button
                   ref={saveButtonRef}
+                  variant="primary"
+                  size="sm"
                   type="submit"
-                  disabled={isSaving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs focus:outline-none focus:ring-2 focus:ring-emerald-600/40 disabled:opacity-50 cursor-pointer transition-colors"
+                  isLoading={isSaving}
+                  style={{
+                    backgroundColor: editingBatchId ? '#2563eb' : '#059669',
+                    borderColor: editingBatchId ? '#2563eb' : '#059669',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    padding: '0 16px',
+                    height: '36px',
+                  }}
                 >
                   <IconCheck size={14} />
-                  <span>{isSaving ? 'Saving...' : editingBatchId ? 'Update Batch' : 'Save & Assign Batch'}</span>
-                </button>
+                  {editingBatchId ? 'Update Batch' : 'Save & Assign Batch'}
+                </Button>
               </div>
             </div>
           </form>
         </div>
 
-        {/* Existing Batches Table */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+        {/* 3. Existing Batches History & Status Table */}
+        <div
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <div
+            style={{
+              background: '#f8fafc',
+              padding: '10px 16px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <div>
+              <strong style={{ fontSize: '12px', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Assigned Product Batches ({batches.length})
-              </h4>
-              <span className="text-[11px] text-slate-500 font-normal">
-                Double-click or click edit to update batch details
+              </strong>
+              <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '10px' }}>
+                Double-click any row or click edit icon to update batch specifications
               </span>
             </div>
+
             <button
               type="button"
               onClick={loadBatches}
               disabled={isLoading}
-              className="text-xs text-slate-600 hover:text-emerald-700 flex items-center gap-1.5 font-medium px-2 py-1 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#475569',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
             >
-              <IconRefresh size={13} className={isLoading ? 'animate-spin' : ''} />
-              <span>Refresh</span>
+              <IconRefresh size={12} className={isLoading ? 'animate-spin' : ''} />
+              Refresh
             </button>
           </div>
 
-          <div className="overflow-x-auto max-h-64">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-100/80 text-slate-600 sticky top-0 border-b border-slate-200 z-10 font-bold uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-2.5 px-3.5">Batch Number</th>
-                  <th className="py-2.5 px-3">Mfg Date</th>
-                  <th className="py-2.5 px-3">Expiry Date</th>
-                  <th className="py-2.5 px-3 text-right">Available Qty</th>
-                  <th className="py-2.5 px-3 text-center">Shelf Status</th>
-                  <th className="py-2.5 px-3 text-center">Active Flag</th>
-                  <th className="py-2.5 px-3.5 text-right">Actions</th>
+          <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <th style={{ padding: '8px 14px', fontWeight: 700, color: '#475569', width: '22%' }}>Batch Number</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', width: '15%' }}>Mfg Date</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', width: '15%' }}>Expiry Date</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right', width: '14%' }}>Stock Units</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'center', width: '14%' }}>Shelf Status</th>
+                  <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'center', width: '12%' }}>Active Flag</th>
+                  <th style={{ padding: '8px 14px', fontWeight: 700, color: '#475569', textAlign: 'right', width: '8%' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {batches.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-10 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-1">
-                        <IconTag size={20} className="text-slate-300 mb-1" />
-                        <span className="font-semibold text-slate-600">No batches assigned to this product yet</span>
-                        <span className="text-[11px] text-slate-400">Use the form above to record and assign the first batch.</span>
+                    <td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                        <IconTag size={22} color="#cbd5e1" />
+                        <span style={{ fontWeight: 600, color: '#475569' }}>No batches registered for this product yet.</span>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>Use the form above to record and assign the first batch.</span>
                       </div>
                     </td>
                   </tr>
@@ -618,34 +816,55 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                       <tr
                         key={b.id}
                         onDoubleClick={() => handleEditClick(b)}
-                        className={`hover:bg-slate-50/80 transition-colors group cursor-pointer ${
-                          b.isActive ? 'bg-emerald-50/30 font-medium' : ''
-                        }`}
+                        title="Double-click to edit batch details"
+                        style={{
+                          borderBottom: '1px solid #f1f5f9',
+                          backgroundColor: b.isActive ? '#f0fdf4' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'background-color 0.1s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = b.isActive ? '#ecfdf5' : '#f8fafc';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = b.isActive ? '#f0fdf4' : 'transparent';
+                        }}
                       >
-                        <td className="py-2.5 px-3.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-slate-900 text-[13px] tracking-wide">
+                        <td style={{ padding: '8px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0f172a', fontSize: '12.5px' }}>
                               {b.batchNumber}
                             </span>
                             {b.isActive && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
+                              <span
+                                style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 800,
+                                  background: '#059669',
+                                  color: '#ffffff',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                }}
+                              >
                                 ACTIVE
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-700 font-medium">
+
+                        <td style={{ padding: '8px 12px', color: '#475569', fontWeight: 500 }}>
                           {b.manufacturingDate
                             ? new Date(b.manufacturingDate).toLocaleDateString('en-GB', {
                                 day: '2-digit',
                                 month: 'short',
                                 year: 'numeric',
                               })
-                            : '-'}
+                            : '—'}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-700 font-medium">
+
+                        <td style={{ padding: '8px 12px', color: '#475569', fontWeight: 500 }}>
                           {b.expiryDate ? (
-                            <span className={expiry.isExpired ? 'text-rose-600 font-bold' : ''}>
+                            <span style={{ color: expiry.isExpired ? '#dc2626' : 'inherit', fontWeight: expiry.isExpired ? 700 : 500 }}>
                               {new Date(b.expiryDate).toLocaleDateString('en-GB', {
                                 day: '2-digit',
                                 month: 'short',
@@ -653,23 +872,38 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                               })}
                             </span>
                           ) : (
-                            <span className="text-slate-400 italic">Open Shelf</span>
+                            <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Open Shelf</span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800">
+
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>
                           {Number(b.availableQuantity).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] border ${expiry.className}`}>
+
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                              fontSize: '10.5px',
+                              fontWeight: 600,
+                              background: expiry.bg,
+                              color: expiry.color,
+                              border: `1px solid ${expiry.border}`,
+                            }}
+                          >
                             {expiry.isExpired && <IconAlertTriangle size={11} />}
-                            <span>{expiry.text}</span>
+                            {expiry.text}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-center">
+
+                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                           {b.isActive ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-800 font-bold text-xs">
-                              <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                              Primary Active
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: '#047857' }}>
+                              ⭐ Primary Active
                             </span>
                           ) : (
                             <button
@@ -678,23 +912,40 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                                 e.stopPropagation();
                                 handleSetActive(b.id);
                               }}
-                              className="text-xs text-slate-600 hover:text-emerald-700 font-semibold px-2 py-1 rounded hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 transition-colors cursor-pointer"
-                              title="Set as default active batch for this product"
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: '#475569',
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                              }}
+                              title="Set as default active batch for rate lists and invoices"
                             >
                               Make Active
                             </button>
                           )}
                         </td>
-                        <td className="py-2.5 px-3.5 text-right">
-                          <div className="flex items-center justify-end gap-1">
+
+                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleEditClick(b);
                               }}
-                              className="text-slate-500 hover:text-blue-700 p-1.5 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                              title="Edit Batch"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#2563eb',
+                                cursor: 'pointer',
+                                padding: '3px',
+                                borderRadius: '4px',
+                              }}
+                              title="Edit batch specifications"
                             >
                               <IconEdit size={14} />
                             </button>
@@ -704,8 +955,15 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
                                 e.stopPropagation();
                                 handleDelete(b.id);
                               }}
-                              className="text-slate-400 hover:text-rose-600 p-1.5 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Delete Batch"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                padding: '3px',
+                                borderRadius: '4px',
+                              }}
+                              title="Delete batch"
                             >
                               <IconTrash size={14} />
                             </button>
@@ -720,27 +978,6 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Footer with Keyboard Shortcuts Legend */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-slate-200">
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
-            <span className="font-semibold text-slate-700">Keyboard Shortcuts:</span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">Enter</kbd> Next Field
-            </span>
-            <span>•</span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">Ctrl+Enter</kbd> Save Batch
-            </span>
-            <span>•</span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">Esc</kbd> Close
-            </span>
-          </div>
-
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </div>
       </div>
     </Modal>
   );

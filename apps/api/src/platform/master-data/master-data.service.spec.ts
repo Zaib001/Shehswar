@@ -63,9 +63,15 @@ describe('MasterDataService Multi-Company & Isolation', () => {
       record: jest.fn().mockResolvedValue({ id: 'audit-log-1' }),
     };
 
+    const mockCodeGen = {
+      generateCode: jest.fn().mockResolvedValue('FG-000001'),
+      previewNextCode: jest.fn().mockResolvedValue('FG-000001'),
+    };
+
     service = new MasterDataService(
       mockPrisma as unknown as PrismaService,
       mockAudit as unknown as AuditService,
+      mockCodeGen as any,
     );
   });
 
