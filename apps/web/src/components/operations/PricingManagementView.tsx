@@ -277,10 +277,11 @@ export const PricingManagementView: React.FC = () => {
   });
 
   // ==========================================================
-  // RATE LIST CREATION STATE (Requirements 6 - 11, 13, 21)
+  // RATE LIST CREATION & EDIT STATE (Requirements 6 - 11, 13, 21)
   // ==========================================================
   const [isRateListModalOpen, setIsRateListModalOpen] = useState(false);
   const [selectedRateList, setSelectedRateList] = useState<any | null>(null);
+  const [editingRateList, setEditingRateList] = useState<any | null>(null);
   const [isRateListDetailModalOpen, setIsRateListDetailModalOpen] = useState(false);
   const [isLoadingSchemeProducts, setIsLoadingSchemeProducts] = useState(false);
   const [rateListForm, setRateListForm] = useState({
@@ -753,6 +754,7 @@ export const PricingManagementView: React.FC = () => {
    * Click "+ Create Rate List" -> Select Scheme First -> Auto Load Finished Products
    */
   const handleOpenCreateRateList = (preselectedSchemeId?: string) => {
+    setEditingRateList(null);
     setRateListForm({
       schemeId: '',
       schemeShortCode: '',
@@ -782,6 +784,119 @@ export const PricingManagementView: React.FC = () => {
 
     if (preselectedSchemeId) {
       handleSchemeSelectForRateList(preselectedSchemeId);
+    }
+  };
+
+  /**
+   * Edit Rate List: Load full rate list configuration, active version validity dates,
+   * scheme connection, and product pricing matrix for editing.
+   */
+  const handleOpenEditRateList = async (rateListOrId: any) => {
+    const rateListId = typeof rateListOrId === 'string' ? rateListOrId : rateListOrId?.id;
+    if (!rateListId) return;
+
+    try {
+      const res = await ApiClient.get<any>(`/api/v1/pricing/rate-lists/${rateListId}`);
+      const rl = res.data?.data || res.data;
+      if (!rl) return;
+
+      setEditingRateList(rl);
+
+      const activeVersion = rl.versions?.find((v: any) => v.status === 'ACTIVE') || rl.versions?.[0] || {};
+      const effFrom = activeVersion.effectiveFrom
+        ? new Date(activeVersion.effectiveFrom).toISOString().split('T')[0]
+        : rl.effectiveFrom
+        ? new Date(rl.effectiveFrom).toISOString().split('T')[0]
+        : '';
+      const effTo = activeVersion.effectiveTo
+        ? new Date(activeVersion.effectiveTo).toISOString().split('T')[0]
+        : rl.effectiveTo
+        ? new Date(rl.effectiveTo).toISOString().split('T')[0]
+        : '';
+
+      const schemeInfo = rl.scheme || schemes.find((s) => s.id === rl.schemeId) || null;
+      setSelectedSchemeInfo(schemeInfo);
+
+      const schemeDiscount = Number(
+        schemeInfo?.discountPct ||
+        schemeInfo?.defaultDiscountPct ||
+        schemeInfo?.cashDiscountPct ||
+        0
+      );
+      setBulkAdjustmentPct(schemeDiscount > 0 ? schemeDiscount : '');
+
+      setRateListForm({
+        schemeId: rl.schemeId || rl.scheme?.id || '',
+        schemeShortCode: rl.schemeShortCode || rl.scheme?.shortCode || '',
+        schemeName: rl.schemeName || rl.scheme?.name || '',
+        schemeTypeCode: rl.scheme?.schemeTypeCode || rl.schemeTypeCode || '',
+        code: rl.code || '',
+        name: rl.name || '',
+        description: rl.description || '',
+        category: rl.category || 'SEASONAL',
+        currency: rl.currency || 'PKR',
+        isMobileVisible: rl.isMobileVisible ?? true,
+        isMobileSelectable: rl.isMobileSelectable ?? true,
+        isInternalOnly: rl.isInternalOnly ?? false,
+        priority: rl.priority ?? 10,
+        effectiveFrom: effFrom || '',
+        effectiveTo: effTo || '',
+        notes: activeVersion.notes || '',
+      });
+
+      setSchemeComboQuery(rl.schemeName || rl.scheme?.name || '');
+      setSchemeComboOpen(false);
+
+      const itemsSource = activeVersion.items || rl.items || [];
+      const mappedItems = itemsSource.map((it: any) => {
+        const fp = it.finishedProduct || {};
+        const baseRate = Number(it.baseRate ?? fp.defaultSellingPrice ?? 0);
+        const schemeRate = Number(it.schemeRate ?? it.fixedNetRate ?? baseRate);
+        const discountPercent = Number(
+          it.discountPercent ??
+          it.discountValue ??
+          (baseRate > 0 && schemeRate < baseRate ? (((baseRate - schemeRate) / baseRate) * 100).toFixed(1) : 0)
+        );
+        const dynamicCat = resolveProductCategory(fp);
+
+        const activeBatch = fp.batches?.find((b: any) => b.isActive) || fp.batches?.[0];
+        const batchNumber = it.batchNumber || activeBatch?.batchNumber || null;
+
+        return {
+          finishedProductId: it.finishedProductId || fp.id,
+          productCode: fp.productCode || it.productCode || '',
+          productName: fp.productName || it.productName || '',
+          category: dynamicCat,
+          mType: fp.mType || dynamicCat,
+          packagingMaterial: fp.packagingMaterial?.materialName || it.packagingMaterial || '',
+          packSize: it.packSize?.name || fp.packSize?.name || it.packSize || '',
+          packSizeId: it.packSizeId || fp.packSizeId || null,
+          unit: it.unit || fp.salesUom?.code || fp.packingUnit || 'Unit',
+          batchId: it.batchId || activeBatch?.id || null,
+          batchNumber,
+          batchManufacturingDate: activeBatch?.manufacturingDate || null,
+          batchExpiryDate: activeBatch?.expiryDate || null,
+          batchAvailableQuantity: activeBatch?.availableQuantity || 0,
+          isBatchExpired: activeBatch?.expiryDate ? new Date(activeBatch.expiryDate) < new Date() : false,
+          batchesCount: fp.batches?.length || 0,
+          batches: fp.batches || [],
+          baseRate,
+          schemeRate,
+          discountPercent,
+          rateType: it.rateType || (discountPercent > 0 ? 'DISCOUNT' : 'DIRECT'),
+          minAllowedRate: Number(it.minAllowedRate || Math.round(schemeRate * 0.8)),
+        };
+      });
+
+      setRateListItems(mappedItems);
+      setRateListItemSearch('');
+      setIsRateListModalOpen(true);
+    } catch (err: any) {
+      showToast({
+        title: 'Error Opening Rate List',
+        message: err.message || 'Failed to load rate list details for editing',
+        type: 'error',
+      });
     }
   };
 
@@ -1112,7 +1227,7 @@ export const PricingManagementView: React.FC = () => {
   };
 
   /**
-   * Save & Publish Rate List with Duplicate Rate Protection (Requirement 12, 14)
+   * Save (Create or Update) Rate List with Duplicate Rate Protection (Requirement 12, 14)
    */
   const handleSaveRateList = async () => {
     if (!rateListForm.schemeId) {
@@ -1133,7 +1248,7 @@ export const PricingManagementView: React.FC = () => {
     }
 
     try {
-      await ApiClient.post('/api/v1/pricing/rate-lists', {
+      const payload = {
         schemeId: rateListForm.schemeId,
         schemeShortCode: rateListForm.schemeShortCode,
         schemeName: rateListForm.schemeName,
@@ -1158,20 +1273,31 @@ export const PricingManagementView: React.FC = () => {
           rateType: it.rateType,
           minAllowedRate: it.minAllowedRate,
         })),
-      });
+      };
 
-      showToast({
-        title: 'Rate List Created',
-        message: `Rate list '${rateListForm.code}' published successfully with ${rateListItems.length} finished products.`,
-        type: 'success',
-      });
+      if (editingRateList?.id) {
+        await ApiClient.put(`/api/v1/pricing/rate-lists/${editingRateList.id}`, payload);
+        showToast({
+          title: 'Rate List Updated',
+          message: `Rate list '${rateListForm.code}' updated successfully with ${rateListItems.length} products.`,
+          type: 'success',
+        });
+      } else {
+        await ApiClient.post('/api/v1/pricing/rate-lists', payload);
+        showToast({
+          title: 'Rate List Created',
+          message: `Rate list '${rateListForm.code}' published successfully with ${rateListItems.length} finished products.`,
+          type: 'success',
+        });
+      }
+
+      setEditingRateList(null);
       setIsRateListModalOpen(false);
       loadData();
     } catch (err: any) {
-      // Duplicate rate protection warning
       showToast({
         title: 'Error Saving Rate List',
-        message: err.message || 'Duplicate active rate list already exists for this scheme and validity period.',
+        message: err.message || 'Failed to save rate list configuration.',
         type: 'error',
       });
     }
@@ -1667,9 +1793,12 @@ export const PricingManagementView: React.FC = () => {
                     return (
                       <tr
                         key={rl.id}
+                        onDoubleClick={() => handleOpenEditRateList(rl)}
+                        title="Double-click to edit rate list and pricing matrix"
                         style={{
                           borderBottom: '1px solid var(--border-default)',
                           transition: 'background 0.15s ease',
+                          cursor: 'pointer',
                         }}
                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -1762,6 +1891,15 @@ export const PricingManagementView: React.FC = () => {
                         </td>
                         <td style={{ padding: '14px 16px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleOpenEditRateList(rl)}
+                              title="Edit Rate List & Pricing Matrix"
+                              style={{ color: '#2563eb', borderColor: '#bfdbfe' }}
+                            >
+                              <IconEdit size={14} /> Edit
+                            </Button>
                             <Button
                               variant="secondary"
                               size="sm"
@@ -1894,7 +2032,9 @@ export const PricingManagementView: React.FC = () => {
                     return (
                       <tr
                         key={sc.id}
-                        style={{ borderBottom: '1px solid var(--border-default)', transition: 'background 0.15s ease' }}
+                        onDoubleClick={() => handleOpenEditScheme(sc)}
+                        title="Double-click to edit commercial scheme"
+                        style={{ borderBottom: '1px solid var(--border-default)', transition: 'background 0.15s ease', cursor: 'pointer' }}
                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover)')}
                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
@@ -2584,8 +2724,11 @@ export const PricingManagementView: React.FC = () => {
       {/* ========================================================== */}
       <Modal
         isOpen={isRateListModalOpen}
-        onClose={() => setIsRateListModalOpen(false)}
-        title="Create Scheme Rate List"
+        onClose={() => {
+          setIsRateListModalOpen(false);
+          setEditingRateList(null);
+        }}
+        title={editingRateList ? `Edit Rate List & Pricing: ${editingRateList.schemeShortCode || editingRateList.code}` : "Create Scheme Rate List"}
         size="xl"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2808,6 +2951,7 @@ export const PricingManagementView: React.FC = () => {
                 ref={codeInputRef}
                 placeholder="e.g. RL-MCCM-2026"
                 value={rateListForm.code}
+                disabled={Boolean(editingRateList)}
                 onChange={(e) => setRateListForm({ ...rateListForm, code: e.target.value.toUpperCase() })}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -3195,11 +3339,21 @@ export const PricingManagementView: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
-            <Button variant="secondary" onClick={() => setIsRateListModalOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsRateListModalOpen(false);
+                setEditingRateList(null);
+              }}
+            >
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleSaveRateList} style={{ backgroundColor: '#059669' }}>
-              Save & Publish Rate List
+            <Button
+              variant="primary"
+              onClick={handleSaveRateList}
+              style={{ backgroundColor: editingRateList ? '#2563eb' : '#059669' }}
+            >
+              {editingRateList ? 'Update Rate List & Pricing' : 'Save & Publish Rate List'}
             </Button>
           </div>
         </div>
@@ -3330,7 +3484,18 @@ export const PricingManagementView: React.FC = () => {
               </div>
             ))}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const rlToEdit = selectedRateList;
+                  setIsRateListDetailModalOpen(false);
+                  handleOpenEditRateList(rlToEdit);
+                }}
+                style={{ backgroundColor: '#2563eb' }}
+              >
+                <IconEdit size={14} /> Edit Rate List & Pricing
+              </Button>
               <Button variant="secondary" onClick={() => setIsRateListDetailModalOpen(false)}>
                 Close
               </Button>

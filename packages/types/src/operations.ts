@@ -591,6 +591,10 @@ export interface UpdateRateListDto {
   isMobileSelectable?: boolean;
   isInternalOnly?: boolean;
   priority?: number;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  notes?: string;
+  items?: CreateRateListItemDto[];
 }
 
 export interface CreateRateListItemDto {

@@ -758,27 +758,118 @@ export class PricingService {
   }
 
   /**
-   * Update Rate List header attributes
+   * Update Rate List header attributes, active version validity dates, and item pricing matrix
    */
   async updateRateList(id: string, dto: UpdateRateListDto, actor: AuthUser) {
     const rateList = await this.prisma.rateList.findFirst({
       where: { id, companyId: actor.companyId },
+      include: {
+        versions: {
+          orderBy: { versionNumber: 'desc' },
+        },
+      },
     });
     if (!rateList) throw new NotFoundException('Rate list not found');
 
-    return this.prisma.rateList.update({
-      where: { id },
-      data: {
-        name: dto.name?.trim() || rateList.name,
-        description: dto.description !== undefined ? dto.description : rateList.description,
-        category: dto.category || rateList.category,
-        currency: dto.currency || rateList.currency,
-        status: dto.status || rateList.status,
-        isMobileVisible: dto.isMobileVisible !== undefined ? dto.isMobileVisible : rateList.isMobileVisible,
-        isMobileSelectable: dto.isMobileSelectable !== undefined ? dto.isMobileSelectable : rateList.isMobileSelectable,
-        isInternalOnly: dto.isInternalOnly !== undefined ? dto.isInternalOnly : rateList.isInternalOnly,
-        priority: dto.priority !== undefined ? dto.priority : rateList.priority,
-      },
+    let schemeName = dto.schemeName !== undefined ? dto.schemeName : rateList.schemeName;
+    let schemeShortCode = dto.schemeShortCode !== undefined ? dto.schemeShortCode : rateList.schemeShortCode;
+
+    if (dto.schemeId && dto.schemeId !== rateList.schemeId) {
+      const scheme = await this.prisma.pricingScheme.findFirst({
+        where: { id: dto.schemeId, companyId: actor.companyId },
+      });
+      if (scheme) {
+        schemeName = scheme.name;
+        schemeShortCode = scheme.shortCode || scheme.code;
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update Rate List Header
+      const updatedRateList = await tx.rateList.update({
+        where: { id },
+        data: {
+          name: dto.name?.trim() || rateList.name,
+          description: dto.description !== undefined ? dto.description : rateList.description,
+          category: dto.category || rateList.category,
+          currency: dto.currency || rateList.currency,
+          status: dto.status || rateList.status,
+          schemeId: dto.schemeId !== undefined ? dto.schemeId : rateList.schemeId,
+          schemeName,
+          schemeShortCode,
+          isMobileVisible: dto.isMobileVisible !== undefined ? dto.isMobileVisible : rateList.isMobileVisible,
+          isMobileSelectable: dto.isMobileSelectable !== undefined ? dto.isMobileSelectable : rateList.isMobileSelectable,
+          isInternalOnly: dto.isInternalOnly !== undefined ? dto.isInternalOnly : rateList.isInternalOnly,
+          priority: dto.priority !== undefined ? dto.priority : rateList.priority,
+        },
+      });
+
+      // 2. Update Active Version & Item Matrix if provided
+      const activeVersion = rateList.versions.find((v) => v.status === 'ACTIVE') || rateList.versions[0];
+      if (activeVersion) {
+        const versionUpdateData: any = {};
+        if (dto.effectiveFrom) versionUpdateData.effectiveFrom = new Date(dto.effectiveFrom);
+        if (dto.effectiveTo !== undefined) versionUpdateData.effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : null;
+        if (dto.notes !== undefined) versionUpdateData.notes = dto.notes;
+
+        if (Object.keys(versionUpdateData).length > 0) {
+          await tx.rateListVersion.update({
+            where: { id: activeVersion.id },
+            data: versionUpdateData,
+          });
+        }
+
+        if (dto.items && Array.isArray(dto.items)) {
+          // Replace existing items with updated rates and discounts
+          await tx.rateListItem.deleteMany({
+            where: { rateListVersionId: activeVersion.id },
+          });
+
+          if (dto.items.length > 0) {
+            await tx.rateListItem.createMany({
+              data: dto.items.map((it) => {
+                const baseRate = Number(it.baseRate || 0);
+                const schemeRate = it.schemeRate !== undefined && it.schemeRate !== null
+                  ? Number(it.schemeRate)
+                  : it.fixedNetRate !== undefined && it.fixedNetRate !== null
+                    ? Number(it.fixedNetRate)
+                    : baseRate;
+                const discountPercent = it.discountPercent !== undefined && it.discountPercent !== null
+                  ? Number(it.discountPercent)
+                  : it.discountValue !== undefined && it.discountValue !== null
+                    ? Number(it.discountValue)
+                    : baseRate > 0 && schemeRate < baseRate
+                      ? Number((((baseRate - schemeRate) / baseRate) * 100).toFixed(2))
+                      : 0;
+
+                return {
+                  id: uuidv7(),
+                  rateListVersionId: activeVersion.id,
+                  finishedProductId: it.finishedProductId,
+                  packSizeId: it.packSizeId || null,
+                  baseRate,
+                  schemeRate,
+                  discountPercent,
+                  rateType: it.rateType || 'DIRECT',
+                  unit: it.unit || 'BAG',
+                  discountType: it.discountType || 'PERCENTAGE',
+                  discountValue: discountPercent,
+                  fixedNetRate: it.rateType === 'NET_NET' ? schemeRate : it.fixedNetRate ?? null,
+                  minAllowedRate: it.minAllowedRate ?? Math.round(baseRate * 0.8),
+                  quantityFrom: it.quantityFrom ?? 1,
+                  quantityTo: it.quantityTo ?? null,
+                  freeQuantity: it.freeQuantity ?? 0,
+                  commercialCondition: it.commercialCondition || null,
+                  isActive: it.isActive ?? true,
+                };
+              }),
+            });
+          }
+        }
+      }
+
+      this.logger.log(`Updated Rate List ${rateList.code} (${rateList.id}) by user ${actor.id}`);
+      return updatedRateList;
     });
   }
 
@@ -1801,6 +1892,15 @@ export class PricingService {
         effectiveFrom: invStart || scheme.effectiveFrom,
         effectiveTo: invEnd !== undefined ? invEnd : scheme.effectiveTo,
         status: dto.status || scheme.status,
+      },
+    });
+
+    // Sync updated Scheme name and short code snapshot on attached Rate Lists
+    await this.prisma.rateList.updateMany({
+      where: { schemeId: id },
+      data: {
+        schemeName: dto.name?.trim() || scheme.name,
+        schemeShortCode: dto.shortCode !== undefined ? (dto.shortCode ? dto.shortCode.trim().toUpperCase() : null) : scheme.shortCode,
       },
     });
 
