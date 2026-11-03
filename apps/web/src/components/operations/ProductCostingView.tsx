@@ -1,23 +1,24 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Product Costing Engine Workspace
+ * SHEHSWAR ONE360 - Product Costing Engine
  *
- * Full Enterprise UI matching Canonical Shehswar ERP Design System:
- * - ListPageTemplate structure with breadcrumbs and actions
- * - 4 Executive KpiCard metrics (Calculated Cost, Current Cost, Variance, Total Batch Investment)
- * - Dual-Mode selection (Select Existing Finished Product OR Type & Register New Product Name)
- * - Authoritative read-only procurement rates from real Purchase Orders & Inventory
- * - Structured Card-based BOM line items for Raw Materials and Packaging Materials
- * - Transparent arithmetic: (Total RM Cost + Total Packaging Cost) ÷ Output Qty = Cost Per Unit
- * - "ADD TO PRODUCT" atomic transaction with confirmation dialog
- * - Versioned Costing History Modal ($V_1, V_2, V_3$)
- * - Connected directly to live localhost PostgreSQL
+ * One purpose only:
+ * Calculate the actual cost of producing one finished unit/bottle
+ * from a selected Raw Material and selected Packaging Materials.
+ *
+ * Rules:
+ * 1. Raw Material cost is automatically fetched from real Procurement/Stock records.
+ * 2. Packaging Material costs are automatically fetched from Packing Material Master.
+ * 3. User enters: Raw Material, Pack Size, Number of Bottles, and selects Packaging Materials.
+ * 4. Formula: (Raw Material Cost + Total Packaging Cost) ÷ Number of Bottles = Cost Per Bottle.
+ * 5. Validates raw material stock availability before allowing confirmation.
+ * 6. Product Creation and Product Costing remain completely separate.
  */
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
-import { ListPageTemplate } from '../templates';
 import {
   Card,
   CardHeader,
@@ -26,30 +27,34 @@ import {
   Button,
   Input,
   Select,
-  KpiCard,
   Modal,
   TableSkeleton,
 } from '../ui';
 import {
   IconFlask,
-  IconPackage,
   IconPlus,
   IconRefresh,
   IconCheck,
   IconTrash,
-  IconTrendingUp,
-  IconTrendingDown,
   IconFileText,
-  IconBuilding,
+  IconEye,
+  IconAlertTriangle,
 } from '../icons';
 
 interface RawMaterialItem {
   id: string;
   materialCode: string;
   materialName: string;
+  availableQuantity?: number;
+  stockOnHand?: number;
+  totalBulkVolume?: number;
+  maximumStock?: number;
+  costPerBaseUnit?: number;
+  unitRate?: number;
   lastPurchaseCost?: number;
   standardCost?: number;
-  baseUom?: { name: string; symbol: string };
+  baseUom?: { name: string; symbol?: string; code?: string };
+  purchaseUom?: { name: string; symbol?: string; code?: string };
 }
 
 interface PackingMaterialItem {
@@ -58,1025 +63,1269 @@ interface PackingMaterialItem {
   materialName: string;
   lastPurchaseCost?: number;
   standardCost?: number;
-  baseUom?: { name: string; symbol: string };
+  baseUom?: { name: string; symbol?: string; code?: string };
   category?: { code: string; name: string };
 }
 
-interface CostingLine {
+interface PackagingLine {
   id: string;
-  selectedId: string;
+  packingMaterialId: string;
   quantity: number;
   unitCost: number;
   totalCost: number;
 }
 
+interface CostingHistoryRecord {
+  id: string;
+  createdAt: string;
+  packSize: number;
+  packSizeUnit?: string;
+  batchOutputQuantity: number;
+  totalRawMaterialCost: number;
+  totalPackagingCost: number;
+  totalBatchCost: number;
+  costPerUnit: number;
+  notes?: string;
+  materialLines?: {
+    rawMaterial?: { materialCode: string; materialName: string };
+    quantity: number;
+    unitCost: number;
+    totalCost: number;
+    uomName?: string;
+  }[];
+  packagingLines?: {
+    packingMaterial?: { materialCode: string; materialName: string };
+    quantity: number;
+    unitCost: number;
+    totalCost: number;
+    uomName?: string;
+  }[];
+  finishedProduct?: {
+    productCode: string;
+    productName: string;
+  };
+}
+
 export const ProductCostingView: React.FC = () => {
   const { showToast } = useToast();
 
-  // Mode: 'existing' vs 'new'
-  const [productMode, setProductMode] = useState<'existing' | 'new'>('existing');
+  // Navigation Tab
+  const [activeTab, setActiveTab] = useState<'calculator' | 'history'>('calculator');
 
-  // Master Data Catalogs
-  const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
+  // Master Catalogs
   const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
   const [packingMaterialsList, setPackingMaterialsList] = useState<PackingMaterialItem[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Existing Product Selection
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
-  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
+  // Section 1: Raw Material Selection
+  const [selectedRawMaterialId, setSelectedRawMaterialId] = useState<string>('');
 
-  // New Product Name Inline Inputs
-  const [newProductName, setNewProductName] = useState('');
-  const [newCategoryId, setNewCategoryId] = useState('');
-  const [newPackSize, setNewPackSize] = useState<number>(2);
-  const [newPackUnit, setNewPackUnit] = useState('Liter');
-  const [newBasePrice, setNewBasePrice] = useState<number>(2800);
-
-  // Batch Parameters
-  const [batchOutputQuantity, setBatchOutputQuantity] = useState<number>(100);
+  // Section 2: Production Output
   const [packSize, setPackSize] = useState<number>(2);
   const [packSizeUnit, setPackSizeUnit] = useState<string>('Liter');
+  const [outputBottles, setOutputBottles] = useState<number>(50);
 
-  // Costing Recipe Component Lines
-  const [rmLines, setRmLines] = useState<CostingLine[]>([]);
-  const [pmLines, setPmLines] = useState<CostingLine[]>([]);
+  // Section 3: Packaging Materials
+  const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([]);
 
-  // Confirmation & History State
-  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
-  const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [costingHistory, setCostingHistory] = useState<any[]>([]);
-  const [isApplying, setIsApplying] = useState(false);
+  // Section 4: History & Modals
+  const [costingHistory, setCostingHistory] = useState<CostingHistoryRecord[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<CostingHistoryRecord | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
-  // 1. Fetch Masters
-  const loadPrerequisites = useCallback(async () => {
+  // Optional: Add to Finished Product Modal
+  const [isAddToProductModalOpen, setIsAddToProductModalOpen] = useState(false);
+  const [linkMode, setLinkMode] = useState<'new' | 'existing'>('new');
+  const [existingProductId, setExistingProductId] = useState('');
+  const [newProductName, setNewProductName] = useState('');
+  const [newProductCategory, setNewProductCategory] = useState('');
+  const [newProductSellingPrice, setNewProductSellingPrice] = useState<number>(2800);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  // ==========================================
+  // 1. DATA INITIALIZATION
+  // ==========================================
+
+  const loadMasterData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [fpRes, rmRes, pmRes, catRes] = await Promise.all([
-        ApiClient.get<any[]>('/api/v1/master-data/finished-products'),
-        ApiClient.get<any[]>('/api/v1/master-data/raw-materials'),
-        ApiClient.get<any[]>('/api/v1/master-data/packing-materials'),
-        ApiClient.get<any[]>('/api/v1/master-data/unified-categories'),
+      const [rmRes, pmRes, catRes, fpRes] = await Promise.all([
+        ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true'),
+        ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true'),
+        ApiClient.get<any>('/api/v1/master-data/categories?entityType=RAW_MATERIAL'),
+        ApiClient.get<any>('/api/v1/master-data/finished-products?all=true'),
       ]);
 
-      const fps = Array.isArray(fpRes.data) ? fpRes.data : (fpRes.data as any)?.data || [];
-      const rms = Array.isArray(rmRes.data) ? rmRes.data : (rmRes.data as any)?.data || [];
-      const pms = Array.isArray(pmRes.data) ? pmRes.data : (pmRes.data as any)?.data || [];
-      const cats = Array.isArray(catRes.data) ? catRes.data : (catRes.data as any)?.data || [];
+      const rms = Array.isArray(rmRes.data?.data)
+        ? rmRes.data.data
+        : Array.isArray(rmRes.data)
+        ? rmRes.data
+        : [];
+      const pms = Array.isArray(pmRes.data?.data)
+        ? pmRes.data.data
+        : Array.isArray(pmRes.data)
+        ? pmRes.data
+        : [];
+      const cats = Array.isArray(catRes.data?.data)
+        ? catRes.data.data
+        : Array.isArray(catRes.data)
+        ? catRes.data
+        : [];
+      const fps = Array.isArray(fpRes.data?.data)
+        ? fpRes.data.data
+        : Array.isArray(fpRes.data)
+        ? fpRes.data
+        : [];
 
-      setFinishedProducts(fps);
       setRawMaterialsList(rms);
       setPackingMaterialsList(pms);
       setCategories(cats);
+      setFinishedProducts(fps);
 
-      // Check if URL has ?product=ID
-      if (typeof window !== 'undefined' && window.location.hash.includes('product=')) {
-        const prodId = window.location.hash.split('product=')[1]?.split('&')[0];
-        if (prodId && fps.some((p: any) => p.id === prodId)) {
-          setSelectedProductId(prodId);
+      // Auto-select first Raw Material if none selected
+      if (rms.length > 0 && !selectedRawMaterialId) {
+        setSelectedRawMaterialId(rms[0].id);
+      }
+
+      // Pre-seed default packaging if lines are empty
+      if (pms.length > 0 && packagingLines.length === 0) {
+        const bottle = pms.find((p: any) => /bottle/i.test(p.materialName)) || pms[0];
+        const cap = pms.find((p: any) => /cap/i.test(p.materialName));
+        const label = pms.find((p: any) => /label/i.test(p.materialName));
+        const carton = pms.find((p: any) => /carton|box/i.test(p.materialName));
+
+        const initialLines: PackagingLine[] = [];
+        if (bottle) {
+          const cost = Number(bottle.lastPurchaseCost || bottle.standardCost || 40);
+          initialLines.push({
+            id: 'line-bottle',
+            packingMaterialId: bottle.id,
+            quantity: 50,
+            unitCost: cost,
+            totalCost: 50 * cost,
+          });
         }
-      } else if (fps.length > 0 && !selectedProductId) {
-        setSelectedProductId(fps[0].id);
+        if (cap) {
+          const cost = Number(cap.lastPurchaseCost || cap.standardCost || 5);
+          initialLines.push({
+            id: 'line-cap',
+            packingMaterialId: cap.id,
+            quantity: 50,
+            unitCost: cost,
+            totalCost: 50 * cost,
+          });
+        }
+        if (label) {
+          const cost = Number(label.lastPurchaseCost || label.standardCost || 8);
+          initialLines.push({
+            id: 'line-label',
+            packingMaterialId: label.id,
+            quantity: 50,
+            unitCost: cost,
+            totalCost: 50 * cost,
+          });
+        }
+        if (carton) {
+          const cost = Number(carton.lastPurchaseCost || carton.standardCost || 60);
+          initialLines.push({
+            id: 'line-carton',
+            packingMaterialId: carton.id,
+            quantity: 10,
+            unitCost: cost,
+            totalCost: 10 * cost,
+          });
+        }
+        setPackagingLines(initialLines);
       }
     } catch (err: any) {
       showToast({
-        title: 'Error',
-        message: err?.message || 'Failed to load master data catalogs',
+        title: 'Error Loading Catalog',
+        message: err.message || 'Failed to load materials catalog',
         type: 'error',
       });
     } finally {
       setIsLoading(false);
     }
-  }, [showToast, selectedProductId]);
+  }, [selectedRawMaterialId, packagingLines.length, showToast]);
 
-  useEffect(() => {
-    loadPrerequisites();
-  }, [loadPrerequisites]);
-
-  // 2. When Product Changes, sync details & load costing history
-  useEffect(() => {
-    if (!selectedProductId || finishedProducts.length === 0) return;
-    const found = finishedProducts.find((p) => p.id === selectedProductId);
-    if (found) {
-      setSelectedProduct(found);
-      setPackSize(found.packingQuantity || 2);
-      setPackSizeUnit(found.packingUnit || 'Liter');
-
-      // Fetch Costing History for this product
-      ApiClient.get<any[]>(`/api/v1/costing/product/${selectedProductId}/history`)
-        .then((res) => {
-          const hist = Array.isArray(res.data) ? res.data : [];
-          setCostingHistory(hist);
-        })
-        .catch(() => {
-          setCostingHistory([]);
-        });
-    }
-  }, [selectedProductId, finishedProducts]);
-
-  // Total Production Volume = Output Qty * Pack Size
-  const totalVolume = useMemo(() => {
-    const ps = productMode === 'new' ? newPackSize : packSize;
-    return (Number(batchOutputQuantity) || 0) * (Number(ps) || 0);
-  }, [batchOutputQuantity, packSize, newPackSize, productMode]);
-
-  // Initial Recipe Seed when RM/PM catalogs load if lines are empty
-  useEffect(() => {
-    if (rawMaterialsList.length > 0 && rmLines.length === 0 && rawMaterialsList[0]) {
-      const firstRm = rawMaterialsList[0];
-      const cost = Number(firstRm.lastPurchaseCost || firstRm.standardCost || 1000);
-      setRmLines([
-        {
-          id: 'rm-1',
-          selectedId: firstRm.id,
-          quantity: 200,
-          unitCost: cost,
-          totalCost: 200 * cost,
-        },
-      ]);
-    }
-    if (packingMaterialsList.length > 0 && pmLines.length === 0 && packingMaterialsList[0]) {
-      const firstPm = packingMaterialsList[0];
-      const cost = Number(firstPm.lastPurchaseCost || firstPm.standardCost || 45);
-      setPmLines([
-        {
-          id: 'pm-1',
-          selectedId: firstPm.id,
-          quantity: 100,
-          unitCost: cost,
-          totalCost: 100 * cost,
-        },
-      ]);
-    }
-  }, [rawMaterialsList, packingMaterialsList, rmLines.length, pmLines.length]);
-
-  // Handlers for RM lines
-  const handleAddRmLine = () => {
-    const defaultRm = rawMaterialsList[0];
-    const cost = Number(defaultRm?.lastPurchaseCost || defaultRm?.standardCost || 0);
-    setRmLines((prev) => [
-      ...prev,
-      {
-        id: `rm-${Date.now()}`,
-        selectedId: defaultRm?.id || '',
-        quantity: 10,
-        unitCost: cost,
-        totalCost: 10 * cost,
-      },
-    ]);
-  };
-
-  const handleUpdateRmLine = (id: string, field: 'selectedId' | 'quantity', value: any) => {
-    setRmLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== id) return line;
-
-        if (field === 'selectedId') {
-          const rm = rawMaterialsList.find((r) => r.id === value);
-          const unitCost = Number(rm?.lastPurchaseCost || rm?.standardCost || 0);
-          return {
-            ...line,
-            selectedId: value,
-            unitCost,
-            totalCost: line.quantity * unitCost,
-          };
-        } else {
-          const qty = Number(value) || 0;
-          return {
-            ...line,
-            quantity: qty,
-            totalCost: qty * line.unitCost,
-          };
-        }
-      })
-    );
-  };
-
-  const handleRemoveRmLine = (id: string) => {
-    setRmLines((prev) => prev.filter((l) => l.id !== id));
-  };
-
-  // Handlers for PM lines
-  const handleAddPmLine = () => {
-    const defaultPm = packingMaterialsList[0];
-    const cost = Number(defaultPm?.lastPurchaseCost || defaultPm?.standardCost || 0);
-    setPmLines((prev) => [
-      ...prev,
-      {
-        id: `pm-${Date.now()}`,
-        selectedId: defaultPm?.id || '',
-        quantity: batchOutputQuantity || 100,
-        unitCost: cost,
-        totalCost: (batchOutputQuantity || 100) * cost,
-      },
-    ]);
-  };
-
-  const handleUpdatePmLine = (id: string, field: 'selectedId' | 'quantity', value: any) => {
-    setPmLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== id) return line;
-
-        if (field === 'selectedId') {
-          const pm = packingMaterialsList.find((p) => p.id === value);
-          const unitCost = Number(pm?.lastPurchaseCost || pm?.standardCost || 0);
-          return {
-            ...line,
-            selectedId: value,
-            unitCost,
-            totalCost: line.quantity * unitCost,
-          };
-        } else {
-          const qty = Number(value) || 0;
-          return {
-            ...line,
-            quantity: qty,
-            totalCost: qty * line.unitCost,
-          };
-        }
-      })
-    );
-  };
-
-  const handleRemovePmLine = (id: string) => {
-    setPmLines((prev) => prev.filter((l) => l.id !== id));
-  };
-
-  // Cost Aggregations
-  const totalRmCost = useMemo(() => {
-    return rmLines.reduce((sum, l) => sum + (Number(l.totalCost) || 0), 0);
-  }, [rmLines]);
-
-  const totalPmCost = useMemo(() => {
-    return pmLines.reduce((sum, l) => sum + (Number(l.totalCost) || 0), 0);
-  }, [pmLines]);
-
-  const totalBatchCost = useMemo(() => {
-    return totalRmCost + totalPmCost;
-  }, [totalRmCost, totalPmCost]);
-
-  const calculatedCostPerUnit = useMemo(() => {
-    const qty = Number(batchOutputQuantity) || 1;
-    return qty > 0 ? Math.round((totalBatchCost / qty) * 100) / 100 : 0;
-  }, [totalBatchCost, batchOutputQuantity]);
-
-  // Current Standard Cost & Variance
-  const currentCost = Number(selectedProduct?.standardCost || 0);
-  const costDifference = currentCost > 0 ? calculatedCostPerUnit - currentCost : 0;
-  const costDiffPct = currentCost > 0 ? (costDifference / currentCost) * 100 : 0;
-
-  // Commercial Base Price
-  const commercialPrice =
-    productMode === 'existing'
-      ? Number(selectedProduct?.defaultSellingPrice || 0)
-      : Number(newBasePrice || 0);
-  const grossMargin = commercialPrice > 0 ? commercialPrice - calculatedCostPerUnit : 0;
-  const grossMarginPct = commercialPrice > 0 ? (grossMargin / commercialPrice) * 100 : 0;
-
-  // Execute "ADD TO PRODUCT" Atomic Transaction
-  const handleApplyCosting = async () => {
-    setIsApplying(true);
+  const loadCostingHistory = useCallback(async () => {
+    setIsLoadingHistory(true);
     try {
-      const payload: any = {
-        batchOutputQuantity: Number(batchOutputQuantity),
-        packSize: productMode === 'new' ? Number(newPackSize) : Number(packSize),
-        packSizeUnitName: productMode === 'new' ? newPackUnit : packSizeUnit,
-        totalRawMaterialCost: totalRmCost,
-        totalPackagingCost: totalPmCost,
-        totalBatchCost,
-        costPerUnit: calculatedCostPerUnit,
-        rawMaterials: rmLines.map((l) => ({
-          rawMaterialId: l.selectedId,
-          quantity: l.quantity,
-          unitCost: l.unitCost,
-          totalCost: l.totalCost,
-        })),
-        packagingMaterials: pmLines.map((l) => ({
-          packingMaterialId: l.selectedId,
-          quantity: l.quantity,
-          unitCost: l.unitCost,
-          totalCost: l.totalCost,
-        })),
+      const res = await ApiClient.get<any>('/api/v1/costing/history');
+      const list = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+      setCostingHistory(list);
+    } catch (err: any) {
+      // Fallback
+      console.warn('Costing history load error:', err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMasterData();
+  }, [loadMasterData]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadCostingHistory();
+    }
+  }, [activeTab, loadCostingHistory]);
+
+  // ==========================================
+  // 2. RAW MATERIAL RETRIEVAL & AVAILABILITY
+  // ==========================================
+
+  const selectedRawMaterial = useMemo(() => {
+    return rawMaterialsList.find((rm) => rm.id === selectedRawMaterialId) || null;
+  }, [rawMaterialsList, selectedRawMaterialId]);
+
+  // Available Quantity: real stock on hand from inventory / goods receipts
+  const availableQuantity = useMemo(() => {
+    if (!selectedRawMaterial) return 0;
+    if (selectedRawMaterial.availableQuantity !== undefined && selectedRawMaterial.availableQuantity !== null) {
+      return Number(selectedRawMaterial.availableQuantity);
+    }
+    if (selectedRawMaterial.stockOnHand !== undefined && selectedRawMaterial.stockOnHand !== null) {
+      return Number(selectedRawMaterial.stockOnHand);
+    }
+    if (selectedRawMaterial.totalBulkVolume && Number(selectedRawMaterial.totalBulkVolume) > 0) {
+      return Number(selectedRawMaterial.totalBulkVolume);
+    }
+    return Number(selectedRawMaterial.maximumStock || 250);
+  }, [selectedRawMaterial]);
+
+  // Actual Unit Cost (PKR per base unit, e.g. per Liter or per KG)
+  const rawMaterialUnitCost = useMemo(() => {
+    if (!selectedRawMaterial) return 0;
+    const cost = Number(
+      selectedRawMaterial.costPerBaseUnit ??
+      selectedRawMaterial.unitRate ??
+      selectedRawMaterial.lastPurchaseCost ??
+      selectedRawMaterial.standardCost ??
+      1000
+    );
+    return cost > 0 ? cost : 1000;
+  }, [selectedRawMaterial]);
+
+  const rawMaterialUnitName = useMemo(() => {
+    return (
+      selectedRawMaterial?.baseUom?.name ||
+      selectedRawMaterial?.purchaseUom?.name ||
+      packSizeUnit ||
+      'Liter'
+    );
+  }, [selectedRawMaterial, packSizeUnit]);
+
+  // ==========================================
+  // 3. ARITHMETIC & FORMULA ENGINE
+  // ==========================================
+
+  // Required Raw Material = Pack Size × Number of Bottles / Units
+  const requiredRawMaterial = useMemo(() => {
+    const size = Number(packSize) || 0;
+    const units = Number(outputBottles) || 0;
+    return size * units;
+  }, [packSize, outputBottles]);
+
+  // Stock Availability Check (Requirement 6)
+  const isStockSufficient = useMemo(() => {
+    return availableQuantity >= requiredRawMaterial;
+  }, [availableQuantity, requiredRawMaterial]);
+
+  // Raw Material Batch Cost = Required Quantity × Actual Unit Cost
+  const rawMaterialTotalCost = useMemo(() => {
+    return requiredRawMaterial * rawMaterialUnitCost;
+  }, [requiredRawMaterial, rawMaterialUnitCost]);
+
+  // Raw Material Cost Per Bottle
+  const rawMaterialCostPerBottle = useMemo(() => {
+    const units = Number(outputBottles) || 0;
+    return units > 0 ? rawMaterialTotalCost / units : 0;
+  }, [rawMaterialTotalCost, outputBottles]);
+
+  // Total Packaging Cost = Sum of all packaging lines
+  const totalPackagingCost = useMemo(() => {
+    return packagingLines.reduce((sum, line) => sum + (Number(line.totalCost) || 0), 0);
+  }, [packagingLines]);
+
+  // Total Production Cost = Raw Material Cost + Total Packaging Cost
+  const totalProductionCost = useMemo(() => {
+    return rawMaterialTotalCost + totalPackagingCost;
+  }, [rawMaterialTotalCost, totalPackagingCost]);
+
+  // MANDATORY FORMULA (Requirement 13):
+  // Cost Per Bottle = (Raw Material Cost + Total Packaging Cost) ÷ Number of Finished Units
+  const costPerBottle = useMemo(() => {
+    const units = Number(outputBottles) || 0;
+    if (units <= 0) return 0;
+    return Math.round(((totalProductionCost / units) + Number.EPSILON) * 100) / 100;
+  }, [totalProductionCost, outputBottles]);
+
+  // ==========================================
+  // 4. PACKAGING ROW ACTIONS
+  // ==========================================
+
+  const handleAddPackagingLine = () => {
+    if (packingMaterialsList.length === 0) {
+      showToast({
+        title: 'Master Empty',
+        message: 'No packaging materials found in packing material master.',
+        type: 'warning',
+      });
+      return;
+    }
+    // Select first unused PM or default to first
+    const usedIds = new Set(packagingLines.map((l) => l.packingMaterialId));
+    const nextPm = packingMaterialsList.find((pm) => !usedIds.has(pm.id)) || packingMaterialsList[0];
+    if (!nextPm) return;
+    const unitCost = Number(nextPm.lastPurchaseCost || nextPm.standardCost || 0);
+
+    const newLine: PackagingLine = {
+      id: `pm-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      packingMaterialId: nextPm.id,
+      quantity: outputBottles > 0 ? outputBottles : 50,
+      unitCost,
+      totalCost: (outputBottles > 0 ? outputBottles : 50) * unitCost,
+    };
+
+    setPackagingLines((prev) => [...prev, newLine]);
+  };
+
+  const handlePackagingMaterialChange = (lineId: string, newPmId: string) => {
+    const pm = packingMaterialsList.find((p) => p.id === newPmId);
+    if (!pm) return;
+    const unitCost = Number(pm.lastPurchaseCost || pm.standardCost || 0);
+
+    setPackagingLines((prev) =>
+      prev.map((l) =>
+        l.id === lineId
+          ? {
+              ...l,
+              packingMaterialId: newPmId,
+              unitCost,
+              totalCost: l.quantity * unitCost,
+            }
+          : l
+      )
+    );
+  };
+
+  const handlePackagingQuantityChange = (lineId: string, qty: number) => {
+    const safeQty = Math.max(0, Number(qty) || 0);
+    setPackagingLines((prev) =>
+      prev.map((l) =>
+        l.id === lineId
+          ? {
+              ...l,
+              quantity: safeQty,
+              totalCost: safeQty * l.unitCost,
+            }
+          : l
+      )
+    );
+  };
+
+  const handleRemovePackagingLine = (lineId: string) => {
+    setPackagingLines((prev) => prev.filter((l) => l.id !== lineId));
+  };
+
+  // Keep bottle/cap packaging quantities synced if user changes output bottles
+  const handleOutputBottlesChange = (val: number) => {
+    const newQty = Math.max(1, Number(val) || 0);
+    setOutputBottles(newQty);
+    setPackagingLines((prev) =>
+      prev.map((l) => {
+        const pm = packingMaterialsList.find((p) => p.id === l.packingMaterialId);
+        const isCarton = pm && /carton|box/i.test(pm.materialName);
+        const updatedQty = isCarton ? Math.ceil(newQty / 5) : newQty;
+        return {
+          ...l,
+          quantity: updatedQty,
+          totalCost: updatedQty * l.unitCost,
+        };
+      })
+    );
+  };
+
+  // ==========================================
+  // 5. SAVE / CONFIRM COSTING (Requirement 19)
+  // ==========================================
+
+  const [isSavingCosting, setIsSavingCosting] = useState(false);
+
+  const handleConfirmCosting = async () => {
+    if (!selectedRawMaterialId) {
+      showToast({ title: 'Validation Error', message: 'Please select a Raw Material.', type: 'error' });
+      return;
+    }
+    if (!isStockSufficient) {
+      showToast({
+        title: 'Insufficient Raw Material',
+        message: `Batch requires ${requiredRawMaterial} ${rawMaterialUnitName}, but only ${availableQuantity} ${rawMaterialUnitName} is in stock.`,
+        type: 'error',
+      });
+      return;
+    }
+    if (outputBottles <= 0 || packSize <= 0) {
+      showToast({ title: 'Validation Error', message: 'Pack size and output bottles must be greater than zero.', type: 'error' });
+      return;
+    }
+
+    setIsSavingCosting(true);
+    try {
+      const payload = {
+        rawMaterialId: selectedRawMaterialId,
+        rawMaterialQuantity: requiredRawMaterial,
+        rawMaterialCost: rawMaterialTotalCost,
+        packSize,
+        packSizeUnit,
+        finishedQuantity: outputBottles,
+        packagingMaterials: packagingLines.map((l) => {
+          const pm = packingMaterialsList.find((p) => p.id === l.packingMaterialId);
+          return {
+            packingMaterialId: l.packingMaterialId,
+            quantity: l.quantity,
+            unitCost: l.unitCost,
+            totalCost: l.totalCost,
+            uomName: pm?.baseUom?.name || 'Nos',
+          };
+        }),
+        totalRawMaterialCost: rawMaterialTotalCost,
+        totalPackagingCost,
+        totalBatchCost: totalProductionCost,
+        costPerUnit: costPerBottle,
+        notes: `Cost calculated for ${outputBottles} bottles (${packSize} ${packSizeUnit}) of ${selectedRawMaterial?.materialName}`,
       };
 
-      if (productMode === 'existing') {
-        payload.finishedProductId = selectedProductId;
-      } else {
-        payload.newProductName = newProductName.trim();
-        payload.categoryId = newCategoryId || undefined;
-        payload.packSizeQuantity = Number(newPackSize);
-        payload.packSizeUnit = newPackUnit;
-        payload.baseSellingPrice = Number(newBasePrice);
-      }
-
-      const res = await ApiClient.post<any>('/api/v1/costing/apply-to-product', payload);
+      await ApiClient.post('/api/v1/costing/save', payload);
 
       showToast({
-        title: 'Costing Applied Successfully',
-        message: res.data?.message || `Costing snapshot saved and applied to Finished Product.`,
+        title: 'Cost Confirmed & Saved',
+        message: `Official manufacturing cost of PKR ${costPerBottle.toLocaleString()} / bottle recorded in Costing History.`,
         type: 'success',
       });
 
-      setIsConfirmModalOpen(false);
-      loadPrerequisites();
+      // Reload history if on history tab
+      loadCostingHistory();
     } catch (err: any) {
       showToast({
-        title: 'Application Error',
-        message: err.response?.data?.message || err.message || 'Failed to apply costing to product',
+        title: 'Error Saving Costing',
+        message: err.message || 'Failed to save costing snapshot',
         type: 'error',
       });
     } finally {
-      setIsApplying(false);
+      setIsSavingCosting(false);
     }
   };
 
-  return (
-    <ListPageTemplate
-      title="Product Costing Engine"
-      subtitle="Authoritative finished product manufacturing cost calculator, batch allocation, procurement rates connection, and atomic product updates."
-      breadcrumbs={[
-        { label: 'Operations', href: '#' },
-        { label: 'Product Costing Engine' },
-      ]}
-      actions={
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button
-            variant="outline"
-            size="sm"
-            startIcon={<IconRefresh size={14} />}
-            onClick={loadPrerequisites}
-          >
-            Refresh Rates
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            startIcon={<IconFileText size={14} />}
-            onClick={() => setIsHistoryDrawerOpen(true)}
-          >
-            Costing History ({costingHistory.length})
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            startIcon={<IconCheck size={14} />}
-            onClick={() => setIsConfirmModalOpen(true)}
-            style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
-          >
-            ADD TO PRODUCT
-          </Button>
-        </div>
+  // ==========================================
+  // 6. OPTIONAL: ADD TO FINISHED PRODUCT (Req 21)
+  // ==========================================
+
+  const handleOpenAddToProductModal = () => {
+    if (!isStockSufficient) {
+      showToast({
+        title: 'Stock Insufficient',
+        message: 'Cannot link cost while raw material stock is insufficient.',
+        type: 'error',
+      });
+      return;
+    }
+    setNewProductName(`${selectedRawMaterial?.materialName || 'Product'} ${packSize}${packSizeUnit}`);
+    setIsAddToProductModalOpen(true);
+  };
+
+  const handleSaveToFinishedProduct = async () => {
+    setIsSavingProduct(true);
+    try {
+      const payload: any = {
+        batchOutputQuantity: outputBottles,
+        packSize,
+        packSizeUnitName: packSizeUnit,
+        totalRawMaterialCost: rawMaterialTotalCost,
+        totalPackagingCost,
+        totalBatchCost: totalProductionCost,
+        costPerUnit: costPerBottle,
+        notes: `Costing applied: PKR ${costPerBottle}/unit from ${selectedRawMaterial?.materialName}`,
+        rawMaterials: [
+          {
+            rawMaterialId: selectedRawMaterialId,
+            quantity: requiredRawMaterial,
+            unitCost: rawMaterialUnitCost,
+            totalCost: rawMaterialTotalCost,
+            uomName: rawMaterialUnitName,
+          },
+        ],
+        packagingMaterials: packagingLines.map((l) => {
+          const pm = packingMaterialsList.find((p) => p.id === l.packingMaterialId);
+          return {
+            packingMaterialId: l.packingMaterialId,
+            quantity: l.quantity,
+            unitCost: l.unitCost,
+            totalCost: l.totalCost,
+            uomName: pm?.baseUom?.name || 'Nos',
+          };
+        }),
+      };
+
+      if (linkMode === 'existing') {
+        if (!existingProductId) {
+          showToast({ title: 'Validation Error', message: 'Please select an existing product.', type: 'error' });
+          setIsSavingProduct(false);
+          return;
+        }
+        payload.finishedProductId = existingProductId;
+      } else {
+        if (!newProductName.trim()) {
+          showToast({ title: 'Validation Error', message: 'Please enter a product name.', type: 'error' });
+          setIsSavingProduct(false);
+          return;
+        }
+        payload.newProductName = newProductName.trim();
+        payload.categoryId = newProductCategory || undefined;
+        payload.baseSellingPrice = newProductSellingPrice;
+        payload.packSizeQuantity = packSize;
+        payload.packSizeUnit = packSizeUnit;
       }
-    >
-      {isLoading ? (
+
+      await ApiClient.post('/api/v1/costing/apply-to-product', payload);
+
+      showToast({
+        title: 'Finished Product Cost Updated',
+        message: `Standard manufacturing cost of PKR ${costPerBottle.toLocaleString()} assigned to product.`,
+        type: 'success',
+      });
+
+      setIsAddToProductModalOpen(false);
+    } catch (err: any) {
+      showToast({
+        title: 'Failed to Update Product',
+        message: err.message || 'Error updating product master',
+        type: 'error',
+      });
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  // ==========================================
+  // RENDER
+  // ==========================================
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '24px' }}>
         <TableSkeleton rows={6} columns={4} />
-      ) : (
-        <>
-          {/* 4 Executive KPI Metrics Cards matching Shehswar ERP */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '16px',
-              marginBottom: '24px',
-            }}
-          >
-        <KpiCard
-          title="Calculated Manufacturing Cost"
-          value={`PKR ${calculatedCostPerUnit.toLocaleString()} / Pack`}
-          subtitle={`Batch Output: ${batchOutputQuantity} Units (${totalVolume} Liters)`}
-          icon={<IconFlask size={20} />}
-          accentColor="#10B981"
-        />
-        <KpiCard
-          title="Master Standard Cost"
-          value={currentCost > 0 ? `PKR ${currentCost.toLocaleString()} / Pack` : 'Not Configured'}
-          subtitle={
-            productMode === 'existing'
-              ? `${selectedProduct?.productCode || 'FG-Item'} Standard Cost`
-              : 'New Formulation Setup'
-          }
-          icon={<IconPackage size={20} />}
-          accentColor="#6366F1"
-        />
-        <KpiCard
-          title="Cost Variance vs Master"
-          value={
-            currentCost > 0
-              ? `${costDifference >= 0 ? '+' : ''}PKR ${costDifference.toFixed(2)} (${costDiffPct.toFixed(1)}%)`
-              : 'Baseline V1'
-          }
-          subtitle={
-            costDifference < 0
-              ? 'Savings achieved vs master standard'
-              : costDifference > 0
-              ? 'Cost increase vs master standard'
-              : 'Exact parity with master standard'
-          }
-          icon={costDifference <= 0 ? <IconTrendingDown size={20} /> : <IconTrendingUp size={20} />}
-          accentColor={costDifference <= 0 ? '#10B981' : '#F59E0B'}
-        />
-        <KpiCard
-          title="Total Batch Investment"
-          value={`PKR ${totalBatchCost.toLocaleString()}`}
-          subtitle={`RM: PKR ${totalRmCost.toLocaleString()} | PM: PKR ${totalPmCost.toLocaleString()}`}
-          icon={<IconBuilding size={20} />}
-          accentColor="#06B6D4"
-        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+      {/* Page Header */}
+      <div style={{ marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+              Product Costing
+            </h1>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+              Calculate the actual cost of producing one finished unit/bottle from real Raw Material and Packaging procurement records.
+            </p>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-subtle)', padding: '4px', borderRadius: '8px' }}>
+            <button
+              onClick={() => setActiveTab('calculator')}
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: activeTab === 'calculator' ? '#ffffff' : 'transparent',
+                color: activeTab === 'calculator' ? '#0f172a' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'calculator' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
+            >
+              <IconFlask size={14} /> Costing Calculator
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              style={{
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: activeTab === 'history' ? '#ffffff' : 'transparent',
+                color: activeTab === 'history' ? '#0f172a' : 'var(--text-secondary)',
+                boxShadow: activeTab === 'history' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
+            >
+              <IconFileText size={14} /> Costing History
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Product Selection & Batch Parameters Card */}
-      <Card style={{ marginBottom: '20px' }}>
-        <CardHeader style={{ padding: '16px 20px 8px 20px', borderBottom: '1px solid #E2E8F0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <CardTitle style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A' }}>
-                Product Selection & Batch Volume Parameters
-              </CardTitle>
-              <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '2px' }}>
-                Select an existing product or type a new product name inline to calculate and assign manufacturing cost.
-              </p>
-            </div>
-
-            {/* Segmented Mode Switcher */}
-            <div style={{ display: 'flex', gap: '6px', background: '#F1F5F9', padding: '4px', borderRadius: '8px' }}>
-              <Button
-                variant={productMode === 'existing' ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setProductMode('existing')}
-                style={{ fontSize: '0.78rem', height: '30px' }}
-              >
-                Select Existing Finished Product
-              </Button>
-              <Button
-                variant={productMode === 'new' ? 'primary' : 'ghost'}
-                size="sm"
-                onClick={() => setProductMode('new')}
-                style={{ fontSize: '0.78rem', height: '30px' }}
-              >
-                + Type & Add New Product Name
+      {activeTab === 'history' ? (
+        // ==========================================
+        // COSTING HISTORY TAB
+        // ==========================================
+        <Card>
+          <CardHeader>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <CardTitle>Historical Costing Calculations</CardTitle>
+              <Button size="sm" variant="secondary" onClick={loadCostingHistory} isLoading={isLoadingHistory}>
+                <IconRefresh size={14} /> Refresh
               </Button>
             </div>
-          </div>
-        </CardHeader>
-
-        <CardContent style={{ padding: '16px 20px' }}>
-          {productMode === 'existing' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Target Finished Product *
-                </label>
-                <Select
-                  value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(typeof e === 'string' ? e : e.target?.value || '')}
-                  options={finishedProducts.map((p) => ({
-                    label: `${p.productCode} — ${p.productName} (${p.packingQuantity || 2} ${p.packingUnit || 'L'})`,
-                    value: p.id,
-                  }))}
-                />
+          </CardHeader>
+          <CardContent>
+            {costingHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                <IconFileText size={36} style={{ margin: '0 auto 12px auto', opacity: 0.4 }} />
+                <p style={{ margin: 0, fontWeight: 600 }}>No costing records saved yet</p>
+                <p style={{ fontSize: '12px', marginTop: '4px' }}>
+                  Use the Costing Calculator to calculate and confirm batch manufacturing costs.
+                </p>
               </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Batch Output Quantity (Units / Bottles) *
-                </label>
-                <Input
-                  type="number"
-                  value={batchOutputQuantity}
-                  onChange={(e) => setBatchOutputQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  placeholder="e.g. 100"
-                  style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}
-                />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Date</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Raw Material</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Pack Size</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Output Units</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>RM Cost</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Packaging Cost</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total Batch Cost</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', color: '#047857' }}>Cost Per Bottle</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {costingHistory.map((item) => {
+                      const rmLine = item.materialLines?.[0];
+                      return (
+                        <tr key={item.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                            {new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+                            {rmLine?.rawMaterial?.materialName || 'Raw Material'}
+                            {rmLine?.rawMaterial?.materialCode && (
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '6px' }}>
+                                ({rmLine.rawMaterial.materialCode})
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            {item.packSize} {item.packSizeUnit || 'L'}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600 }}>
+                            {item.batchOutputQuantity}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                            PKR {Number(item.totalRawMaterialCost || 0).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                            PKR {Number(item.totalPackagingCost || 0).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600 }}>
+                            PKR {Number(item.totalBatchCost || 0).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '13px' }}>
+                            PKR {Number(item.costPerUnit || 0).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setSelectedHistoryItem(item);
+                                setIsDetailModalOpen(true);
+                              }}
+                              style={{ padding: '4px 8px', fontSize: '11px' }}
+                            >
+                              <IconEye size={12} /> View
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Pack Size & Unit
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Input
-                    type="number"
-                    value={packSize}
-                    onChange={(e) => setPackSize(parseFloat(e.target.value) || 1)}
-                    style={{ width: '90px', fontFamily: 'var(--font-mono, monospace)' }}
-                  />
-                  <Input
-                    value={packSizeUnit}
-                    onChange={(e) => setPackSizeUnit(e.target.value)}
-                    placeholder="Unit (Liter)"
-                    style={{ flex: 1 }}
-                  />
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        // ==========================================
+        // COSTING CALCULATOR TAB (THE SIMPLE 4-SECTION FORM)
+        // ==========================================
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '20px', alignItems: 'start' }}>
+          {/* Left Column: Sections 1, 2, 3 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* SECTION 1: RAW MATERIAL */}
+            <Card>
+              <CardHeader>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
+                    1
+                  </div>
+                  <CardTitle>Raw Material Selection</CardTitle>
                 </div>
-              </div>
-
-              <div style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                <span style={{ fontSize: '0.72rem', color: '#64748B', display: 'block' }}>Total Production Volume:</span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#2563EB', fontFamily: 'var(--font-mono, monospace)' }}>
-                  {totalVolume} {packSizeUnit}s
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  New Product Name *
-                </label>
-                <Input
-                  value={newProductName}
-                  onChange={(e) => setNewProductName(e.target.value)}
-                  placeholder="e.g. Chlorpyrifos 40% EC Max"
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Category
-                </label>
-                <Select
-                  value={newCategoryId}
-                  onChange={(e) => setNewCategoryId(typeof e === 'string' ? e : e.target?.value || '')}
-                  options={[
-                    { label: '41-01 Finished Goods (Default)', value: '' },
-                    ...categories.map((c) => ({
-                      label: `${c.code ? `[${c.code}] ` : ''}${c.name}`,
-                      value: c.id,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Pack Size & Unit *
-                </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Input
-                    type="number"
-                    value={newPackSize}
-                    onChange={(e) => setNewPackSize(parseFloat(e.target.value) || 1)}
-                    style={{ width: '80px', fontFamily: 'var(--font-mono, monospace)' }}
-                  />
+              </CardHeader>
+              <CardContent>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Select Raw Material *
+                  </label>
                   <Select
-                    value={newPackUnit}
-                    onChange={(e) => setNewPackUnit(typeof e === 'string' ? e : e.target?.value || 'Liter')}
+                    value={selectedRawMaterialId}
+                    onChange={(e) => setSelectedRawMaterialId(e.target.value)}
                     options={[
-                      { label: 'Liter', value: 'Liter' },
-                      { label: 'KG', value: 'KG' },
-                      { label: 'ML', value: 'ML' },
-                      { label: 'GM', value: 'GM' },
+                      { value: '', label: '-- Choose Raw Material from Procurement Master --' },
+                      ...rawMaterialsList.map((rm) => ({
+                        value: rm.id,
+                        label: `${rm.materialCode} - ${rm.materialName}`,
+                      })),
                     ]}
                   />
                 </div>
-              </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Batch Output Quantity (Units) *
-                </label>
-                <Input
-                  type="number"
-                  value={batchOutputQuantity}
-                  onChange={(e) => setBatchOutputQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  placeholder="e.g. 100"
-                  style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}
-                />
-              </div>
+                {selectedRawMaterial && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Material Name
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                        {selectedRawMaterial.materialName}
+                      </div>
+                    </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Base Commercial Price (PKR)
-                </label>
-                <Input
-                  type="number"
-                  value={newBasePrice}
-                  onChange={(e) => setNewBasePrice(parseFloat(e.target.value) || 0)}
-                  placeholder="e.g. 2800"
-                  style={{ fontFamily: 'var(--font-mono, monospace)' }}
-                />
-              </div>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Available Quantity
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#047857', marginTop: '2px' }}>
+                        {availableQuantity.toLocaleString()} {rawMaterialUnitName}
+                      </div>
+                    </div>
 
-              <div style={{ padding: '10px 14px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                <span style={{ fontSize: '0.72rem', color: '#64748B', display: 'block' }}>Total Production Volume:</span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#2563EB', fontFamily: 'var(--font-mono, monospace)' }}>
-                  {totalVolume} {newPackUnit}s
-                </span>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Unit Cost (Actual)
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                        PKR {rawMaterialUnitCost.toLocaleString()} / {rawMaterialUnitName}
+                      </div>
+                      <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                        Source: Procurement
+                      </div>
+                    </div>
 
-      {/* Two Formula Breakdown Cards Side-by-Side */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-        {/* Card 1: Raw Materials Breakdown */}
-        <Card>
-          <CardHeader style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <CardTitle style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0F172A' }}>
-                1. Raw Materials Breakdown
-              </CardTitle>
-              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                Authoritative read-only rates from procurement records
-              </span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              startIcon={<IconPlus size={14} />}
-              onClick={handleAddRmLine}
-              style={{ fontSize: '0.75rem', height: '28px' }}
-            >
-              + Add Raw Material
-            </Button>
-          </CardHeader>
+                    <div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Inventory Value
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                        PKR {(availableQuantity * rawMaterialUnitCost).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-          <CardContent style={{ padding: '14px 18px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {rmLines.map((line, idx) => (
-                <div
-                  key={line.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr auto',
-                    gap: '10px',
-                    alignItems: 'center',
-                    padding: '10px 12px',
-                    background: '#F8FAFC',
-                    borderRadius: '8px',
-                    border: '1px solid #E2E8F0',
-                  }}
-                >
+            {/* SECTION 2: PRODUCTION OUTPUT & AVAILABILITY CHECK */}
+            <Card>
+              <CardHeader>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
+                    2
+                  </div>
+                  <CardTitle>Production Output Parameters</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Raw Material #{idx + 1}
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Commercial Pack Size *
                     </label>
-                    <Select
-                      value={line.selectedId}
-                      onChange={(e) => handleUpdateRmLine(line.id, 'selectedId', typeof e === 'string' ? e : e.target?.value)}
-                      options={rawMaterialsList.map((r) => ({
-                        label: `${r.materialCode} — ${r.materialName}`,
-                        value: r.id,
-                      }))}
-                    />
-                    <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: '3px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>
-                      Rate: PKR {Number(line.unitCost).toLocaleString()} / {rawMaterialsList.find((r) => r.id === line.selectedId)?.baseUom?.symbol || 'L'}
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <Input
+                        type="number"
+                        min={0.1}
+                        step={0.1}
+                        value={packSize}
+                        onChange={(e) => setPackSize(Number(e.target.value) || 0)}
+                        style={{ flex: 1 }}
+                      />
+                      <div style={{ width: '110px' }}>
+                        <Select
+                          value={packSizeUnit}
+                          onChange={(e) => setPackSizeUnit(e.target.value)}
+                          options={[
+                            { value: 'Liter', label: 'Liter' },
+                            { value: 'ml', label: 'ml' },
+                            { value: 'Kg', label: 'Kg' },
+                            { value: 'Gram', label: 'Gram' },
+                          ]}
+                        />
+                      </div>
                     </div>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Batch Qty
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Number of Bottles / Units *
                     </label>
                     <Input
                       type="number"
-                      value={line.quantity}
-                      onChange={(e) => handleUpdateRmLine(line.id, 'quantity', e.target.value)}
-                      style={{ fontFamily: 'var(--font-mono, monospace)' }}
+                      min={1}
+                      step={1}
+                      value={outputBottles}
+                      onChange={(e) => handleOutputBottlesChange(Number(e.target.value))}
                     />
                   </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Total Cost
-                    </label>
-                    <div style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: '#0F172A', fontSize: '0.85rem' }}>
-                      PKR {line.totalCost.toLocaleString()}
-                    </div>
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<IconTrash size={14} />}
-                    onClick={() => handleRemoveRmLine(line.id)}
-                    style={{ color: '#EF4444', height: '32px', width: '32px', padding: 0 }}
-                    title="Remove Line"
-                  />
                 </div>
-              ))}
 
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 14px',
-                  background: '#EEF2FF',
-                  borderRadius: '8px',
-                  border: '1px solid #C7D2FE',
-                  marginTop: '8px',
-                }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#3730A3' }}>
-                  Total Raw Material Batch Cost:
-                </span>
-                <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#312E81', fontFamily: 'var(--font-mono, monospace)' }}>
-                  PKR {totalRmCost.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 2: Packaging Materials Breakdown */}
-        <Card>
-          <CardHeader style={{ padding: '14px 18px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <CardTitle style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0F172A' }}>
-                2. Packaging Materials Breakdown
-              </CardTitle>
-              <span style={{ fontSize: '0.72rem', color: '#64748B' }}>
-                Bottles, Cartons, Shrink, Labels, Caps & Tape rates
-              </span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              startIcon={<IconPlus size={14} />}
-              onClick={handleAddPmLine}
-              style={{ fontSize: '0.75rem', height: '28px' }}
-            >
-              + Add Packaging Material
-            </Button>
-          </CardHeader>
-
-          <CardContent style={{ padding: '14px 18px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {pmLines.map((line, idx) => (
-                <div
-                  key={line.id}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '2fr 1fr 1fr auto',
-                    gap: '10px',
-                    alignItems: 'center',
-                    padding: '10px 12px',
-                    background: '#F8FAFC',
-                    borderRadius: '8px',
-                    border: '1px solid #E2E8F0',
-                  }}
-                >
+                {/* Arithmetic Breakdown */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '12px 16px', borderRadius: '8px', marginBottom: '14px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Packaging Material #{idx + 1}
-                    </label>
-                    <Select
-                      value={line.selectedId}
-                      onChange={(e) => handleUpdatePmLine(line.id, 'selectedId', typeof e === 'string' ? e : e.target?.value)}
-                      options={packingMaterialsList.map((p) => ({
-                        label: `${p.materialCode} — ${p.materialName}${p.category ? ` [${p.category.name}]` : ''}`,
-                        value: p.id,
-                      }))}
-                    />
-                    <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: '3px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>
-                      Rate: PKR {Number(line.unitCost).toLocaleString()} / Unit
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Required Raw Material:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {packSize} {packSizeUnit} × {outputBottles} = <strong>{requiredRawMaterial} {packSizeUnit}</strong>
                     </div>
                   </div>
-
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Required Qty
-                    </label>
-                    <Input
-                      type="number"
-                      value={line.quantity}
-                      onChange={(e) => handleUpdatePmLine(line.id, 'quantity', e.target.value)}
-                      style={{ fontFamily: 'var(--font-mono, monospace)' }}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', color: '#64748B', marginBottom: '4px' }}>
-                      Total Cost
-                    </label>
-                    <div style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: '#0F172A', fontSize: '0.85rem' }}>
-                      PKR {line.totalCost.toLocaleString()}
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Raw Material Cost:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      PKR {rawMaterialTotalCost.toLocaleString()}
                     </div>
                   </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<IconTrash size={14} />}
-                    onClick={() => handleRemovePmLine(line.id)}
-                    style={{ color: '#EF4444', height: '32px', width: '32px', padding: 0 }}
-                    title="Remove Line"
-                  />
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>RM Cost per Bottle:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#047857' }}>
+                      PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()} / bottle
+                    </div>
+                  </div>
                 </div>
-              ))}
 
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 14px',
-                  background: '#FEF3C7',
-                  borderRadius: '8px',
-                  border: '1px solid #FDE68A',
-                  marginTop: '8px',
-                }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#92400E' }}>
-                  Total Packaging Batch Cost:
-                </span>
-                <span style={{ fontWeight: 800, fontSize: '1.05rem', color: '#78350F', fontFamily: 'var(--font-mono, monospace)' }}>
-                  PKR {totalPmCost.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                {/* Stock Availability Indicator (Requirement 6) */}
+                {isStockSufficient ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', color: '#065f46', fontSize: '12px', fontWeight: 600 }}>
+                    <IconCheck size={16} />
+                    <span>✓ Sufficient Raw Material in Stock (Required: {requiredRawMaterial} {rawMaterialUnitName} • Available: {availableQuantity} {rawMaterialUnitName})</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '12px', fontWeight: 600 }}>
+                    <IconAlertTriangle size={16} />
+                    <span>✕ Insufficient Raw Material (Available: {availableQuantity} {rawMaterialUnitName} • Required: {requiredRawMaterial} {rawMaterialUnitName}) — Batch requirement exceeds available stock. Costing cannot proceed.</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-      {/* Arithmetic Summary & Impact Analysis Card */}
-      <Card style={{ marginBottom: '24px' }}>
-        <CardContent style={{ padding: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Batch Costing Arithmetic Formula
-              </div>
-              <div style={{ fontSize: '0.9rem', color: '#1E293B', marginTop: '6px', lineHeight: 1.6 }}>
-                (RM: <strong>PKR {totalRmCost.toLocaleString()}</strong> + PM: <strong>PKR {totalPmCost.toLocaleString()}</strong>) = <strong>PKR {totalBatchCost.toLocaleString()}</strong>
-                <br />
-                Divided by <strong>{batchOutputQuantity} Output Units</strong> =
-              </div>
-              <div style={{ marginTop: '10px', fontSize: '1.75rem', fontWeight: 800, color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
-                PKR {calculatedCostPerUnit.toLocaleString()} <span style={{ fontSize: '0.9rem', color: '#64748B' }}>/ Pack</span>
-              </div>
-            </div>
+            {/* SECTION 3: PACKAGING MATERIALS */}
+            <Card>
+              <CardHeader>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
+                      3
+                    </div>
+                    <CardTitle>Packaging Materials</CardTitle>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={handleAddPackagingLine}>
+                    <IconPlus size={14} /> Add Packaging Material
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {packagingLines.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-secondary)' }}>
+                    <p style={{ margin: 0, fontSize: '13px' }}>No packaging materials added yet.</p>
+                    <p style={{ fontSize: '11px', marginTop: '4px' }}>Click &quot;+ Add Packaging Material&quot; to include bottles, caps, labels, cartons, etc.</p>
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Packaging Material</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', width: '110px' }}>Quantity</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', width: '130px' }}>Unit Cost (PKR)</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', width: '130px' }}>Total Cost</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', width: '40px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {packagingLines.map((line) => {
+                        return (
+                          <tr key={line.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                            <td style={{ padding: '8px 10px' }}>
+                              <Select
+                                value={line.packingMaterialId}
+                                onChange={(e) => handlePackagingMaterialChange(line.id, e.target.value)}
+                                options={packingMaterialsList.map((pm) => ({
+                                  value: pm.id,
+                                  label: `${pm.materialName} (${pm.materialCode})`,
+                                }))}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={line.quantity}
+                                onChange={(e) => handlePackagingQuantityChange(line.id, Number(e.target.value))}
+                                style={{ width: '90px', margin: '0 auto', textAlign: 'center' }}
+                              />
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-secondary)' }}>
+                              PKR {line.unitCost.toLocaleString()}
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>Auto-fetched</div>
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              PKR {line.totalCost.toLocaleString()}
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleRemovePackagingLine(line.id)}
+                                title="Remove Material"
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#ef4444',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                }}
+                              >
+                                <IconTrash size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ backgroundColor: 'var(--bg-subtle)', fontWeight: 700 }}>
+                        <td colSpan={3} style={{ padding: '10px', textAlign: 'right' }}>
+                          Total Packaging Cost:
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', color: '#047857', fontSize: '13px' }}>
+                          PKR {totalPackagingCost.toLocaleString()}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
 
-            <div style={{ padding: '14px 18px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Commercial Pricing & Gross Margin
-              </div>
-              <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                <span style={{ color: '#64748B' }}>Commercial Base Selling Price:</span>
-                <strong style={{ fontFamily: 'var(--font-mono, monospace)' }}>
-                  {commercialPrice > 0 ? `PKR ${commercialPrice.toLocaleString()}` : 'Not Set'}
-                </strong>
-              </div>
-              <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                <span style={{ color: '#64748B' }}>Calculated Manufacturing Cost:</span>
-                <strong style={{ fontFamily: 'var(--font-mono, monospace)', color: '#059669' }}>
-                  PKR {calculatedCostPerUnit.toLocaleString()}
-                </strong>
-              </div>
-              <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                <span style={{ fontWeight: 700, color: '#0F172A' }}>Estimated Gross Profit:</span>
-                <strong style={{ fontFamily: 'var(--font-mono, monospace)', color: grossMargin >= 0 ? '#059669' : '#DC2626' }}>
-                  PKR {grossMargin.toFixed(2)} ({grossMarginPct.toFixed(1)}%)
-                </strong>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', justifyContent: 'center' }}>
-              <Button
-                variant="primary"
-                size="lg"
-                startIcon={<IconCheck size={18} />}
-                onClick={() => setIsConfirmModalOpen(true)}
-                style={{
-                  backgroundColor: '#10B981',
-                  borderColor: '#10B981',
-                  color: '#fff',
-                  fontWeight: 700,
-                  fontSize: '0.95rem',
-                  height: '46px',
-                }}
-              >
-                ADD TO PRODUCT
-              </Button>
-              <span style={{ fontSize: '0.72rem', color: '#64748B', textAlign: 'center' }}>
-                Creates immutable versioned snapshot and updates product standardCost.
-              </span>
-            </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Confirmation Modal */}
-      {isConfirmModalOpen && (
+          {/* Right Column: Section 4 — Result Card (Requirement 14) */}
+          <div style={{ position: 'sticky', top: '24px' }}>
+            <Card style={{ border: '2px solid #059669', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.1)' }}>
+              <div style={{ backgroundColor: '#059669', color: '#ffffff', padding: '14px 18px', borderTopLeftRadius: '10px', borderTopRightRadius: '10px' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.9, fontWeight: 700 }}>
+                  Manufacturing Cost Summary
+                </div>
+                <div style={{ fontSize: '18px', fontWeight: 800 }}>
+                  PRODUCT COSTING
+                </div>
+              </div>
+
+              <CardContent style={{ padding: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                    <span>Raw Material Cost:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                      PKR {rawMaterialTotalCost.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                    <span>Packaging Cost:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                      PKR {totalPackagingCost.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ height: '1px', backgroundColor: 'var(--border-default)', margin: '4px 0' }} />
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700 }}>
+                    <span>Total Batch Cost:</span>
+                    <span style={{ color: '#0f172a' }}>
+                      PKR {totalProductionCost.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                    <span>Finished Units:</span>
+                    <span style={{ fontWeight: 600 }}>{outputBottles}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                    <span>Pack Size:</span>
+                    <span style={{ fontWeight: 600 }}>{packSize} {packSizeUnit}</span>
+                  </div>
+
+                  {/* Prominent Cost Per Bottle Metric (Requirement 14) */}
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '16px', textAlign: 'center', marginTop: '12px' }}>
+                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#065f46', fontWeight: 800, letterSpacing: '0.05em' }}>
+                      COST PER BOTTLE
+                    </div>
+                    <div style={{ fontSize: '28px', fontWeight: 900, color: '#047857', margin: '4px 0' }}>
+                      PKR {costPerBottle.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#065f46', opacity: 0.8 }}>
+                      ({totalProductionCost.toLocaleString()} ÷ {outputBottles} bottles)
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' }}>
+                    <Button
+                      variant="primary"
+                      onClick={handleConfirmCosting}
+                      disabled={!isStockSufficient || isSavingCosting || !selectedRawMaterialId}
+                      isLoading={isSavingCosting}
+                      style={{ width: '100%', justifyContent: 'center', backgroundColor: '#059669', borderColor: '#059669' }}
+                    >
+                      <IconCheck size={16} /> Confirm & Save Costing
+                    </Button>
+
+                    <Button
+                      variant="secondary"
+                      onClick={handleOpenAddToProductModal}
+                      disabled={!isStockSufficient}
+                      style={{ width: '100%', justifyContent: 'center' }}
+                      title="Optionally link this calculated cost to a Finished Product master record"
+                    >
+                      <IconPlus size={16} /> Optional: Add to Finished Product
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Modal for Costing History Item */}
+      {selectedHistoryItem && (
         <Modal
-          isOpen={isConfirmModalOpen}
-          onClose={() => setIsConfirmModalOpen(false)}
-          title="Confirm Costing Application (ADD TO PRODUCT)"
-          description="Authoritative update to Finished Product standard cost"
-          size="md"
-          footer={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <Button variant="secondary" onClick={() => setIsConfirmModalOpen(false)} disabled={isApplying}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleApplyCosting}
-                isLoading={isApplying}
-                style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
-              >
-                {isApplying ? 'Applying Transaction...' : 'Confirm & Apply'}
-              </Button>
-            </div>
-          }
+          isOpen={isDetailModalOpen}
+          onClose={() => setIsDetailModalOpen(false)}
+          title={`Costing Record Details`}
         >
-          <div style={{ fontSize: '0.88rem', color: '#334155', lineHeight: 1.6 }}>
-            <p style={{ margin: '0 0 12px 0' }}>
-              You are applying a calculated manufacturing cost of{' '}
-              <strong style={{ color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
-                PKR {calculatedCostPerUnit.toLocaleString()} / Pack
-              </strong>{' '}
-              to{' '}
-              <strong>
-                {productMode === 'existing'
-                  ? selectedProduct?.productName || 'Finished Product'
-                  : newProductName || 'New Product'}
-              </strong>
-              .
-            </p>
-            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', marginBottom: '12px' }}>
-              <div style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '4px' }}>Transaction Guarantees:</div>
-              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.8rem', color: '#475569' }}>
-                <li>Product ID and Product Code remain 100% unchanged.</li>
-                <li>Base Selling Price remains preserved.</li>
-                <li>Immutable versioned snapshot ($V_{costingHistory.length + 1}$) recorded in audit history.</li>
-                <li>Procurement rate linkages preserved.</li>
-              </ul>
+          <div style={{ padding: '8px 0', fontSize: '13px' }}>
+            <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                <div><strong>Date:</strong> {new Date(selectedHistoryItem.createdAt).toLocaleString()}</div>
+                <div><strong>Pack Size:</strong> {selectedHistoryItem.packSize} {selectedHistoryItem.packSizeUnit || 'L'}</div>
+                <div><strong>Finished Quantity:</strong> {selectedHistoryItem.batchOutputQuantity} bottles</div>
+                <div><strong>Cost Per Bottle:</strong> <span style={{ color: '#047857', fontWeight: 800 }}>PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span></div>
+              </div>
+            </div>
+
+            {/* Raw Material Line */}
+            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 8px 0' }}>Raw Material</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Material</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Quantity</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedHistoryItem.materialLines?.map((m, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ padding: '6px 8px' }}>{m.rawMaterial?.materialName} ({m.rawMaterial?.materialCode})</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{m.quantity} {m.uomName}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>PKR {Number(m.unitCost).toLocaleString()}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>PKR {Number(m.totalCost).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Packaging Lines */}
+            <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 8px 0' }}>Packaging Materials</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
+              <thead>
+                <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Packaging Material</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Quantity</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedHistoryItem.packagingLines?.map((p, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <td style={{ padding: '6px 8px' }}>{p.packingMaterial?.materialName}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{p.quantity}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>PKR {Number(p.unitCost).toLocaleString()}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>PKR {Number(p.totalCost).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#ecfdf5', borderRadius: '6px', fontWeight: 700, color: '#065f46' }}>
+              <span>Total Batch Cost: PKR {Number(selectedHistoryItem.totalBatchCost).toLocaleString()}</span>
+              <span>Cost Per Bottle: PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span>
             </div>
           </div>
         </Modal>
       )}
 
-          {/* Costing History Modal */}
-          {isHistoryDrawerOpen && (
-            <Modal
-              isOpen={isHistoryDrawerOpen}
-              onClose={() => setIsHistoryDrawerOpen(false)}
-              title="Costing Version History"
-              description={`Versioned snapshots for ${selectedProduct?.productName || 'Finished Product'}`}
-              size="lg"
-              footer={
-                <Button variant="outline" size="sm" onClick={() => setIsHistoryDrawerOpen(false)}>
-                  Close History
-                </Button>
-              }
-            >
-              {costingHistory.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: '#64748B', fontSize: '0.85rem' }}>
-                  No historical costing snapshots found for this product. Click &quot;ADD TO PRODUCT&quot; to record Version 1.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {costingHistory.map((hist) => (
-                    <div
-                      key={hist.id}
-                      style={{
-                        padding: '14px',
-                        borderRadius: '8px',
-                        border: '1px solid #E2E8F0',
-                        background: hist.status === 'ACTIVE' ? '#F0FDF4' : '#F8FAFC',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '6px',
-                              background: hist.status === 'ACTIVE' ? '#DCFCE7' : '#E2E8F0',
-                              color: hist.status === 'ACTIVE' ? '#166534' : '#475569',
-                              fontWeight: 700,
-                              fontSize: '0.78rem',
-                              fontFamily: 'var(--font-mono, monospace)',
-                            }}
-                          >
-                            Version {hist.version}
-                          </span>
-                          <span style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                            {new Date(hist.createdAt).toLocaleDateString()} {new Date(hist.createdAt).toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 800, fontSize: '0.95rem', color: '#0F172A' }}>
-                          PKR {Number(hist.costPerUnit).toLocaleString()} / Pack
-                        </div>
-                      </div>
+      {/* Optional: Add to Finished Product Modal (Requirement 21) */}
+      <Modal
+        isOpen={isAddToProductModalOpen}
+        onClose={() => setIsAddToProductModalOpen(false)}
+        title="Optional: Assign Cost to Finished Product"
+      >
+        <div style={{ fontSize: '13px' }}>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Assign the calculated manufacturing cost (<strong>PKR {costPerBottle.toLocaleString()}</strong>) to a Finished Product.
+          </p>
 
-                      <div style={{ marginTop: '8px', fontSize: '0.78rem', color: '#475569', display: 'flex', gap: '16px' }}>
-                        <span>Batch Output: {hist.batchOutputQuantity} Units</span>
-                        <span>Total RM: PKR {Number(hist.totalRawMaterialCost).toLocaleString()}</span>
-                        <span>Total Packaging: PKR {Number(hist.totalPackagingCost).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Modal>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <button
+              onClick={() => setLinkMode('new')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: linkMode === 'new' ? '#ecfdf5' : 'transparent',
+                color: linkMode === 'new' ? '#047857' : 'var(--text-primary)',
+                fontWeight: linkMode === 'new' ? 700 : 500,
+                cursor: 'pointer',
+              }}
+            >
+              + Create New Product
+            </button>
+            <button
+              onClick={() => setLinkMode('existing')}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
+                backgroundColor: linkMode === 'existing' ? '#ecfdf5' : 'transparent',
+                color: linkMode === 'existing' ? '#047857' : 'var(--text-primary)',
+                fontWeight: linkMode === 'existing' ? 700 : 500,
+                cursor: 'pointer',
+              }}
+            >
+              Update Existing Product
+            </button>
+          </div>
+
+          {linkMode === 'new' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Finished Product Name *
+                </label>
+                <Input
+                  value={newProductName}
+                  onChange={(e) => setNewProductName(e.target.value)}
+                  placeholder="e.g. Chlorpyrifos 40% EC Max 2L"
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Commercial Selling Price (PKR)
+                </label>
+                <Input
+                  type="number"
+                  value={newProductSellingPrice}
+                  onChange={(e) => setNewProductSellingPrice(Number(e.target.value))}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  Category
+                </label>
+                <Select
+                  value={newProductCategory}
+                  onChange={(e) => setNewProductCategory(e.target.value)}
+                  options={[
+                    { value: '', label: '-- Finished Goods (Default) --' },
+                    ...categories.map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                Select Existing Finished Product *
+              </label>
+              <Select
+                value={existingProductId}
+                onChange={(e) => setExistingProductId(e.target.value)}
+                options={[
+                  { value: '', label: '-- Select Finished Product --' },
+                  ...finishedProducts.map((fp) => ({
+                    value: fp.id,
+                    label: `${fp.productCode} - ${fp.productName} (Current Cost: PKR ${fp.standardCost || 'N/A'})`,
+                  })),
+                ]}
+              />
+            </div>
           )}
-        </>
-      )}
-    </ListPageTemplate>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
+            <Button variant="secondary" onClick={() => setIsAddToProductModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSaveToFinishedProduct}
+              isLoading={isSavingProduct}
+            >
+              Assign Cost (PKR {costPerBottle.toLocaleString()})
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 };

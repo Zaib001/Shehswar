@@ -1721,6 +1721,7 @@ export class MasterDataService {
         baseUom: true,
         purchaseUom: true,
         company: { select: { id: true, name: true, code: true } },
+        warehouseStocks: { select: { quantityOnHand: true } },
         purchaseInvoiceItems: {
           select: {
             quantity: true,
@@ -1747,6 +1748,8 @@ export class MasterDataService {
       const factor = Number(m.purchaseConversionFactor || 0) || (factorMatch ? Number(factorMatch[1]) : 1);
       const costPerBaseUnit = factor > 1 && latestRate > 0 ? latestRate / factor : latestRate;
       const totalBulkVolume = totalPurchasedQty > 0 && factor > 1 ? totalPurchasedQty * factor : totalPurchasedQty;
+      const stockOnHand = ((m as any).warehouseStocks || []).reduce((sum: number, s: any) => sum + Number(s.quantityOnHand || 0), 0);
+      const availableQuantity = stockOnHand > 0 ? stockOnHand : totalBulkVolume > 0 ? totalBulkVolume : (Number(m.maximumStock) || 100);
 
       if (!canViewCost) {
         return {
@@ -1761,6 +1764,8 @@ export class MasterDataService {
           totalBulkVolume,
           bulkPacking: latestPacking,
           purchaseConversionFactor: factor,
+          stockOnHand,
+          availableQuantity,
         };
       }
 
@@ -1773,6 +1778,8 @@ export class MasterDataService {
         totalBulkVolume,
         bulkPacking: latestPacking,
         purchaseConversionFactor: factor,
+        stockOnHand,
+        availableQuantity,
       };
     });
   }

@@ -27,6 +27,29 @@ export class CostingController {
     return this.costingService.calculateCostBatch(input);
   }
 
+  @Post('save')
+  async saveCostingRecord(
+    @Body() dto: any,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+  ) {
+    const enrichedUser: AuthUser = {
+      ...user,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
+      organizationId: ctx?.organizationId || user?.organizationId,
+    };
+    return this.costingService.saveCostingRecord(dto, enrichedUser);
+  }
+
+  @Get('history')
+  async getAllCostingHistory(
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+  ) {
+    const companyId = ctx?.companyId || user?.companyId;
+    return this.costingService.getAllCostingHistory(companyId);
+  }
+
   @Post('apply-to-product')
   async applyCostingToProduct(
     @Body() input: ApplyCostingInput,

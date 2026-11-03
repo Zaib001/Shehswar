@@ -18,8 +18,31 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@shehswar/database';
 import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 import { AuthUser } from '@shehswar/types';
+import { v7 as uuidv7 } from 'uuid';
 
 export type CostingMethod = 'LATEST_PURCHASE' | 'WEIGHTED_AVERAGE' | 'STANDARD';
+
+export interface SaveCostingRecordInput {
+  companyId?: string;
+  rawMaterialId: string;
+  rawMaterialQuantity: number;
+  rawMaterialCost: number;
+  packSize: number;
+  packSizeUnit?: string;
+  finishedQuantity: number;
+  packagingMaterials: {
+    packingMaterialId: string;
+    quantity: number;
+    unitCost: number;
+    totalCost: number;
+    uomName?: string;
+  }[];
+  totalRawMaterialCost: number;
+  totalPackagingCost: number;
+  totalBatchCost: number;
+  costPerUnit: number;
+  notes?: string;
+}
 
 export interface BatchCostCalculationInput {
   finishedProductId?: string;
@@ -602,6 +625,98 @@ export class CostingService {
           include: {
             packingMaterial: { select: { id: true, materialCode: true, materialName: true } },
           },
+        },
+      },
+    });
+  }
+
+  /**
+   * Saves a confirmed costing calculation snapshot without modifying stock or requiring a finished product
+   */
+  async saveCostingRecord(dto: SaveCostingRecordInput, user: AuthUser) {
+    const companyId = user.companyId;
+    const organizationId = user.organizationId;
+
+    return this.prisma.$transaction(async (tx) => {
+      const costingRecord = await tx.productCosting.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId,
+          finishedProductId: null,
+          version: 1,
+          batchOutputQuantity: dto.finishedQuantity,
+          packSize: dto.packSize,
+          packSizeUnit: dto.packSizeUnit || 'Liter',
+          totalVolume: Number(dto.finishedQuantity) * Number(dto.packSize),
+          totalRawMaterialCost: dto.totalRawMaterialCost,
+          totalPackagingCost: dto.totalPackagingCost,
+          totalBatchCost: dto.totalBatchCost,
+          costPerUnit: dto.costPerUnit,
+          notes: dto.notes || 'Product Costing calculation confirmed',
+          status: 'ACTIVE',
+          createdById: user.id || null,
+          materialLines: {
+            create: [
+              {
+                id: uuidv7(),
+                rawMaterialId: dto.rawMaterialId,
+                quantity: dto.rawMaterialQuantity,
+                unitCost: dto.rawMaterialQuantity > 0 ? dto.rawMaterialCost / dto.rawMaterialQuantity : 0,
+                totalCost: dto.rawMaterialCost,
+                uomName: dto.packSizeUnit || 'Liter',
+              },
+            ],
+          },
+          packagingLines: {
+            create: (dto.packagingMaterials || []).map((pm) => ({
+              id: uuidv7(),
+              packingMaterialId: pm.packingMaterialId,
+              quantity: pm.quantity,
+              unitCost: pm.unitCost,
+              totalCost: pm.totalCost,
+              uomName: pm.uomName || 'Nos',
+            })),
+          },
+        },
+        include: {
+          materialLines: { include: { rawMaterial: true } },
+          packagingLines: { include: { packingMaterial: true } },
+        },
+      });
+
+      return {
+        success: true,
+        costing: costingRecord,
+        message: `Costing record saved successfully: PKR ${Number(dto.costPerUnit).toLocaleString()} per unit`,
+      };
+    });
+  }
+
+  /**
+   * Retrieves overall costing calculation history
+   */
+  async getAllCostingHistory(companyId?: string) {
+    const where: any = {};
+    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+
+    return this.prisma.productCosting.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        materialLines: {
+          include: {
+            rawMaterial: { select: { id: true, materialCode: true, materialName: true, baseUom: true } },
+          },
+        },
+        packagingLines: {
+          include: {
+            packingMaterial: { select: { id: true, materialCode: true, materialName: true, baseUom: true } },
+          },
+        },
+        finishedProduct: {
+          select: { id: true, productCode: true, productName: true },
         },
       },
     });
