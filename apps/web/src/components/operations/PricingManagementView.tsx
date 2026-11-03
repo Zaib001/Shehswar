@@ -83,6 +83,53 @@ export const resolveProductCategory = (p: any): string => {
 };
 
 /**
+ * Safely format Pack Size and Packaging Material preventing [object Object] rendering
+ */
+export const resolvePackSizeDisplay = (product: any, item?: any): string => {
+  const p = product || {};
+  const it = item || {};
+
+  const packSizeStr =
+    p.packSize?.name
+      ? p.packSize.name
+      : typeof p.packSize === 'string' && p.packSize.trim() && p.packSize !== '[object Object]'
+      ? p.packSize.trim()
+      : it.packSize?.name
+      ? it.packSize.name
+      : typeof it.packSize === 'string' && it.packSize.trim() && it.packSize !== '[object Object]'
+      ? it.packSize.trim()
+      : p.packingQuantity
+      ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim()
+      : it.packingQuantity
+      ? `${it.packingQuantity} ${it.packingUnit || ''}`.trim()
+      : '';
+
+  const packagingStr =
+    p.packagingMaterial?.materialName
+      ? p.packagingMaterial.materialName
+      : typeof p.packagingMaterial === 'string' && p.packagingMaterial.trim() && p.packagingMaterial !== '[object Object]'
+      ? p.packagingMaterial.trim()
+      : it.packagingMaterial?.materialName
+      ? it.packagingMaterial.materialName
+      : typeof it.packagingMaterial === 'string' && it.packagingMaterial.trim() && it.packagingMaterial !== '[object Object]'
+      ? it.packagingMaterial.trim()
+      : '';
+
+  if (packSizeStr && packagingStr && !packSizeStr.toLowerCase().includes(packagingStr.toLowerCase())) {
+    return `${packSizeStr} (${packagingStr})`;
+  }
+  if (packSizeStr) return packSizeStr;
+  if (packagingStr) return packagingStr;
+
+  const fallbackUnit = it.unit || p.unit || p.packingUnit || p.salesUom?.code || '';
+  if (typeof fallbackUnit === 'string' && fallbackUnit.trim() && fallbackUnit !== '[object Object]') {
+    return fallbackUnit.trim();
+  }
+
+  return '-';
+};
+
+/**
  * Helper: formulation-specific dynamic badge styling
  */
 export const getCategoryBadgeStyle = (category: string): React.CSSProperties => {
@@ -868,8 +915,8 @@ export const PricingManagementView: React.FC = () => {
           productName: fp.productName || it.productName || '',
           category: dynamicCat,
           mType: fp.mType || dynamicCat,
-          packagingMaterial: fp.packagingMaterial?.materialName || it.packagingMaterial || '',
-          packSize: it.packSize?.name || fp.packSize?.name || it.packSize || '',
+          packagingMaterial: fp.packagingMaterial?.materialName || (typeof it.packagingMaterial === 'string' ? it.packagingMaterial : '') || '',
+          packSize: it.packSize?.name || fp.packSize?.name || (typeof it.packSize === 'string' ? it.packSize : '') || (fp.packingQuantity ? `${fp.packingQuantity} ${fp.packingUnit || ''}`.trim() : ''),
           packSizeId: it.packSizeId || fp.packSizeId || null,
           unit: it.unit || fp.salesUom?.code || fp.packingUnit || 'Unit',
           batchId: it.batchId || activeBatch?.id || null,
@@ -979,8 +1026,8 @@ export const PricingManagementView: React.FC = () => {
           productName: p.productName,
           category: dynamicCat,
           mType: p.mType || dynamicCat,
-          packagingMaterial: p.packagingMaterial || p.packaging,
-          packSize: p.packSize,
+          packagingMaterial: p.packagingMaterial?.materialName || (typeof p.packagingMaterial === 'string' ? p.packagingMaterial : '') || (typeof p.packaging === 'string' ? p.packaging : ''),
+          packSize: p.packSize?.name || (typeof p.packSize === 'string' ? p.packSize : '') || (p.packingQuantity ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim() : ''),
           packSizeId: p.packSizeId || null,
           unit: p.unit || 'Unit',
           batchId: p.batchId || null,
@@ -2274,7 +2321,7 @@ export const PricingManagementView: React.FC = () => {
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
-                        {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
+                        {resolvePackSizeDisplay(p)}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         {p.batchNumber ? (
@@ -3218,9 +3265,7 @@ export const PricingManagementView: React.FC = () => {
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              {item.packagingMaterial ? item.packagingMaterial : ''}
-                              {item.packSize && item.packagingMaterial ? ' • ' : ''}
-                              {item.packSize ? `Pack: ${item.packSize}` : ''}
+                              {resolvePackSizeDisplay(item)}
                             </div>
                           </td>
                           <td style={{ padding: '8px 12px' }}>
@@ -3288,7 +3333,7 @@ export const PricingManagementView: React.FC = () => {
                             )}
                           </td>
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
-                            {item.packSize || item.unit || 'Standard'}
+                            {resolvePackSizeDisplay(item)}
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>
                             {basePrice.toLocaleString()}
@@ -3462,7 +3507,7 @@ export const PricingManagementView: React.FC = () => {
                               )}
                             </td>
                             <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
-                              {product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : it.unit || '-'}
+                              {resolvePackSizeDisplay(product, it)}
                             </td>
                             <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>
                               {basePrice > 0 ? `PKR ${basePrice.toLocaleString()}` : '-'}
