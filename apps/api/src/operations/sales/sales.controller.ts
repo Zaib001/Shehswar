@@ -97,6 +97,14 @@ export class DealersController {
     return this.salesService.updateDealer(id, dto, user);
   }
 
+  @Delete(':id')
+  async delete(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.salesService.deleteDealer(id, user);
+  }
+
   @Post(':id/assign-officers')
   async assignOfficers(
     @Param('id') id: string,

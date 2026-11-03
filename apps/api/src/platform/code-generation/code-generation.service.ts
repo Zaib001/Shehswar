@@ -18,7 +18,8 @@ export type EntityCodeType =
   | 'PACKING_MATERIAL'
   | 'PACK_SIZE'
   | 'UOM'
-  | 'CATEGORY';
+  | 'CATEGORY'
+  | 'DEALER';
 
 @Injectable()
 export class CodeGenerationService {
@@ -45,6 +46,7 @@ export class CodeGenerationService {
       PACKING_MATERIAL: { prefix: 'PM', pad: 6 },
       PACK_SIZE: { prefix: 'PS', pad: 6 },
       UOM: { prefix: 'UOM', pad: 4 },
+      DEALER: { prefix: 'DLR', pad: 6 },
     };
 
     const config = prefixMap[entityType as Exclude<EntityCodeType, 'CATEGORY'>];
@@ -159,6 +161,27 @@ export class CodeGenerationService {
       return candidate;
     }
 
+    if (entityType === 'DEALER') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.dealer.findFirst({
+        where: { companyId, code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.dealer.findFirst({
+          where: { companyId, code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
     return `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
   }
 
@@ -215,6 +238,7 @@ export class CodeGenerationService {
       PACK_SIZE: { prefix: 'PS', pad: 6 },
       UOM: { prefix: 'UOM', pad: 4 },
       CATEGORY: { prefix: '41', pad: 2 },
+      DEALER: { prefix: 'DLR', pad: 6 },
     };
     const config = prefixMap[params.entityType];
     const seq = await this.prisma.documentSequence.findUnique({

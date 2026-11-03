@@ -41,6 +41,7 @@ import {
 import { PricingService } from '../pricing/pricing.service';
 import { FinanceService } from '../finance/finance.service';
 import { CreditControlService } from '../credit/credit-control.service';
+import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 
 @Injectable()
 export class SalesService {
@@ -56,6 +57,7 @@ export class SalesService {
     private readonly pricingService: PricingService,
     private readonly financeService: FinanceService,
     private readonly creditControlService: CreditControlService,
+    private readonly codeGen: CodeGenerationService,
   ) {}
 
   // ============================
@@ -216,10 +218,19 @@ export class SalesService {
     const organizationId = dto.organizationId || actor.organizationId;
     const companyId = dto.companyId || actor.companyId;
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'DEALER',
+      });
+    }
+
     const existing = await this.prisma.dealer.findFirst({
-      where: { companyId, code: dto.code },
+      where: { companyId, code },
     });
-    if (existing) throw new ConflictException(`Dealer code '${dto.code}' already exists`);
+    if (existing) throw new ConflictException(`Dealer code '${code}' already exists`);
 
     const assignedSoId = dto.assignedFieldOfficerId ?? dto.salesOfficerId ?? null;
 
@@ -228,7 +239,7 @@ export class SalesService {
         id: uuidv7(),
         organizationId,
         companyId,
-        code: dto.code,
+        code,
         name: dto.name,
         businessName: dto.businessName ?? null,
         contactPerson: dto.contactPerson ?? null,
@@ -386,6 +397,66 @@ export class SalesService {
     });
 
     return { dealerId, assignedUserIds: userIds };
+  }
+
+  async deleteDealer(id: string, actor: AuthUser) {
+    const companyId = actor.companyId;
+    const where: any = { id };
+    if (!actor.isSuperAdmin && !actor.roles.includes('ROLE_SUPER_ADMIN')) {
+      where.companyId = companyId;
+    }
+    const dealer = await this.prisma.dealer.findFirst({
+      where,
+      include: {
+        _count: {
+          select: {
+            salesOrders: true,
+            salesInvoices: true,
+            salesReturns: true,
+            dealerPayments: true,
+            ledgerEntries: true,
+            gatePasses: true,
+            provisionalReceipts: true,
+          },
+        },
+      },
+    });
+
+    if (!dealer) throw new NotFoundException('Dealer not found');
+
+    const totalTransactions =
+      dealer._count.salesOrders +
+      dealer._count.salesInvoices +
+      dealer._count.salesReturns +
+      dealer._count.dealerPayments +
+      dealer._count.ledgerEntries +
+      dealer._count.gatePasses +
+      dealer._count.provisionalReceipts;
+
+    if (totalTransactions > 0) {
+      const details: string[] = [];
+      if (dealer._count.salesOrders > 0) details.push(`${dealer._count.salesOrders} Sales Orders`);
+      if (dealer._count.salesInvoices > 0) details.push(`${dealer._count.salesInvoices} Sales Invoices`);
+      if (dealer._count.salesReturns > 0) details.push(`${dealer._count.salesReturns} Sales Returns`);
+      if (dealer._count.dealerPayments > 0) details.push(`${dealer._count.dealerPayments} Payments`);
+      if (dealer._count.ledgerEntries > 0) details.push(`${dealer._count.ledgerEntries} Ledger Entries`);
+      if (dealer._count.gatePasses > 0) details.push(`${dealer._count.gatePasses} Gate Passes`);
+      if (dealer._count.provisionalReceipts > 0) details.push(`${dealer._count.provisionalReceipts} Provisional Receipts`);
+
+      throw new BadRequestException(
+        `Cannot delete dealer '${dealer.name}' (${dealer.code}) because active financial and audit history exists (${details.join(', ')}). Please change the dealer's status to 'INACTIVE' instead to preserve financial records integrity.`
+      );
+    }
+
+    // Clean up dependent child records that do not contain financial postings
+    await this.prisma.salesOfficerDealerAssignment.deleteMany({ where: { dealerId: id } });
+    await this.prisma.dealerAssignmentHistory.deleteMany({ where: { dealerId: id } });
+    await this.prisma.creditLimit.deleteMany({ where: { entityId: id, level: 'DEALER' } });
+
+    await this.prisma.dealer.delete({ where: { id } });
+
+    this.logger.log(`Dealer ${dealer.code} (${dealer.name}) permanently deleted by ${actor.email}`);
+    return { success: true, message: `Dealer '${dealer.name}' (${dealer.code}) deleted successfully` };
   }
 
   async getDealerMarketHierarchy(dealerId: string, companyId: string) {
