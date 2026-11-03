@@ -38,6 +38,7 @@ import {
   IconDownload,
   IconSearch,
   IconEye,
+  IconEdit,
   IconTrendingUp,
   IconBuilding,
 } from '../icons';
@@ -78,6 +79,7 @@ export const FinishedProductsView: React.FC = () => {
 
   // Modals
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<FinishedProductItem | null>(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [viewingProduct, setViewingProduct] = useState<FinishedProductItem | null>(null);
   const [productToDelete, setProductToDelete] = useState<FinishedProductItem | null>(null);
@@ -437,6 +439,16 @@ export const FinishedProductsView: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
+            icon={<IconEdit size={14} />}
+            onClick={() => setEditingProduct(row)}
+            title="Edit Finished Product (or Double-Click row)"
+            style={{ color: '#047857', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
+          >
+            Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             icon={<IconEye size={14} />}
             onClick={() => setViewingProduct(row)}
             title="View Product Master Details"
@@ -617,6 +629,7 @@ export const FinishedProductsView: React.FC = () => {
           data={filteredProducts}
           searchable={false}
           pageSize={10}
+          onRowDoubleClick={(row) => setEditingProduct(row)}
         />
       )}
 
@@ -643,6 +656,18 @@ export const FinishedProductsView: React.FC = () => {
                 Delete Product
               </Button>
               <div style={{ display: 'flex', gap: '8px' }}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    const target = viewingProduct;
+                    setViewingProduct(null);
+                    setEditingProduct(target);
+                  }}
+                  style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#fff' }}
+                >
+                  <IconEdit size={14} /> Edit Product
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -812,6 +837,19 @@ export const FinishedProductsView: React.FC = () => {
           loadData();
         }}
       />
+
+      {/* Dedicated Edit Finished Product Modal */}
+      {editingProduct && (
+        <AddFinishedProductModal
+          isOpen={!!editingProduct}
+          onClose={() => setEditingProduct(null)}
+          productToEdit={editingProduct}
+          onProductUpdated={() => {
+            setEditingProduct(null);
+            loadData();
+          }}
+        />
+      )}
 
       {/* Dynamic Product Import Modal */}
       <ProductImportModal

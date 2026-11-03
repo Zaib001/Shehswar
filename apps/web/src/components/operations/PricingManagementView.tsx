@@ -48,6 +48,7 @@ import {
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportRateListToPdf } from '../../lib/pdf-export';
+import { AddFinishedProductModal } from '../master-data/AddFinishedProductModal';
 
 export type PricingTab =
   | 'rate-lists'
@@ -302,6 +303,9 @@ export const PricingManagementView: React.FC = () => {
   const [rateListItems, setRateListItems] = useState<any[]>([]);
   const [rateListItemSearch, setRateListItemSearch] = useState('');
   const [bulkAdjustmentPct, setBulkAdjustmentPct] = useState<number | ''>('');
+  const [productMatrixSearch, setProductMatrixSearch] = useState('');
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [editingProductInPricing, setEditingProductInPricing] = useState<any | null>(null);
 
   // Searchable Scheme Combobox state
   const [schemeComboQuery, setSchemeComboQuery] = useState('');
@@ -1340,6 +1344,18 @@ export const PricingManagementView: React.FC = () => {
     );
   }, [rateListItems, rateListItemSearch]);
 
+  const filteredMatrixProducts = useMemo(() => {
+    if (!productMatrixSearch.trim()) return allProducts;
+    const q = productMatrixSearch.toLowerCase().trim();
+    return allProducts.filter(
+      (p) =>
+        (p.productName || '').toLowerCase().includes(q) ||
+        (p.productCode || '').toLowerCase().includes(q) ||
+        (resolveProductCategory(p) || '').toLowerCase().includes(q) ||
+        (p.mType || '').toLowerCase().includes(q)
+    );
+  }, [allProducts, productMatrixSearch]);
+
   return (
     <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto' }}>
       {/* Page Header */}
@@ -1951,10 +1967,48 @@ export const PricingManagementView: React.FC = () => {
               border: '1px solid #bfdbfe',
               color: '#1e40af',
               fontSize: '13px',
-              marginBottom: '18px',
+              marginBottom: '16px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
             }}
           >
-            <strong>Centralized Finished Product Master:</strong> Showing active sellable finished products only (no raw materials, packing materials, bottles, cartons, or tape). Each finished product can have scheme-wise rates configured across active rate lists.
+            <div>
+              <strong>Centralized Finished Product Master:</strong> Showing active sellable finished products only. Double-click any row to edit product specifications.
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<IconPlus size={14} />}
+              onClick={() => setIsAddProductModalOpen(true)}
+              style={{ backgroundColor: '#059669', borderColor: '#059669', color: '#fff' }}
+            >
+              + Add Product
+            </Button>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '14px',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div style={{ flex: 1, minWidth: '260px', maxWidth: '420px' }}>
+              <Input
+                placeholder="Search by code, product name, or formulation category..."
+                value={productMatrixSearch}
+                onChange={(e) => setProductMatrixSearch(e.target.value)}
+              />
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              Showing {filteredMatrixProducts.length} of {allProducts.length} finished products
+            </div>
           </div>
 
           <div
@@ -1976,17 +2030,29 @@ export const PricingManagementView: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#ecfdf5' }}>CA (-10%)</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#fef3c7' }}>ABC (-15%)</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Min Allowed Floor</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {allProducts.map((p) => {
+                {filteredMatrixProducts.map((p) => {
                   const base = Number(p.baseRate || p.defaultSellingPrice || 0);
                   const caRate = Math.round(base * 0.9);
                   const abcRate = Math.round(base * 0.85);
                   const minFloor = Number(p.minAllowedRate || Math.round(base * 0.75));
 
                   return (
-                    <tr key={p.finishedProductId || p.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <tr
+                      key={p.finishedProductId || p.id}
+                      onDoubleClick={() => setEditingProductInPricing(p)}
+                      title="Double-click to edit finished product specifications"
+                      style={{
+                        borderBottom: '1px solid var(--border-default)',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.12s ease',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-subtle)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
                       <td style={{ padding: '14px 16px', fontWeight: 700, color: '#047857' }}>
                         {p.productCode}
                       </td>
@@ -2010,6 +2076,28 @@ export const PricingManagementView: React.FC = () => {
                       </td>
                       <td style={{ padding: '14px 16px', color: '#dc2626' }}>
                         PKR {minFloor.toLocaleString()}
+                      </td>
+                      <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<IconEdit size={14} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingProductInPricing(p);
+                          }}
+                          style={{
+                            color: '#047857',
+                            backgroundColor: '#f0fdf4',
+                            borderColor: '#bbf7d0',
+                            fontSize: '12px',
+                            height: '28px',
+                            padding: '0 10px',
+                          }}
+                          title="Edit Finished Product (or Double-Click row)"
+                        >
+                          Edit
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -3805,6 +3893,29 @@ export const PricingManagementView: React.FC = () => {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Add Finished Product Modal */}
+      <AddFinishedProductModal
+        isOpen={isAddProductModalOpen}
+        onClose={() => setIsAddProductModalOpen(false)}
+        onProductCreated={() => {
+          setIsAddProductModalOpen(false);
+          loadData();
+        }}
+      />
+
+      {/* Edit Finished Product Modal */}
+      {editingProductInPricing && (
+        <AddFinishedProductModal
+          isOpen={!!editingProductInPricing}
+          onClose={() => setEditingProductInPricing(null)}
+          productToEdit={editingProductInPricing}
+          onProductUpdated={() => {
+            setEditingProductInPricing(null);
+            loadData();
+          }}
+        />
       )}
     </div>
   );

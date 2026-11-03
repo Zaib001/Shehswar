@@ -58,6 +58,7 @@ export interface DataTableProps<T> {
   emptyActionLabel?: string;
   onEmptyAction?: () => void;
   onRowClick?: (item: T) => void;
+  onRowDoubleClick?: (item: T) => void;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -85,6 +86,7 @@ export function DataTable<T extends Record<string, any>>({
   emptyActionLabel,
   onEmptyAction,
   onRowClick,
+  onRowDoubleClick,
 }: DataTableProps<T>) {
   const pageSize = pagination?.pageSize ?? propPageSize;
   const [searchTerm, setSearchTerm] = useState('');
@@ -577,6 +579,8 @@ export function DataTable<T extends Record<string, any>>({
                   <tr
                     key={id}
                     onClick={() => onRowClick?.(item)}
+                    onDoubleClick={() => onRowDoubleClick?.(item)}
+                    title={onRowDoubleClick ? 'Double-click to edit record' : undefined}
                     className="modern-table-row"
                     style={{
                       backgroundColor: isSelected
@@ -585,7 +589,7 @@ export function DataTable<T extends Record<string, any>>({
                           ? 'var(--bg-canvas, #FAFAFA)'
                           : 'transparent',
                       borderBottom: '1px solid var(--border-subtle, #F1F5F9)',
-                      cursor: onRowClick ? 'pointer' : 'default',
+                      cursor: (onRowClick || onRowDoubleClick) ? 'pointer' : 'default',
                       height: '46px',
                     }}
                   >
@@ -658,6 +662,8 @@ export function DataTable<T extends Record<string, any>>({
               <div
                 key={id}
                 onClick={() => onRowClick?.(item)}
+                onDoubleClick={() => onRowDoubleClick?.(item)}
+                title={onRowDoubleClick ? 'Double-click to edit record' : undefined}
                 className="modern-hover-card"
                 style={{
                   backgroundColor: isSelected
@@ -671,7 +677,7 @@ export function DataTable<T extends Record<string, any>>({
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '8px',
-                  cursor: onRowClick ? 'pointer' : 'default',
+                  cursor: (onRowClick || onRowDoubleClick) ? 'pointer' : 'default',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                 }}
               >

@@ -1,4 +1,4 @@
-i/**
+/**
  * SHEHSWAR ONE360 - Flexible Pricing, Dynamic Rate Lists & Commercial Schemes Service
  *
  * Implements:
@@ -466,8 +466,8 @@ export class PricingService {
   /**
    * Retrieve single Rate List with full version and item details
    */
-  async getRateListById(id: string, companyId: string) {
-    const rateList = await this.prisma.rateList.findFirst({
+  async getRateListById(id: string, companyId?: string) {
+    let rateList = await this.prisma.rateList.findFirst({
       where: { id, companyId },
       include: {
         scheme: {

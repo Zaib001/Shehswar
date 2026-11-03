@@ -39,14 +39,18 @@ export interface AddFinishedProductModalProps {
   isOpen: boolean;
   onClose: () => void;
   onProductCreated?: (createdProduct: any) => void;
+  onProductUpdated?: (updatedProduct: any) => void;
   defaultCategoryId?: string;
+  productToEdit?: any | null;
 }
 
 export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = ({
   isOpen,
   onClose,
   onProductCreated,
+  onProductUpdated,
   defaultCategoryId,
+  productToEdit,
 }) => {
   const { showToast } = useToast();
 
@@ -178,8 +182,35 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
   useEffect(() => {
     if (isOpen) {
       loadPrerequisites();
+      if (productToEdit) {
+        setPreviewProductCode(productToEdit.productCode || 'FG-XXXXXX');
+        setProductName(productToEdit.productName || '');
+        setUrduName(productToEdit.urduName || productToEdit.customFields?.urduName || '');
+        setDescription(productToEdit.description || '');
+        setProductType(productToEdit.productType || 'EC');
+        setMType(productToEdit.mType || 'Insecticides');
+        setSelectedPackSizeId(productToEdit.packSizeId || '');
+        setCommercialVolume(
+          productToEdit.packingQuantity !== null && productToEdit.packingQuantity !== undefined
+            ? Number(productToEdit.packingQuantity)
+            : 100
+        );
+        setVolumeUnit(productToEdit.packingUnit || productToEdit.salesUom?.code || 'Gram');
+        setPackagingContainer(
+          productToEdit.customFields?.packagingContainer !== undefined
+            ? productToEdit.customFields.packagingContainer
+            : productToEdit.packingQuantity || 100
+        );
+        setPpc(productToEdit.ppc ? Number(productToEdit.ppc) : 1);
+        setBaseSellingPrice(Number(productToEdit.defaultSellingPrice || productToEdit.baseRate || 0));
+        setBrand(productToEdit.customFields?.brand || productToEdit.brand || 'Shehswar Agro');
+        setGrade(productToEdit.customFields?.grade || productToEdit.grade || 'Standard');
+        setIsActive(productToEdit.status !== 'INACTIVE');
+      } else {
+        resetForm();
+      }
     }
-  }, [isOpen, loadPrerequisites]);
+  }, [isOpen, productToEdit, loadPrerequisites]);
 
   // When selected Pack Size changes, synchronize Volume and Unit
   const handleSelectPackSize = (packSizeId: string) => {
@@ -244,6 +275,44 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
 
     setIsSaving(true);
     try {
+      if (productToEdit) {
+        const patchPayload: any = {
+          productName: productName.trim(),
+          description: description.trim() || null,
+          productType: productType.trim() || 'EC',
+          mType: mType.trim() || 'Insecticides',
+          packSizeId: selectedPackSizeId || null,
+          packingQuantity: commercialVolume !== '' ? Number(commercialVolume) : null,
+          packingUnit: volumeUnit || null,
+          ppc: ppc ? Number(ppc) : 1,
+          defaultSellingPrice: baseSellingPrice ? Number(baseSellingPrice) : 0,
+          status: isActive ? 'ACTIVE' : 'INACTIVE',
+          customFields: {
+            ...(productToEdit.customFields || {}),
+            urduName: urduName.trim() || undefined,
+            brand: brand.trim() || 'Shehswar Agro',
+            grade: grade.trim() || 'Standard',
+            packagingContainer: packagingContainer !== '' ? Number(packagingContainer) : undefined,
+          },
+        };
+
+        const res = await ApiClient.patch<any>(`/api/v1/master-data/finished-products/${productToEdit.id}`, patchPayload);
+        const updatedItem = res.data?.data || res.data;
+
+        showToast({
+          title: 'Finished Product Updated',
+          message: `${updatedItem?.productName || productName} (${productToEdit.productCode}) updated successfully.`,
+          type: 'success',
+        });
+
+        if (onProductUpdated) {
+          onProductUpdated(updatedItem);
+        }
+
+        onClose();
+        return;
+      }
+
       let catIdToUse = selectedCategoryId;
       if (!catIdToUse) {
         const catRes = await ApiClient.get<any[]>('/api/v1/master-data/unified-categories');
@@ -307,13 +376,19 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Add Finished Product"
-      description="Register a new commercial formulation to the Product Master catalog. Product Code, Category Code, and Pack Size Code are automatically generated."
+      title={productToEdit ? `Edit Product Master — ${previewProductCode}` : 'Add Finished Product'}
+      description={
+        productToEdit
+          ? `Update commercial specifications, classification, pack size, and pricing for ${previewProductCode}.`
+          : 'Register a new commercial formulation to the Product Master catalog. Product Code, Category Code, and Pack Size Code are automatically generated.'
+      }
       size="xl"
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Auto-Generated Product Code:</span>
+            <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+              {productToEdit ? 'Product Code:' : 'Auto-Generated Product Code:'}
+            </span>
             <code
               style={{
                 fontFamily: 'var(--font-mono, monospace)',
@@ -340,7 +415,7 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
               isLoading={isSaving}
               style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
             >
-              <IconCheck size={16} /> Save Finished Product
+              <IconCheck size={16} /> {productToEdit ? 'Save Changes' : 'Save Finished Product'}
             </Button>
           </div>
         </div>
@@ -378,10 +453,14 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
             </div>
             <div>
               <strong style={{ fontSize: '0.82rem', color: '#166534', display: 'block' }}>
-                Product Master Entry Point — Automatic Codes & Dynamic Pack Sizes
+                {productToEdit
+                  ? `Editing Product Master Record — ${previewProductCode}`
+                  : 'Product Master Entry Point — Automatic Codes & Dynamic Pack Sizes'}
               </strong>
               <span style={{ fontSize: '0.74rem', color: '#15803D' }}>
-                Defines product identity, commercial packing size, PPC, and selling rates. Raw material recipes and manufacturing costs are segregated into the Costing Engine.
+                {productToEdit
+                  ? `Modifying specifications, packaging, and commercial base pricing for ${productName || previewProductCode}.`
+                  : 'Defines product identity, commercial packing size, PPC, and selling rates. Raw material recipes and manufacturing costs are segregated into the Costing Engine.'}
               </span>
             </div>
           </div>
