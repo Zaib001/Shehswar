@@ -56,6 +56,147 @@ export type PricingTab =
   | 'authority'
   | 'simulator';
 
+/**
+ * Helper: dynamically resolve product formulation category/type from real DB attributes
+ */
+export const resolveProductCategory = (p: any): string => {
+  if (!p) return 'General Formulation';
+  // 1. Direct formulation classification mType string if present
+  if (typeof p.mType === 'string' && p.mType.trim()) return p.mType.trim();
+  // 2. Direct category string if present and not generic 'Finished Goods'
+  if (typeof p.category === 'string' && p.category.trim() && p.category.trim().toLowerCase() !== 'finished goods') {
+    return p.category.trim();
+  }
+  // 3. Category object with name
+  if (p.category && typeof p.category === 'object' && p.category.name && p.category.name.trim().toLowerCase() !== 'finished goods') {
+    return p.category.name.trim();
+  }
+  // 4. Product type / fertilizer type / formulation
+  if (typeof p.productType === 'string' && p.productType.trim()) return p.productType.trim();
+  if (typeof p.fertilizerType === 'string' && p.fertilizerType.trim()) return p.fertilizerType.trim();
+  if (typeof p.productForm === 'string' && p.productForm.trim()) return p.productForm.trim();
+  // 5. Fallback string if category was 'Finished Goods' or empty
+  if (typeof p.category === 'string' && p.category.trim()) return p.category.trim();
+  return 'General Formulation';
+};
+
+/**
+ * Helper: formulation-specific dynamic badge styling
+ */
+export const getCategoryBadgeStyle = (category: string): React.CSSProperties => {
+  const cat = (category || '').toLowerCase();
+  if (cat.includes('insect')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#ecfdf5',
+      color: '#065f46',
+      border: '1px solid #a7f3d0',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('herb')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#fffbeb',
+      color: '#92400e',
+      border: '1px solid #fde68a',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('fung')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#eff6ff',
+      color: '#1e40af',
+      border: '1px solid #bfdbfe',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('weed')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#fff7ed',
+      color: '#c2410c',
+      border: '1px solid #ffedd5',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('fertil')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#f5f3ff',
+      color: '#5b21b6',
+      border: '1px solid #ddd6fe',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('seed')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#f0fdf4',
+      color: '#15803d',
+      border: '1px solid #bbf7d0',
+      lineHeight: '1.2',
+    };
+  }
+  if (cat.includes('growth') || cat.includes('pgr') || cat.includes('nutri') || cat.includes('bio')) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '11px',
+      fontWeight: 600,
+      backgroundColor: '#ecfeff',
+      color: '#155e75',
+      border: '1px solid #a5f3fc',
+      lineHeight: '1.2',
+    };
+  }
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 8px',
+    borderRadius: '12px',
+    fontSize: '11px',
+    fontWeight: 600,
+    backgroundColor: '#f1f5f9',
+    color: '#334155',
+    border: '1px solid #cbd5e1',
+    lineHeight: '1.2',
+  };
+};
+
 export const PricingManagementView: React.FC = () => {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<PricingTab>('rate-lists');
@@ -709,13 +850,15 @@ export const PricingManagementView: React.FC = () => {
         const schemeRate = effectiveDisc > 0
           ? Math.round(baseRate * (1 - effectiveDisc / 100))
           : Number(p.schemeRate || baseRate);
+        const dynamicCat = resolveProductCategory(p);
 
         return {
-          finishedProductId: p.finishedProductId,
+          finishedProductId: p.finishedProductId || p.id,
           productCode: p.productCode,
           productName: p.productName,
-          category: p.category,
-          packagingMaterial: p.packagingMaterial,
+          category: dynamicCat,
+          mType: p.mType || dynamicCat,
+          packagingMaterial: p.packagingMaterial || p.packaging,
           packSize: p.packSize,
           packSizeId: p.packSizeId || null,
           unit: p.unit || 'Unit',
@@ -1187,12 +1330,13 @@ export const PricingManagementView: React.FC = () => {
 
   const filteredModalItems = useMemo(() => {
     if (!rateListItemSearch.trim()) return rateListItems;
-    const q = rateListItemSearch.toLowerCase();
+    const q = rateListItemSearch.toLowerCase().trim();
     return rateListItems.filter(
       (it) =>
         (it.productName || '').toLowerCase().includes(q) ||
         (it.productCode || '').toLowerCase().includes(q) ||
-        (it.category || '').toLowerCase().includes(q)
+        (it.category || '').toLowerCase().includes(q) ||
+        (it.mType || '').toLowerCase().includes(q)
     );
   }, [rateListItems, rateListItemSearch]);
 
@@ -1847,8 +1991,10 @@ export const PricingManagementView: React.FC = () => {
                         {p.productCode}
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 600 }}>{p.productName}</td>
-                      <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
-                        {p.category || 'Finished Goods'}
+                      <td style={{ padding: '14px 16px' }}>
+                        <span style={getCategoryBadgeStyle(resolveProductCategory(p))}>
+                          {resolveProductCategory(p)}
+                        </span>
                       </td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
@@ -2695,9 +2841,16 @@ export const PricingManagementView: React.FC = () => {
                             {item.productCode}
                           </td>
                           <td style={{ padding: '8px 12px' }}>
-                            <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.productName}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{item.productName}</span>
+                              <span style={getCategoryBadgeStyle(item.category || item.mType || 'General Formulation')}>
+                                {item.category || item.mType || 'General Formulation'}
+                              </span>
+                            </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              {item.category || 'Finished Good'} {item.packagingMaterial ? `• ${item.packagingMaterial}` : ''}
+                              {item.packagingMaterial ? item.packagingMaterial : ''}
+                              {item.packSize && item.packagingMaterial ? ' • ' : ''}
+                              {item.packSize ? `Pack: ${item.packSize}` : ''}
                             </div>
                           </td>
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
@@ -2842,8 +2995,15 @@ export const PricingManagementView: React.FC = () => {
                             <td style={{ padding: '8px 12px', fontWeight: 700, color: '#047857' }}>
                               {product.productCode || it.productCode || '-'}
                             </td>
-                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>
-                              {product.productName || it.productName || 'Product'}
+                            <td style={{ padding: '8px 12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {product.productName || it.productName || 'Product'}
+                                </span>
+                                <span style={getCategoryBadgeStyle(resolveProductCategory(product.mType ? product : (it.category ? it : product)))}>
+                                  {resolveProductCategory(product.mType ? product : (it.category ? it : product))}
+                                </span>
+                              </div>
                             </td>
                             <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
                               {product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : it.unit || '-'}

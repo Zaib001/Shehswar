@@ -1,4 +1,4 @@
-/**
+i/**
  * SHEHSWAR ONE360 - Flexible Pricing, Dynamic Rate Lists & Commercial Schemes Service
  *
  * Implements:
@@ -40,7 +40,7 @@ export interface UpsertRateListDto {
 export class PricingService {
   private readonly logger = new Logger(PricingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // ============================================================
   // 1. PRICING AUTHORITY LIMITS (ROLE-BASED GOVERNANCE)
@@ -308,6 +308,8 @@ export class PricingService {
         id: true,
         productCode: true,
         productName: true,
+        mType: true,
+        productType: true,
         fertilizerType: true,
         productForm: true,
         bagWeight: true,
@@ -322,7 +324,7 @@ export class PricingService {
         salesUom: { select: { id: true, code: true, name: true } },
         baseUom: { select: { id: true, code: true, name: true } },
       },
-      orderBy: [{ category: { name: 'asc' } }, { productName: 'asc' }],
+      orderBy: [{ mType: 'asc' }, { productName: 'asc' }],
     });
 
     return products.map((p) => {
@@ -330,21 +332,29 @@ export class PricingService {
       const packagingText = p.packagingMaterial?.materialName
         ? p.packagingMaterial.materialName
         : p.packingQuantity && p.packingUnit
-        ? `${p.packingQuantity} ${p.packingUnit} Pack`
-        : 'Standard Packaging';
+          ? `${p.packingQuantity} ${p.packingUnit} Pack`
+          : 'Standard Packaging';
       const packSizeText = p.packSize?.name
         ? p.packSize.name
         : p.packingQuantity
-        ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim()
-        : 'Standard';
+          ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim()
+          : 'Standard';
       const unitText = p.salesUom?.code || p.packingUnit || 'Unit';
-      const categoryName = p.category?.name || 'Finished Goods';
+      const categoryName =
+        (p.mType && p.mType.trim()) ||
+        (p.category?.name && p.category.name.trim() && p.category.name.trim() !== 'Finished Goods'
+          ? p.category.name.trim()
+          : '') ||
+        (p.productType && p.productType.trim()) ||
+        (p.fertilizerType && p.fertilizerType.trim()) ||
+        'General Formulation';
 
       return {
         finishedProductId: p.id,
         productCode: p.productCode,
         productName: p.productName,
         category: categoryName,
+        mType: p.mType || categoryName,
         packaging: packagingText,
         packSizeId: p.packSizeId,
         packSize: packSizeText,
@@ -416,6 +426,8 @@ export class PricingService {
                     id: true,
                     productCode: true,
                     productName: true,
+                    mType: true,
+                    productType: true,
                     defaultSellingPrice: true,
                     standardCost: true,
                     category: { select: { name: true } },
@@ -444,10 +456,9 @@ export class PricingService {
         activeVersionNumber: activeVersion?.versionNumber || 1,
         effectiveFrom: activeVersion?.effectiveFrom || rl.createdAt,
         effectiveTo: activeVersion?.effectiveTo || null,
-        productCount: activeVersion?._count?.items ?? activeVersion?.items?.length ?? 0,
+        productCount: activeVersion?._count.items || 0,
         totalVersionsCount: rl.versions.length,
         usageCount: rl._count.salesOrders,
-        items: activeVersion?.items || [],
       };
     });
   }
@@ -455,9 +466,9 @@ export class PricingService {
   /**
    * Retrieve single Rate List with full version and item details
    */
-  async getRateListById(id: string, companyId?: string) {
-    let rateList = await this.prisma.rateList.findFirst({
-      where: companyId ? { id, companyId } : { id },
+  async getRateListById(id: string, companyId: string) {
+    const rateList = await this.prisma.rateList.findFirst({
+      where: { id, companyId },
       include: {
         scheme: {
           include: { schemeTypeRef: true },
@@ -472,6 +483,8 @@ export class PricingService {
                     id: true,
                     productCode: true,
                     productName: true,
+                    mType: true,
+                    productType: true,
                     defaultSellingPrice: true,
                     standardCost: true,
                     category: { select: { name: true } },
@@ -508,6 +521,8 @@ export class PricingService {
                       id: true,
                       productCode: true,
                       productName: true,
+                      mType: true,
+                      productType: true,
                       defaultSellingPrice: true,
                       standardCost: true,
                       category: { select: { name: true } },
@@ -592,7 +607,7 @@ export class PricingService {
       }
     }
 
-    const createdRateList = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const rateList = await tx.rateList.create({
         data: {
           id: uuidv7(),
@@ -638,15 +653,15 @@ export class PricingService {
             const schemeRate = it.schemeRate !== undefined && it.schemeRate !== null
               ? Number(it.schemeRate)
               : it.fixedNetRate !== undefined && it.fixedNetRate !== null
-              ? Number(it.fixedNetRate)
-              : baseRate;
+                ? Number(it.fixedNetRate)
+                : baseRate;
             const discountPercent = it.discountPercent !== undefined && it.discountPercent !== null
               ? Number(it.discountPercent)
               : it.discountValue !== undefined && it.discountValue !== null
-              ? Number(it.discountValue)
-              : baseRate > 0 && schemeRate < baseRate
-              ? Number((((baseRate - schemeRate) / baseRate) * 100).toFixed(2))
-              : 0;
+                ? Number(it.discountValue)
+                : baseRate > 0 && schemeRate < baseRate
+                  ? Number((((baseRate - schemeRate) / baseRate) * 100).toFixed(2))
+                  : 0;
 
             return {
               id: uuidv7(),
@@ -673,10 +688,8 @@ export class PricingService {
       }
 
       this.logger.log(`Rate list created: ${rateList.code} (${rateList.name}) for scheme ${schemeName || 'None'} by ${actor.email}`);
-      return rateList;
+      return this.getRateListById(rateList.id, companyId);
     });
-
-    return this.getRateListById(createdRateList.id, companyId);
   }
 
   /**
@@ -721,7 +734,7 @@ export class PricingService {
     const effectiveFrom = new Date(dto.effectiveFrom);
     const effectiveTo = dto.effectiveTo ? new Date(dto.effectiveTo) : null;
 
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       // Deactivate older overlapping active versions
       await tx.rateListVersion.updateMany({
         where: { rateListId: rateList.id, status: 'ACTIVE' },
@@ -749,15 +762,15 @@ export class PricingService {
             const schemeRate = it.schemeRate !== undefined && it.schemeRate !== null
               ? Number(it.schemeRate)
               : it.fixedNetRate !== undefined && it.fixedNetRate !== null
-              ? Number(it.fixedNetRate)
-              : baseRate;
+                ? Number(it.fixedNetRate)
+                : baseRate;
             const discountPercent = it.discountPercent !== undefined && it.discountPercent !== null
               ? Number(it.discountPercent)
               : it.discountValue !== undefined && it.discountValue !== null
-              ? Number(it.discountValue)
-              : baseRate > 0 && schemeRate < baseRate
-              ? Number((((baseRate - schemeRate) / baseRate) * 100).toFixed(2))
-              : 0;
+                ? Number(it.discountValue)
+                : baseRate > 0 && schemeRate < baseRate
+                  ? Number((((baseRate - schemeRate) / baseRate) * 100).toFixed(2))
+                  : 0;
 
             return {
               id: uuidv7(),
@@ -784,9 +797,8 @@ export class PricingService {
       }
 
       this.logger.log(`Created Version ${nextVersionNumber} for Rate List ${rateList.code}`);
+      return this.getRateListById(rateList.id, actor.companyId);
     });
-
-    return this.getRateListById(rateList.id, actor.companyId);
   }
 
   /**
@@ -811,15 +823,7 @@ export class PricingService {
     if (!activeVersion) throw new BadRequestException('No active version found in rate list');
 
     const existingProductIds = new Set(activeVersion.items.map((it) => it.finishedProductId));
-    let candidateIds = productIds;
-    if (!candidateIds || candidateIds.length === 0) {
-      const allActive = await this.prisma.finishedProduct.findMany({
-        where: { companyId: actor.companyId, status: 'ACTIVE', deletedAt: null },
-        select: { id: true },
-      });
-      candidateIds = allActive.map((p) => p.id);
-    }
-    const missingProductIds = candidateIds.filter((pid) => !existingProductIds.has(pid));
+    const missingProductIds = productIds.filter((pid) => !existingProductIds.has(pid));
 
     if (missingProductIds.length === 0) {
       return this.getRateListById(rateList.id, actor.companyId);
@@ -1017,7 +1021,11 @@ export class PricingService {
         const fp = it.finishedProduct;
         const pCode = fp?.productCode || '-';
         const pName = fp?.productName || 'Product';
-        const category = fp?.category?.name || 'Finished Goods';
+        const category =
+          fp?.mType?.trim() ||
+          (fp?.category?.name && fp?.category?.name !== 'Finished Goods' ? fp.category.name.trim() : '') ||
+          fp?.productType?.trim() ||
+          'Finished Goods';
         const pack = fp?.packSize?.name || (fp?.packingQuantity ? `${fp.packingQuantity} ${fp.packingUnit || ''}`.trim() : it.unit || 'Standard');
         const basePrice = Number(it.baseRate || 0).toLocaleString();
         const schemeRate = Number(it.schemeRate ?? it.fixedNetRate ?? it.baseRate).toLocaleString();
@@ -1504,11 +1512,11 @@ export class PricingService {
       },
       existingRateList: existingRateList
         ? {
-            id: existingRateList.id,
-            code: existingRateList.code,
-            name: existingRateList.name,
-            versionNumber: existingRateList.versions[0]?.versionNumber || 1,
-          }
+          id: existingRateList.id,
+          code: existingRateList.code,
+          name: existingRateList.name,
+          versionNumber: existingRateList.versions[0]?.versionNumber || 1,
+        }
         : null,
       products: generatedItems,
     };
@@ -1588,10 +1596,10 @@ export class PricingService {
     const discountVal = dto.discountPct !== undefined && dto.discountPct !== null && String(dto.discountPct) !== ''
       ? Number(dto.discountPct)
       : dto.defaultDiscountPct !== undefined && dto.defaultDiscountPct !== null && String(dto.defaultDiscountPct) !== ''
-      ? Number(dto.defaultDiscountPct)
-      : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
-      ? Number(dto.cashDiscountPct)
-      : 0;
+        ? Number(dto.defaultDiscountPct)
+        : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
+          ? Number(dto.cashDiscountPct)
+          : 0;
 
     // Payment Type: Cash, Credit, etc. (Requirements 15, 16, 17, 18)
     const paymentType = (dto.paymentType || 'CASH').toUpperCase();
@@ -1683,10 +1691,10 @@ export class PricingService {
     const discountVal = dto.discountPct !== undefined && dto.discountPct !== null && String(dto.discountPct) !== ''
       ? Number(dto.discountPct)
       : dto.defaultDiscountPct !== undefined && dto.defaultDiscountPct !== null && String(dto.defaultDiscountPct) !== ''
-      ? Number(dto.defaultDiscountPct)
-      : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
-      ? Number(dto.cashDiscountPct)
-      : Number(scheme.discountPct || scheme.defaultDiscountPct || scheme.cashDiscountPct || 0);
+        ? Number(dto.defaultDiscountPct)
+        : dto.cashDiscountPct !== undefined && dto.cashDiscountPct !== null && String(dto.cashDiscountPct) !== ''
+          ? Number(dto.cashDiscountPct)
+          : Number(scheme.discountPct || scheme.defaultDiscountPct || scheme.cashDiscountPct || 0);
 
     const paymentType = dto.paymentType ? dto.paymentType.toUpperCase() : scheme.paymentType || 'CASH';
     const paymentTypes = dto.paymentTypes && Array.isArray(dto.paymentTypes)
@@ -1959,10 +1967,10 @@ export class PricingService {
       const explicitSchemeRate = resolvedItem.schemeRate !== null && resolvedItem.schemeRate !== undefined && Number(resolvedItem.schemeRate) > 0
         ? Number(resolvedItem.schemeRate)
         : resolvedItem.fixedNetRate !== null && resolvedItem.fixedNetRate !== undefined && Number(resolvedItem.fixedNetRate) > 0
-        ? Number(resolvedItem.fixedNetRate)
-        : resolvedItem.discountPercent !== null && resolvedItem.discountPercent !== undefined && Number(resolvedItem.discountPercent) > 0
-        ? resolvedBaseRate * (1 - Number(resolvedItem.discountPercent) / 100)
-        : resolvedBaseRate;
+          ? Number(resolvedItem.fixedNetRate)
+          : resolvedItem.discountPercent !== null && resolvedItem.discountPercent !== undefined && Number(resolvedItem.discountPercent) > 0
+            ? resolvedBaseRate * (1 - Number(resolvedItem.discountPercent) / 100)
+            : resolvedBaseRate;
 
       calculatedRate = Number(explicitSchemeRate.toFixed(2));
       const rateDiff = Math.max(0, resolvedBaseRate - calculatedRate);
@@ -2132,7 +2140,7 @@ export class PricingService {
       effectiveTo: resolvedVersion?.effectiveTo?.toISOString(),
     };
   }
-        
+
   // ============================================================
   // 6. LEGACY COMPATIBILITY METHODS (PHASE 1-4.5 PRESERVATION)
   // ============================================================

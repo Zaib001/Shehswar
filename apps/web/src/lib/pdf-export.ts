@@ -5172,7 +5172,17 @@ export const exportRateListToPdf = (rateList: any) => {
       ? `${packSizeStr} • ${packagingStr}`
       : packSizeStr;
 
-    const categoryText = product.category?.name || (typeof product.category === 'string' ? product.category : '') || product.mType || '';
+    const categoryText =
+      (product.mType && product.mType.trim()) ||
+      (item.mType && item.mType.trim()) ||
+      (typeof item.category === 'string' && item.category.trim() && item.category.trim().toLowerCase() !== 'finished goods' ? item.category.trim() : '') ||
+      (product.category?.name && product.category.name.trim() && product.category.name.trim().toLowerCase() !== 'finished goods' ? product.category.name.trim() : '') ||
+      (typeof product.category === 'string' && product.category.trim() && product.category.trim().toLowerCase() !== 'finished goods' ? product.category.trim() : '') ||
+      (product.productType && product.productType.trim()) ||
+      (product.fertilizerType && product.fertilizerType.trim()) ||
+      product.category?.name ||
+      item.category ||
+      '';
 
     const basePrice = Number(item.baseRate || item.basePrice || item.baseSellingPrice || product.defaultSellingPrice || product.standardCost || 0);
     const schemeRate = Number(item.schemeRate ?? item.fixedNetRate ?? item.customPrice ?? item.baseRate ?? basePrice);
@@ -5185,7 +5195,7 @@ export const exportRateListToPdf = (rateList: any) => {
         <td style="font-family: monospace; font-size: 8pt; font-weight: 700; color: #1e293b;">${code}</td>
         <td>
           <div style="font-weight: 700; color: #0f172a; font-size: 8.5pt;">${name}</div>
-          ${categoryText ? `<div style="font-size: 7pt; color: #64748b;">${categoryText}</div>` : ''}
+          ${categoryText ? `<div style="display: inline-block; font-size: 6.8pt; font-weight: 600; padding: 1px 6px; border-radius: 3px; background: #f1f5f9; color: #475569; margin-top: 2px;">${categoryText}</div>` : ''}
         </td>
         <td style="font-size: 8pt; color: #334155; font-weight: 500;">${fullPackText}</td>
         <td style="text-align: right; font-size: 8pt; color: #64748b;">
