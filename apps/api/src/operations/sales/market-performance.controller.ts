@@ -14,6 +14,7 @@ import {
   Get,
   Param,
   Query,
+  Headers,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
@@ -26,12 +27,24 @@ import { MarketPerformanceService, PerformanceFilter } from './market-performanc
 export class MarketPerformanceController {
   constructor(private readonly performanceService: MarketPerformanceService) {}
 
+  private resolveCompanyId(user: AuthUser, queryCompanyId?: string, headerCompanyId?: string): string {
+    if (queryCompanyId && queryCompanyId.trim() !== '' && queryCompanyId.toLowerCase() !== 'all') {
+      return queryCompanyId;
+    }
+    if (headerCompanyId && headerCompanyId.trim() !== '' && headerCompanyId.toLowerCase() !== 'all') {
+      return headerCompanyId;
+    }
+    return user.companyId;
+  }
+
   @Get('group')
   async getGroupPerformance(
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getGroupPerformance(user.companyId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getGroupPerformance(companyId, filter);
   }
 
   @Get('region/:regionId')
@@ -39,8 +52,10 @@ export class MarketPerformanceController {
     @Param('regionId') regionId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getRegionPerformance(user.companyId, regionId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getRegionPerformance(companyId, regionId, filter);
   }
 
   @Get('zone/:zoneId')
@@ -48,8 +63,10 @@ export class MarketPerformanceController {
     @Param('zoneId') zoneId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getZonePerformance(user.companyId, zoneId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getZonePerformance(companyId, zoneId, filter);
   }
 
   @Get('territory/:territoryId')
@@ -57,8 +74,10 @@ export class MarketPerformanceController {
     @Param('territoryId') territoryId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getTerritoryPerformance(user.companyId, territoryId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getTerritoryPerformance(companyId, territoryId, filter);
   }
 
   @Get('officer/:officerId')
@@ -66,8 +85,10 @@ export class MarketPerformanceController {
     @Param('officerId') officerId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getOfficerPerformance(user.companyId, officerId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getOfficerPerformance(companyId, officerId, filter);
   }
 
   @Get('dealer/:dealerId')
@@ -75,8 +96,10 @@ export class MarketPerformanceController {
     @Param('dealerId') dealerId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getDealerCard(user.companyId, dealerId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getDealerCard(companyId, dealerId, filter);
   }
 
   @Get('area-manager/:managerId')
@@ -84,8 +107,10 @@ export class MarketPerformanceController {
     @Param('managerId') managerId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getAreaManagerPerformance(user.companyId, managerId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getAreaManagerPerformance(companyId, managerId, filter);
   }
 
   @Get('business-manager/:managerId')
@@ -93,7 +118,9 @@ export class MarketPerformanceController {
     @Param('managerId') managerId: string,
     @CurrentUser() user: AuthUser,
     @Query() filter: PerformanceFilter,
+    @Headers('x-company-id') headerCompanyId?: string,
   ) {
-    return this.performanceService.getBusinessManagerPerformance(user.companyId, managerId, filter);
+    const companyId = this.resolveCompanyId(user, filter.companyId, headerCompanyId);
+    return this.performanceService.getBusinessManagerPerformance(companyId, managerId, filter);
   }
 }
