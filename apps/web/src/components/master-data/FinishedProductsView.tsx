@@ -44,6 +44,7 @@ import {
 } from '../icons';
 import { AddFinishedProductModal } from './AddFinishedProductModal';
 import { ProductImportModal } from './ProductImportModal';
+import { AddBatchModal } from '../operations/AddBatchModal';
 
 interface FinishedProductItem {
   id: string;
@@ -84,6 +85,7 @@ export const FinishedProductsView: React.FC = () => {
   const [viewingProduct, setViewingProduct] = useState<FinishedProductItem | null>(null);
   const [productToDelete, setProductToDelete] = useState<FinishedProductItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
 
   // Load Products
   const loadData = useCallback(async () => {
@@ -307,6 +309,57 @@ export const FinishedProductsView: React.FC = () => {
           )}
         </div>
       ),
+    },
+    {
+      key: 'batchNumber',
+      label: 'Batch Number',
+      render: (row: FinishedProductItem) => {
+        const activeBatch = (row as any).batches?.find((b: any) => b.isActive) || (row as any).batches?.[0];
+        const batchNum = activeBatch?.batchNumber;
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setBatchModalProduct({
+                id: row.id,
+                productName: row.productName,
+                productCode: row.productCode,
+                packSize: row.packingQuantity ? `${row.packingQuantity} ${row.packingUnit || ''}`.trim() : undefined,
+                category: row.category,
+              });
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: batchNum ? '3px 8px' : '2px 8px',
+              borderRadius: '5px',
+              backgroundColor: batchNum ? '#F0FDF4' : '#F8FAFC',
+              border: batchNum ? '1px solid #BBF7D0' : '1px dashed #CBD5E1',
+              color: batchNum ? '#166534' : '#64748B',
+              fontFamily: batchNum ? 'var(--font-mono, monospace)' : 'inherit',
+              fontWeight: batchNum ? 700 : 500,
+              fontSize: '0.76rem',
+              cursor: 'pointer',
+            }}
+            title={batchNum ? `Active Batch: ${batchNum}. Click to manage batches.` : 'No batch assigned. Click to assign a batch.'}
+          >
+            {batchNum ? (
+              <>
+                <span>{batchNum}</span>
+                {activeBatch?.expiryDate && new Date(activeBatch.expiryDate) < new Date() && (
+                  <span style={{ fontSize: '0.65rem', color: '#DC2626', fontWeight: 600 }}>Exp</span>
+                )}
+              </>
+            ) : (
+              <>
+                <IconPlus size={11} /> Add Batch
+              </>
+            )}
+          </button>
+        );
+      },
     },
     {
       key: 'ppc',
@@ -860,6 +913,18 @@ export const FinishedProductsView: React.FC = () => {
           loadData();
         }}
       />
+
+      {/* Product Batch Management Modal */}
+      {batchModalProduct && (
+        <AddBatchModal
+          isOpen={Boolean(batchModalProduct)}
+          onClose={() => setBatchModalProduct(null)}
+          product={batchModalProduct}
+          onBatchSaved={() => {
+            loadData();
+          }}
+        />
+      )}
     </ListPageTemplate>
   );
 };

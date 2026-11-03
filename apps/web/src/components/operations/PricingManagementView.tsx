@@ -49,6 +49,7 @@ import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportRateListToPdf } from '../../lib/pdf-export';
 import { AddFinishedProductModal } from '../master-data/AddFinishedProductModal';
+import { AddBatchModal } from './AddBatchModal';
 
 export type PricingTab =
   | 'rate-lists'
@@ -306,6 +307,7 @@ export const PricingManagementView: React.FC = () => {
   const [productMatrixSearch, setProductMatrixSearch] = useState('');
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [editingProductInPricing, setEditingProductInPricing] = useState<any | null>(null);
+  const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
 
   // Searchable Scheme Combobox state
   const [schemeComboQuery, setSchemeComboQuery] = useState('');
@@ -866,6 +868,14 @@ export const PricingManagementView: React.FC = () => {
           packSize: p.packSize,
           packSizeId: p.packSizeId || null,
           unit: p.unit || 'Unit',
+          batchId: p.batchId || null,
+          batchNumber: p.batchNumber || null,
+          batchManufacturingDate: p.batchManufacturingDate || null,
+          batchExpiryDate: p.batchExpiryDate || null,
+          batchAvailableQuantity: p.batchAvailableQuantity || 0,
+          isBatchExpired: p.isBatchExpired || false,
+          batchesCount: p.batchesCount || 0,
+          batches: p.batches || [],
           baseRate,
           schemeRate,
           discountPercent: effectiveDisc,
@@ -970,6 +980,63 @@ export const PricingManagementView: React.FC = () => {
    */
   const handleRemoveRateListItem = (finishedProductId: string) => {
     setRateListItems((prev) => prev.filter((it) => it.finishedProductId !== finishedProductId));
+  };
+
+  /**
+   * Update active batch data across product matrix and active rate list items
+   */
+  const handleBatchSaved = (savedBatch: any) => {
+    // 1. Update in allProducts matrix
+    setAllProducts((prev) =>
+      prev.map((p) => {
+        if ((p.finishedProductId || p.id) === savedBatch.finishedProductId) {
+          const updatedBatches = p.batches
+            ? p.batches.map((b: any) =>
+                b.id === savedBatch.id
+                  ? savedBatch
+                  : savedBatch.isActive
+                  ? { ...b, isActive: false }
+                  : b
+              )
+            : [savedBatch];
+          if (!p.batches?.some((b: any) => b.id === savedBatch.id)) {
+            updatedBatches.push(savedBatch);
+          }
+          const activeBatch = updatedBatches.find((b: any) => b.isActive) || updatedBatches[0];
+          return {
+            ...p,
+            batchId: activeBatch?.id,
+            batchNumber: activeBatch?.batchNumber,
+            batchManufacturingDate: activeBatch?.manufacturingDate,
+            batchExpiryDate: activeBatch?.expiryDate,
+            batchAvailableQuantity: activeBatch?.availableQuantity,
+            isBatchExpired: activeBatch?.expiryDate ? new Date(activeBatch.expiryDate) < new Date() : false,
+            batches: updatedBatches,
+            batchesCount: updatedBatches.length,
+          };
+        }
+        return p;
+      })
+    );
+
+    // 2. Update in rateListItems if currently open in rate list modal
+    setRateListItems((prev) =>
+      prev.map((item) => {
+        if (item.finishedProductId === savedBatch.finishedProductId) {
+          return {
+            ...item,
+            batchId: savedBatch.isActive ? savedBatch.id : item.batchId,
+            batchNumber: savedBatch.isActive ? savedBatch.batchNumber : item.batchNumber,
+            batchExpiryDate: savedBatch.isActive ? savedBatch.expiryDate : item.batchExpiryDate,
+            isBatchExpired:
+              savedBatch.isActive && savedBatch.expiryDate
+                ? new Date(savedBatch.expiryDate) < new Date()
+                : item.isBatchExpired,
+          };
+        }
+        return item;
+      })
+    );
   };
 
   /**
@@ -2026,6 +2093,7 @@ export const PricingManagementView: React.FC = () => {
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Finished Product Name</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Category</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Pack Size</th>
+                  <th style={{ padding: '14px 16px', fontWeight: 700 }}>Batch Number</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700 }}>Base Selling Price</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#ecfdf5' }}>CA (-10%)</th>
                   <th style={{ padding: '14px 16px', fontWeight: 700, backgroundColor: '#fef3c7' }}>ABC (-15%)</th>
@@ -2064,6 +2132,72 @@ export const PricingManagementView: React.FC = () => {
                       </td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
+                      </td>
+                      <td style={{ padding: '14px 16px' }}>
+                        {p.batchNumber ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setBatchModalProduct({
+                                id: p.finishedProductId || p.id,
+                                productName: p.productName,
+                                productCode: p.productCode,
+                                packSize: p.packSize,
+                                category: p.category,
+                              });
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '3px 8px',
+                              borderRadius: '5px',
+                              backgroundColor: '#f0fdf4',
+                              border: '1px solid #bbf7d0',
+                              color: '#166534',
+                              fontFamily: 'monospace',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                            }}
+                            title={`Active Batch: ${p.batchNumber}. Click to manage product batches.`}
+                          >
+                            <span>{p.batchNumber}</span>
+                            {p.isBatchExpired && (
+                              <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 600 }}>Expired</span>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setBatchModalProduct({
+                                id: p.finishedProductId || p.id,
+                                productName: p.productName,
+                                productCode: p.productCode,
+                                packSize: p.packSize,
+                                category: p.category,
+                              });
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              backgroundColor: '#f8fafc',
+                              border: '1px dashed #cbd5e1',
+                              color: '#64748b',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                            }}
+                            title="No batch assigned. Click to assign a batch."
+                          >
+                            <IconPlus size={11} /> Add Batch
+                          </button>
+                        )}
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: 700 }}>
                         PKR {base.toLocaleString()}
@@ -2864,9 +2998,10 @@ export const PricingManagementView: React.FC = () => {
                       <th style={{ padding: '8px 6px', textAlign: 'center', width: '40px' }} title="Remove item">−</th>
                       <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Code</th>
                       <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product Name & Category</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '130px' }}>Pack Size</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '130px' }}>Base Price (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '150px' }}>Scheme Rate (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Batch #</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Pack Size</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '120px' }}>Base Price (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '140px' }}>Scheme Rate (PKR)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2940,6 +3075,70 @@ export const PricingManagementView: React.FC = () => {
                               {item.packSize && item.packagingMaterial ? ' • ' : ''}
                               {item.packSize ? `Pack: ${item.packSize}` : ''}
                             </div>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            {item.batchNumber ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBatchModalProduct({
+                                    id: item.finishedProductId,
+                                    productName: item.productName,
+                                    productCode: item.productCode,
+                                    packSize: item.packSize,
+                                    category: item.category,
+                                  });
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#f0fdf4',
+                                  border: '1px solid #bbf7d0',
+                                  color: '#166534',
+                                  fontFamily: 'monospace',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                                title="Click to view/manage batches"
+                              >
+                                <span>{item.batchNumber}</span>
+                                {item.isBatchExpired && (
+                                  <span style={{ fontSize: '9px', color: '#dc2626' }}>Expired</span>
+                                )}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBatchModalProduct({
+                                    id: item.finishedProductId,
+                                    productName: item.productName,
+                                    productCode: item.productCode,
+                                    packSize: item.packSize,
+                                    category: item.category,
+                                  });
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#f8fafc',
+                                  border: '1px dashed #cbd5e1',
+                                  color: '#64748b',
+                                  fontSize: '11px',
+                                  cursor: 'pointer',
+                                }}
+                                title="No batch assigned. Click to assign batch."
+                              >
+                                <IconPlus size={10} /> Add Batch
+                              </button>
+                            )}
                           </td>
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
                             {item.packSize || item.unit || 'Standard'}
@@ -3065,6 +3264,7 @@ export const PricingManagementView: React.FC = () => {
                       <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
                         <th style={{ padding: '8px 12px' }}>Product Code</th>
                         <th style={{ padding: '8px 12px' }}>Sellable Finished Product</th>
+                        <th style={{ padding: '8px 12px' }}>Batch #</th>
                         <th style={{ padding: '8px 12px' }}>Pack Size</th>
                         <th style={{ padding: '8px 12px', textAlign: 'right' }}>Base Price</th>
                         <th style={{ padding: '8px 12px', textAlign: 'center' }}>Discount</th>
@@ -3074,6 +3274,8 @@ export const PricingManagementView: React.FC = () => {
                     <tbody>
                       {(ver.items || []).map((it: any) => {
                         const product = it.product || it.finishedProduct || {};
+                        const activeBatch = product.batches?.find((b: any) => b.isActive) || product.batches?.[0];
+                        const batchNumber = it.batchNumber || activeBatch?.batchNumber;
                         const basePrice = Number(it.basePrice || it.baseRate || product.defaultSellingPrice || 0);
                         const schemeRate = Number(it.schemeRate ?? it.customPrice ?? it.baseRate ?? 0);
                         const discount = Number(it.discountPercent || 0);
@@ -3092,6 +3294,15 @@ export const PricingManagementView: React.FC = () => {
                                   {resolveProductCategory(product.mType ? product : (it.category ? it : product))}
                                 </span>
                               </div>
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              {batchNumber ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: '4px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontFamily: 'monospace', fontSize: '11px', fontWeight: 700 }}>
+                                  {batchNumber}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: '11px' }}>-</span>
+                              )}
                             </td>
                             <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
                               {product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : it.unit || '-'}
@@ -3915,6 +4126,16 @@ export const PricingManagementView: React.FC = () => {
             setEditingProductInPricing(null);
             loadData();
           }}
+        />
+      )}
+
+      {/* Product Batch Management Modal */}
+      {batchModalProduct && (
+        <AddBatchModal
+          isOpen={Boolean(batchModalProduct)}
+          onClose={() => setBatchModalProduct(null)}
+          product={batchModalProduct}
+          onBatchSaved={handleBatchSaved}
         />
       )}
     </div>

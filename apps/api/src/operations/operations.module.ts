@@ -41,6 +41,7 @@ import { VehiclesController } from './vehicles/vehicles.controller';
 import { FinancialTransactionsController } from './finance/financial-transactions.controller';
 import { ProvisionalReceiptsController } from './provisional-receipts/provisional-receipts.controller';
 import { EmployeeCostController } from './employee-cost/employee-cost.controller';
+import { BatchesController } from './batches/batches.controller';
 
 // Services
 import { InventoryService } from './inventory/inventory.service';
@@ -63,6 +64,7 @@ import { VehiclesService } from './vehicles/vehicles.service';
 import { FinancialTransactionsService } from './finance/financial-transactions.service';
 import { ProvisionalReceiptsService } from './provisional-receipts/provisional-receipts.service';
 import { EmployeeCostService } from './employee-cost/employee-cost.service';
+import { BatchesService } from './batches/batches.service';
 
 @Module({
   imports: [CoreModule, PlatformModule],
@@ -92,6 +94,7 @@ import { EmployeeCostService } from './employee-cost/employee-cost.service';
     FinancialTransactionsController,
     ProvisionalReceiptsController,
     EmployeeCostController,
+    BatchesController,
   ],
   providers: [
     InventoryService,
@@ -114,6 +117,7 @@ import { EmployeeCostService } from './employee-cost/employee-cost.service';
     FinancialTransactionsService,
     ProvisionalReceiptsService,
     EmployeeCostService,
+    BatchesService,
   ],
   exports: [
     InventoryService,
@@ -136,6 +140,7 @@ import { EmployeeCostService } from './employee-cost/employee-cost.service';
     FinancialTransactionsService,
     ProvisionalReceiptsService,
     EmployeeCostService,
+    BatchesService,
   ],
 })
 export class OperationsModule {}

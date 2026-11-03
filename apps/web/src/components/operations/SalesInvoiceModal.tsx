@@ -373,22 +373,20 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                 }}
               >
                 <th style={{ padding: '8px 10px', width: '4%', textAlign: 'center' }}>#</th>
-                <th style={{ padding: '8px 10px', width: isBasicDelivery ? '44%' : isCommercialFull ? '36%' : '44%' }}>
+                <th style={{ padding: '8px 10px', width: isCommercialFull ? '32%' : '40%' }}>
                   Product Description
                 </th>
-                {isBasicDelivery && (
-                  <th style={{ padding: '8px 10px', width: '20%', textAlign: 'center' }}>Batch / Lot #</th>
-                )}
+                <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Batch #</th>
                 {isCommercialFull && (
                   <th style={{ padding: '8px 10px', width: '15%', textAlign: 'center' }}>Scheme / Condition</th>
                 )}
                 <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Packaging</th>
-                <th style={{ padding: '8px 10px', width: '10%', textAlign: 'right' }}>Qty</th>
+                <th style={{ padding: '8px 10px', width: '9%', textAlign: 'right' }}>Qty</th>
                 {!isBasicDelivery && (
-                  <th style={{ padding: '8px 10px', width: '14%', textAlign: 'right' }}>Unit Rate (PKR)</th>
+                  <th style={{ padding: '8px 10px', width: '13%', textAlign: 'right' }}>Unit Rate (PKR)</th>
                 )}
                 {!isBasicDelivery && (
-                  <th style={{ padding: '8px 10px', width: '14%', textAlign: 'right' }}>Net Total (PKR)</th>
+                  <th style={{ padding: '8px 10px', width: '13%', textAlign: 'right' }}>Net Total (PKR)</th>
                 )}
               </tr>
             </thead>
@@ -405,11 +403,9 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                     {idx + 1}
                   </td>
                   <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{item.productName}</td>
-                  {isBasicDelivery && (
-                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', fontFamily: 'monospace' }}>
-                      {item.batchNumber || invoice.batchNumber || 'BT-2026-X'}
-                    </td>
-                  )}
+                  <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
+                    {item.batchNumber || invoice.batchNumber || '-'}
+                  </td>
                   {isCommercialFull && (
                     <td style={{ padding: '8px 10px', textAlign: 'center', color: '#166534', fontWeight: 600 }}>
                       {item.scheme || invoice.schemeDescription || 'Standard'}

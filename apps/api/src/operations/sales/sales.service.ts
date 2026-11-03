@@ -839,6 +839,35 @@ export class SalesService {
         }
       }
 
+      // Batch Resolution & Expiry Validation
+      let itemBatchId = (item as any).batchId || null;
+      let itemBatchNumber = (item as any).batchNumber || null;
+
+      if (item.finishedProductId) {
+        let batch = null;
+        if (itemBatchId) {
+          batch = await this.prisma.productBatch.findUnique({ where: { id: itemBatchId } });
+        } else if (itemBatchNumber) {
+          batch = await this.prisma.productBatch.findFirst({
+            where: { finishedProductId: item.finishedProductId, batchNumber: itemBatchNumber },
+          });
+        } else {
+          batch = await this.prisma.productBatch.findFirst({
+            where: { finishedProductId: item.finishedProductId, isActive: true },
+          });
+        }
+
+        if (batch) {
+          itemBatchId = batch.id;
+          itemBatchNumber = batch.batchNumber;
+          if (batch.expiryDate && new Date(batch.expiryDate) < new Date()) {
+            throw new BadRequestException(
+              `Batch ${batch.batchNumber} for product ${item.productName} has expired on ${new Date(batch.expiryDate).toLocaleDateString()}. Cannot create order with expired batch.`,
+            );
+          }
+        }
+      }
+
       orderTotalAmount += totalPrice;
       orderTotalDiscount += (discountAmount * qty);
       orderTotalFreeQty += freeQuantity;
@@ -846,6 +875,8 @@ export class SalesService {
       resolvedItems.push({
         id: uuidv7(),
         finishedProductId: item.finishedProductId ?? null,
+        batchId: itemBatchId,
+        batchNumber: itemBatchNumber,
         rateListId: itemRateListId,
         rateListVersionId: itemRateListVersionId,
         schemeId: itemSchemeId,
@@ -1260,6 +1291,8 @@ export class SalesService {
             id: uuidv7(),
             salesOrderId: order.id,
             finishedProductId: item.finishedProductId ?? null,
+            batchId: item.batchId ?? null,
+            batchNumber: item.batchNumber ?? null,
             rateListId: item.rateListId ?? order.rateListId ?? null,
             rateListVersionId: item.rateListVersionId ?? order.rateListVersionId ?? null,
             schemeId: item.schemeId ?? order.schemeId ?? null,
@@ -1283,6 +1316,72 @@ export class SalesService {
         0,
       );
 
+      // Resolve batches, validate expiry, decrement batch quantities, and build invoice items
+      const resolvedInvoiceItems: any[] = [];
+      let defaultBatchNumber: string | null = dto.batchNumber ?? null;
+
+      for (const item of activeItems) {
+        const qty = Number(item.quantity);
+        const unitRate = Number(item.rate ?? item.unitPrice);
+        const baseRate = item.baseRate ? Number(item.baseRate) : unitRate;
+        const lineNet = Number(item.totalPrice) || (qty * unitRate);
+        const lineGross = baseRate * qty;
+        const lineDisc = Math.max(0, lineGross - lineNet);
+
+        let itemBatchId = item.batchId ?? null;
+        let itemBatchNumber = item.batchNumber ?? null;
+
+        if (item.finishedProductId) {
+          let batch = null;
+          if (itemBatchId) {
+            batch = await tx.productBatch.findUnique({ where: { id: itemBatchId } });
+          } else if (itemBatchNumber) {
+            batch = await tx.productBatch.findFirst({
+              where: { finishedProductId: item.finishedProductId, batchNumber: itemBatchNumber },
+            });
+          } else {
+            batch = await tx.productBatch.findFirst({
+              where: { finishedProductId: item.finishedProductId, isActive: true },
+            });
+          }
+
+          if (batch) {
+            itemBatchId = batch.id;
+            itemBatchNumber = batch.batchNumber;
+            if (!defaultBatchNumber) {
+              defaultBatchNumber = batch.batchNumber;
+            }
+            if (batch.expiryDate && new Date(batch.expiryDate) < new Date()) {
+              throw new BadRequestException(
+                `Batch ${batch.batchNumber} for product ${item.productName} has expired on ${new Date(batch.expiryDate).toLocaleDateString()}. Cannot convert order to sale with expired batch.`,
+              );
+            }
+            // Decrement batch availableQuantity
+            await tx.productBatch.update({
+              where: { id: batch.id },
+              data: {
+                availableQuantity: { decrement: qty },
+              },
+            });
+          }
+        }
+
+        resolvedInvoiceItems.push({
+          id: uuidv7(),
+          finishedProductId: item.finishedProductId ?? null,
+          batchId: itemBatchId,
+          batchNumber: itemBatchNumber,
+          productName: item.productName,
+          packing: item.packing ?? null,
+          quantity: qty,
+          rate: unitRate,
+          grossAmount: lineGross,
+          discountAmount: lineDisc,
+          taxAmount: 0,
+          netAmount: lineNet,
+        });
+      }
+
       // 1. Create Sales Invoice carrying all data from the order + immutable snapshot
       const invoice = await tx.salesInvoice.create({
         data: {
@@ -1302,7 +1401,7 @@ export class SalesService {
           pricingPhase: dto.pricingPhase ?? (order as any).pricingPhase ?? 'CASH',
           commercialCondition: dto.commercialCondition ?? (order as any).commercialCondition ?? null,
           isDeliveryChallan: dto.isDeliveryChallan ?? false,
-          batchNumber: dto.batchNumber ?? null,
+          batchNumber: defaultBatchNumber,
           cartons: dto.cartons ?? null,
           schemeDescription: dto.schemeDescription ?? order.appliedSchemeName ?? (order as any).scheme?.name ?? null,
           warehouseId,
@@ -1316,26 +1415,7 @@ export class SalesService {
           createdById: actor.id,
           postedAt: new Date(),
           items: {
-            create: activeItems.map((item: any) => {
-              const qty = Number(item.quantity);
-              const unitRate = Number(item.rate ?? item.unitPrice);
-              const baseRate = item.baseRate ? Number(item.baseRate) : unitRate;
-              const lineNet = Number(item.totalPrice) || (qty * unitRate);
-              const lineGross = baseRate * qty;
-              const lineDisc = Math.max(0, lineGross - lineNet);
-              return {
-                id: uuidv7(),
-                finishedProductId: item.finishedProductId ?? null,
-                productName: item.productName,
-                packing: item.packing ?? null,
-                quantity: qty,
-                rate: unitRate,
-                grossAmount: lineGross,
-                discountAmount: lineDisc,
-                taxAmount: 0,
-                netAmount: lineNet,
-              };
-            }),
+            create: resolvedInvoiceItems,
           },
         },
         include: {
@@ -1617,6 +1697,58 @@ export class SalesService {
     const areaManagerId = dealer.territory?.zone?.managerId ?? null;
     const businessManagerId = dealer.territory?.zone?.region?.managerId ?? null;
 
+    // Resolve Batches for each item, validate expiry, and build invoice items
+    const resolvedInvoiceItems: any[] = [];
+    let defaultBatchNumber: string | null = dto.batchNumber ?? null;
+
+    for (const item of dto.items) {
+      let itemBatchId = (item as any).batchId ?? null;
+      let itemBatchNumber = (item as any).batchNumber ?? null;
+
+      if (item.finishedProductId) {
+        let batch = null;
+        if (itemBatchId) {
+          batch = await this.prisma.productBatch.findUnique({ where: { id: itemBatchId } });
+        } else if (itemBatchNumber) {
+          batch = await this.prisma.productBatch.findFirst({
+            where: { finishedProductId: item.finishedProductId, batchNumber: itemBatchNumber },
+          });
+        } else {
+          batch = await this.prisma.productBatch.findFirst({
+            where: { finishedProductId: item.finishedProductId, isActive: true },
+          });
+        }
+
+        if (batch) {
+          itemBatchId = batch.id;
+          itemBatchNumber = batch.batchNumber;
+          if (!defaultBatchNumber) {
+            defaultBatchNumber = batch.batchNumber;
+          }
+          if (batch.expiryDate && new Date(batch.expiryDate) < new Date()) {
+            throw new BadRequestException(
+              `Batch ${batch.batchNumber} for product ${item.productName} has expired on ${new Date(batch.expiryDate).toLocaleDateString()}. Cannot create invoice with expired batch.`,
+            );
+          }
+        }
+      }
+
+      resolvedInvoiceItems.push({
+        id: uuidv7(),
+        finishedProductId: item.finishedProductId ?? null,
+        batchId: itemBatchId,
+        batchNumber: itemBatchNumber,
+        productName: item.productName,
+        packing: item.packing ?? null,
+        quantity: item.quantity,
+        rate: item.rate,
+        grossAmount: item.grossAmount ?? (item.quantity * item.rate),
+        discountAmount: item.discountAmount ?? 0,
+        taxAmount: item.taxAmount ?? 0,
+        netAmount: item.netAmount,
+      });
+    }
+
     return this.prisma.salesInvoice.create({
       data: {
         id: uuidv7(),
@@ -1634,7 +1766,7 @@ export class SalesService {
         pricingPhase: dto.pricingPhase ?? 'CASH',
         commercialCondition: dto.commercialCondition ?? null,
         isDeliveryChallan: dto.isDeliveryChallan ?? false,
-        batchNumber: dto.batchNumber ?? null,
+        batchNumber: defaultBatchNumber,
         cartons: dto.cartons ?? null,
         schemeDescription: dto.schemeDescription ?? null,
         warehouseId: dto.warehouseId,
@@ -1647,18 +1779,7 @@ export class SalesService {
         notes: dto.notes ?? null,
         createdById: actor.id,
         items: {
-          create: dto.items.map((item: any) => ({
-            id: uuidv7(),
-            finishedProductId: item.finishedProductId ?? null,
-            productName: item.productName,
-            packing: item.packing ?? null,
-            quantity: item.quantity,
-            rate: item.rate,
-            grossAmount: item.grossAmount ?? (item.quantity * item.rate),
-            discountAmount: item.discountAmount ?? 0,
-            taxAmount: item.taxAmount ?? 0,
-            netAmount: item.netAmount,
-          })),
+          create: resolvedInvoiceItems,
         },
       },
       include: { items: true, dealer: true },
@@ -1708,6 +1829,16 @@ export class SalesService {
               referenceNumber: invoice.invoiceNumber,
               notes: `Sale to ${invoice.dealer?.name}`,
             });
+
+            // Decrement batch availableQuantity if item has batchId
+            if (item.batchId) {
+              await tx.productBatch.update({
+                where: { id: item.batchId },
+                data: {
+                  availableQuantity: { decrement: Number(item.quantity) },
+                },
+              });
+            }
           }
         }
       }
@@ -2334,6 +2465,17 @@ export class SalesService {
         fertilizerType: true,
         bagWeight: true,
         packSize: { select: { id: true, code: true, name: true } },
+        batches: {
+          select: {
+            id: true,
+            batchNumber: true,
+            manufacturingDate: true,
+            expiryDate: true,
+            availableQuantity: true,
+            isActive: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
       orderBy: { productName: 'asc' },
     });
@@ -2403,6 +2545,8 @@ export class SalesService {
         defaultSellingPrice: p.defaultSellingPrice ? Number(p.defaultSellingPrice) : seasonalRate,
         standardCost: p.standardCost ? Number(p.standardCost) : null,
         stockOnHand: totalStock,
+        batches: p.batches || [],
+        activeBatch: p.batches?.find((b) => b.isActive) || p.batches?.[0] || null,
         publishedSchemes: mobileSchemes.map((s) => ({
           id: s.id,
           code: s.code,

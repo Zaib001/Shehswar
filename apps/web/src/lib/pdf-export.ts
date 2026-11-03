@@ -1925,13 +1925,13 @@ export const exportSalesInvoiceToPdf = (
         <thead>
           <tr>
             <th style="width: 5%;" class="text-center">#</th>
-            <th style="width: ${isBasicDelivery ? '45%' : isCommercialFull ? '36%' : '45%'};">Product Description</th>
-            ${isBasicDelivery ? `<th style="width: 20%;" class="text-center">Batch / Lot #</th>` : ''}
-            ${isCommercialFull ? `<th style="width: 15%;" class="text-center">Scheme / Condition</th>` : ''}
-            <th style="width: 15%;" class="text-center">Packaging</th>
-            <th style="width: 10%;" class="text-right">Qty</th>
-            ${!isBasicDelivery ? `<th style="width: 12%;" class="text-right">Rate (PKR)</th>` : ''}
-            ${!isBasicDelivery ? `<th style="width: 13%;" class="text-right">Net Total (PKR)</th>` : ''}
+            <th style="width: ${isCommercialFull ? '30%' : '35%'};">Product Description</th>
+            <th style="width: 14%;" class="text-center">Batch #</th>
+            ${isCommercialFull ? `<th style="width: 14%;" class="text-center">Scheme / Condition</th>` : ''}
+            <th style="width: 12%;" class="text-center">Packaging</th>
+            <th style="width: 8%;" class="text-right">Qty</th>
+            ${!isBasicDelivery ? `<th style="width: 13%;" class="text-right">Rate (PKR)</th>` : ''}
+            ${!isBasicDelivery ? `<th style="width: 14%;" class="text-right">Net Total (PKR)</th>` : ''}
           </tr>
         </thead>
         <tbody>
@@ -1939,7 +1939,7 @@ export const exportSalesInvoiceToPdf = (
             <tr>
               <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
               <td style="font-weight: 600; color: #0f172a;">${item.productName}</td>
-              ${isBasicDelivery ? `<td class="text-center mono" style="color: #475569;">${item.batchNumber || invoice.batchNumber || 'BT-2026-X'}</td>` : ''}
+              <td class="text-center mono" style="color: #475569; font-weight: 600;">${item.batchNumber || invoice.batchNumber || '-'}</td>
               ${isCommercialFull ? `<td class="text-center" style="color: #166534; font-weight: 600;">${item.scheme || invoice.schemeDescription || 'Standard'}</td>` : ''}
               <td class="text-center" style="color: #475569;">${item.packing || 'Standard Pack'}</td>
               <td class="text-right mono" style="font-weight: 600;">${Number(item.quantity).toLocaleString()}</td>
@@ -5188,6 +5188,8 @@ export const exportRateListToPdf = (rateList: any) => {
     const schemeRate = Number(item.schemeRate ?? item.fixedNetRate ?? item.customPrice ?? item.baseRate ?? basePrice);
     const discount = Number(item.discountPercent || item.discountValue || 0);
     const rateType = item.rateType || (discount > 0 ? 'DISCOUNT' : 'DIRECT');
+    const activeBatch = product.batches?.find((b: any) => b.isActive) || product.batches?.[0];
+    const batchNum = item.batchNumber || activeBatch?.batchNumber || '-';
 
     return `
       <tr>
@@ -5196,6 +5198,9 @@ export const exportRateListToPdf = (rateList: any) => {
         <td>
           <div style="font-weight: 700; color: #0f172a; font-size: 8.5pt;">${name}</div>
           ${categoryText ? `<div style="display: inline-block; font-size: 6.8pt; font-weight: 600; padding: 1px 6px; border-radius: 3px; background: #f1f5f9; color: #475569; margin-top: 2px;">${categoryText}</div>` : ''}
+        </td>
+        <td style="font-family: monospace; font-size: 7.5pt; font-weight: 600; color: #334155;">
+          ${batchNum !== '-' ? `<span style="display: inline-block; padding: 1px 6px; border-radius: 3px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;">${batchNum}</span>` : '<span style="color: #94a3b8;">-</span>'}
         </td>
         <td style="font-size: 8pt; color: #334155; font-weight: 500;">${fullPackText}</td>
         <td style="text-align: right; font-size: 8pt; color: #64748b;">
@@ -5398,14 +5403,15 @@ export const exportRateListToPdf = (rateList: any) => {
           <th style="width: 30px; text-align: center;">#</th>
           <th style="width: 80px; text-align: left;">Product Code</th>
           <th style="text-align: left;">Sellable Finished Product</th>
-          <th style="width: 100px; text-align: left;">Pack Size</th>
-          <th style="width: 90px; text-align: right;">Base Price</th>
-          <th style="width: 80px; text-align: center;">Pricing Rule</th>
-          <th style="width: 100px; text-align: right;">Scheme Rate</th>
+          <th style="width: 85px; text-align: left;">Batch #</th>
+          <th style="width: 95px; text-align: left;">Pack Size</th>
+          <th style="width: 85px; text-align: right;">Base Price</th>
+          <th style="width: 75px; text-align: center;">Pricing Rule</th>
+          <th style="width: 95px; text-align: right;">Scheme Rate</th>
         </tr>
       </thead>
       <tbody>
-        ${rowsHtml || '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #94a3b8;">No finished goods found in this rate list.</td></tr>'}
+        ${rowsHtml || '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #94a3b8;">No finished goods found in this rate list.</td></tr>'}
       </tbody>
     </table>
 

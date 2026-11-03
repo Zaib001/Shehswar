@@ -26,6 +26,8 @@ export interface SalesInvoicesViewProps {
 
 export interface InvoiceItemRow {
   finishedProductId: string;
+  batchId?: string;
+  batchNumber?: string;
   productName: string;
   packing: string;
   quantity: number;
@@ -135,6 +137,27 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
       if (prod) {
         item.productName = prod.productName;
         item.unitPrice = Number(prod.defaultSellingPrice || 0);
+        // Automatically pre-fill active batch
+        const activeBatch = prod.activeBatch || prod.batches?.find((b: any) => b.isActive) || prod.batches?.[0];
+        if (activeBatch) {
+          item.batchId = activeBatch.id;
+          item.batchNumber = activeBatch.batchNumber;
+        } else {
+          item.batchId = '';
+          item.batchNumber = '';
+        }
+      }
+    }
+
+    if (field === 'batchId') {
+      const prod = products.find((p) => p.id === item.finishedProductId);
+      const chosen = prod?.batches?.find((b: any) => b.id === value);
+      if (chosen) {
+        item.batchId = chosen.id;
+        item.batchNumber = chosen.batchNumber;
+      } else {
+        item.batchId = '';
+        item.batchNumber = '';
       }
     }
 
@@ -191,6 +214,8 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
         notes: formData.notes,
         items: formItems.map((i) => ({
           finishedProductId: i.finishedProductId || undefined,
+          batchId: i.batchId || undefined,
+          batchNumber: i.batchNumber || undefined,
           productName: i.productName,
           packing: i.packing,
           quantity: Number(i.quantity),
@@ -713,7 +738,7 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '3fr 1fr 1.5fr 1.5fr auto',
+                    gridTemplateColumns: '2.5fr 2fr 1fr 1.2fr 1.2fr auto',
                     gap: '10px',
                     alignItems: 'center',
                     padding: '8px 12px',
@@ -733,6 +758,51 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
                       })),
                     ]}
                   />
+                  {(() => {
+                    const prod = products.find((p) => p.id === item.finishedProductId);
+                    const productBatches = prod?.batches || [];
+                    const selectedBatch = productBatches.find((b: any) => b.id === item.batchId);
+                    const isExpired = selectedBatch?.expiryDate && new Date(selectedBatch.expiryDate) < new Date();
+
+                    if (!item.finishedProductId) {
+                      return (
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', paddingLeft: '4px' }}>
+                          Select product first
+                        </div>
+                      );
+                    }
+
+                    if (productBatches.length === 0) {
+                      return (
+                        <div style={{ fontSize: '11px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', border: '1px solid #fde68a' }}>
+                            No Batch Assigned
+                          </span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div>
+                        <Select
+                          value={item.batchId || ''}
+                          onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
+                          options={[
+                            { label: 'Select Batch...', value: '' },
+                            ...productBatches.map((b: any) => ({
+                              label: `${b.batchNumber} (${b.isActive ? 'Active • ' : ''}Stock: ${b.availableQuantity || 0}${b.expiryDate ? `, Exp: ${new Date(b.expiryDate).toLocaleDateString()}` : ''})`,
+                              value: b.id,
+                            })),
+                          ]}
+                        />
+                        {isExpired && (
+                          <div style={{ fontSize: '10px', color: '#dc2626', fontWeight: 700, marginTop: '2px' }}>
+                            ⚠️ Warning: Batch has expired
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <Input
                     type="number"
                     min="1"

@@ -189,6 +189,8 @@ export type SalesOrderStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONVERTED_
 
 export interface CreateSalesOrderItemDto {
   finishedProductId?: string;
+  batchId?: string;
+  batchNumber?: string;
   rateListId?: string;
   rateListVersionId?: string;
   schemeId?: string;
@@ -234,6 +236,8 @@ export interface ApproveSalesOrderDto {
 
 export interface CreateSalesInvoiceItemDto {
   finishedProductId?: string;
+  batchId?: string;
+  batchNumber?: string;
   productName: string;
   packing?: string;
   quantity: number;
@@ -284,6 +288,48 @@ export interface CreateSalesReturnDto {
     rate: number;
     netAmount: number;
   }[];
+}
+
+// ============================================================
+// PRODUCT BATCH TYPES
+// ============================================================
+
+export interface ProductBatchDto {
+  id: string;
+  organizationId: string;
+  companyId: string;
+  finishedProductId: string;
+  batchNumber: string;
+  manufacturingDate: string;
+  expiryDate?: string | null;
+  initialQuantity: number;
+  availableQuantity: number;
+  allocatedQuantity: number;
+  isActive: boolean;
+  status: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProductBatchDto {
+  finishedProductId: string;
+  batchNumber: string;
+  manufacturingDate: string;
+  expiryDate?: string;
+  initialQuantity?: number;
+  availableQuantity?: number;
+  isActive?: boolean;
+  notes?: string;
+}
+
+export interface UpdateProductBatchDto {
+  batchNumber?: string;
+  manufacturingDate?: string;
+  expiryDate?: string;
+  availableQuantity?: number;
+  isActive?: boolean;
+  notes?: string;
 }
 
 // ============================================================

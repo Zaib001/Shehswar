@@ -323,9 +323,23 @@ export class PricingService {
         packagingMaterial: { select: { id: true, materialCode: true, materialName: true } },
         salesUom: { select: { id: true, code: true, name: true } },
         baseUom: { select: { id: true, code: true, name: true } },
+        batches: {
+          select: {
+            id: true,
+            batchNumber: true,
+            manufacturingDate: true,
+            expiryDate: true,
+            availableQuantity: true,
+            isActive: true,
+            status: true,
+          },
+          orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        },
       },
       orderBy: [{ mType: 'asc' }, { productName: 'asc' }],
     });
+
+    const now = new Date();
 
     return products.map((p) => {
       const basePrice = Number(p.defaultSellingPrice || p.standardCost || 0);
@@ -349,12 +363,27 @@ export class PricingService {
         (p.fertilizerType && p.fertilizerType.trim()) ||
         'General Formulation';
 
+      const activeBatch = p.batches?.find((b: any) => b.isActive) || p.batches?.[0] || null;
+      const isBatchExpired = activeBatch?.expiryDate ? new Date(activeBatch.expiryDate) < now : false;
+
       return {
         finishedProductId: p.id,
         productCode: p.productCode,
         productName: p.productName,
         category: categoryName,
         mType: p.mType || categoryName,
+        batchId: activeBatch?.id || null,
+        batchNumber: activeBatch?.batchNumber || null,
+        batchManufacturingDate: activeBatch?.manufacturingDate || null,
+        batchExpiryDate: activeBatch?.expiryDate || null,
+        batchAvailableQuantity: activeBatch ? Number(activeBatch.availableQuantity) : 0,
+        isBatchExpired,
+        batchesCount: p.batches?.length || 0,
+        batches: (p.batches || []).map((b: any) => ({
+          ...b,
+          availableQuantity: Number(b.availableQuantity),
+          isExpired: b.expiryDate ? new Date(b.expiryDate) < now : false,
+        })),
         packaging: packagingText,
         packSizeId: p.packSizeId,
         packSize: packSizeText,
@@ -436,6 +465,18 @@ export class PricingService {
                     salesUom: { select: { code: true } },
                     packingQuantity: true,
                     packingUnit: true,
+                    batches: {
+                      select: {
+                        id: true,
+                        batchNumber: true,
+                        manufacturingDate: true,
+                        expiryDate: true,
+                        availableQuantity: true,
+                        isActive: true,
+                        status: true,
+                      },
+                      orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+                    },
                   },
                 },
                 packSize: { select: { id: true, code: true, name: true } },
@@ -493,6 +534,18 @@ export class PricingService {
                     salesUom: { select: { code: true } },
                     packingQuantity: true,
                     packingUnit: true,
+                    batches: {
+                      select: {
+                        id: true,
+                        batchNumber: true,
+                        manufacturingDate: true,
+                        expiryDate: true,
+                        availableQuantity: true,
+                        isActive: true,
+                        status: true,
+                      },
+                      orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+                    },
                   },
                 },
                 packSize: { select: { id: true, code: true, name: true } },
@@ -531,6 +584,18 @@ export class PricingService {
                       salesUom: { select: { code: true } },
                       packingQuantity: true,
                       packingUnit: true,
+                      batches: {
+                        select: {
+                          id: true,
+                          batchNumber: true,
+                          manufacturingDate: true,
+                          expiryDate: true,
+                          availableQuantity: true,
+                          isActive: true,
+                          status: true,
+                        },
+                        orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+                      },
                     },
                   },
                   packSize: { select: { id: true, code: true, name: true } },
@@ -989,6 +1054,11 @@ export class PricingService {
                     packagingMaterial: true,
                     packSize: true,
                     salesUom: true,
+                    batches: {
+                      where: { isActive: true },
+                      select: { batchNumber: true },
+                      take: 1,
+                    },
                   },
                 },
                 packSize: true,
@@ -1027,6 +1097,7 @@ export class PricingService {
           fp?.productType?.trim() ||
           'Finished Goods';
         const pack = fp?.packSize?.name || (fp?.packingQuantity ? `${fp.packingQuantity} ${fp.packingUnit || ''}`.trim() : it.unit || 'Standard');
+        const batchNum = fp?.batches?.[0]?.batchNumber || '-';
         const basePrice = Number(it.baseRate || 0).toLocaleString();
         const schemeRate = Number(it.schemeRate ?? it.fixedNetRate ?? it.baseRate).toLocaleString();
         const discPct = it.discountPercent ? `${Number(it.discountPercent)}%` : '-';
@@ -1038,6 +1109,7 @@ export class PricingService {
             <td style="font-weight:600; color:#0f172a;">${pName}</td>
             <td style="color:#64748b;">${category}</td>
             <td style="font-weight:500;">${pack}</td>
+            <td style="text-align:center; font-family:monospace; font-weight:600; color:#047857;">${batchNum}</td>
             <td style="text-align:right; color:#64748b;">PKR ${basePrice}</td>
             <td style="text-align:center; color:#059669; font-weight:600;">${discPct}</td>
             <td style="text-align:right; font-weight:700; color:#0f172a; font-size:10pt; background:#f8fafc;">PKR ${schemeRate}</td>
@@ -1202,13 +1274,14 @@ export class PricingService {
     <thead>
       <tr>
         <th style="width: 4%; text-align:center;">#</th>
-        <th style="width: 14%;">Product Code</th>
-        <th style="width: 28%;">Product Description</th>
-        <th style="width: 14%;">Category</th>
-        <th style="width: 12%;">Pack Size</th>
-        <th style="width: 11%; text-align:right;">Base Price</th>
-        <th style="width: 6%; text-align:center;">Disc %</th>
-        <th style="width: 11%; text-align:right;">Scheme Rate</th>
+        <th style="width: 12%;">Product Code</th>
+        <th style="width: 25%;">Product Description</th>
+        <th style="width: 13%;">Category</th>
+        <th style="width: 11%;">Pack Size</th>
+        <th style="width: 12%; text-align:center;">Batch #</th>
+        <th style="width: 9%; text-align:right;">Base Price</th>
+        <th style="width: 5%; text-align:center;">Disc %</th>
+        <th style="width: 9%; text-align:right;">Scheme Rate</th>
       </tr>
     </thead>
     <tbody>
