@@ -153,10 +153,10 @@ export const ProductCostingView: React.FC = () => {
     setIsLoading(true);
     try {
       const [rmRes, pmRes, catRes, fpRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true'),
-        ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true'),
-        ApiClient.get<any>('/api/v1/master-data/categories?entityType=RAW_MATERIAL'),
-        ApiClient.get<any>('/api/v1/master-data/finished-products?all=true'),
+        ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/master-data/product-categories?all=true').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').catch(() => ({ data: [] })),
       ]);
 
       const rms = Array.isArray(rmRes.data?.data)
@@ -185,13 +185,12 @@ export const ProductCostingView: React.FC = () => {
       setCategories(cats);
       setFinishedProducts(fps);
 
-      // Auto-select first Raw Material if none selected
-      if (rms.length > 0 && !selectedRawMaterialId) {
-        setSelectedRawMaterialId(rms[0].id);
-      }
+      // Auto-select first Raw Material if none selected yet
+      setSelectedRawMaterialId((prev) => (prev ? prev : rms.length > 0 ? rms[0].id : ''));
 
       // Pre-seed default packaging if lines are empty
-      if (pms.length > 0 && packagingLines.length === 0) {
+      setPackagingLines((currentLines) => {
+        if (currentLines.length > 0 || pms.length === 0) return currentLines;
         const bottle = pms.find((p: any) => /bottle/i.test(p.materialName)) || pms[0];
         const cap = pms.find((p: any) => /cap/i.test(p.materialName));
         const label = pms.find((p: any) => /label/i.test(p.materialName));
@@ -238,8 +237,8 @@ export const ProductCostingView: React.FC = () => {
             totalCost: 10 * cost,
           });
         }
-        setPackagingLines(initialLines);
-      }
+        return initialLines;
+      });
     } catch (err: any) {
       showToast({
         title: 'Error Loading Catalog',
@@ -249,7 +248,7 @@ export const ProductCostingView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedRawMaterialId, packagingLines.length, showToast]);
+  }, [showToast]);
 
   const loadCostingHistory = useCallback(async () => {
     setIsLoadingHistory(true);

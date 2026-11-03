@@ -63,6 +63,25 @@ export class MasterDataController {
   // UNIFIED ITEM MANAGEMENT & CATEGORY ROUTING
   // ==========================================
 
+  @Get('categories')
+  async getCategories(
+    @CurrentContext() ctx: SecurityContext,
+    @CurrentUser() user: AuthUser,
+    @Query('entityType') entityType?: string,
+    @Query('categoryType') categoryType?: string,
+    @Query('organizationId') orgId?: string,
+  ) {
+    const organizationId = orgId || ctx?.organizationId || user?.organizationId;
+    const type = (entityType || categoryType || '').toUpperCase();
+    if (type === 'FINISHED_PRODUCT' || type === 'PRODUCT') {
+      return this.masterDataService.findProductCategories(organizationId);
+    }
+    if (type === 'RAW_MATERIAL' || type === 'PACKING_MATERIAL' || type === 'MATERIAL') {
+      return this.masterDataService.findMaterialCategories(organizationId);
+    }
+    return this.categoryRouter.getUnifiedCategories(organizationId);
+  }
+
   @Get('unified-categories')
   async getUnifiedCategories(
     @CurrentContext() ctx: SecurityContext,

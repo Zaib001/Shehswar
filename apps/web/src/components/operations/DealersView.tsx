@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ListPageTemplate } from '../templates';
 import {
   DataTable,
@@ -41,6 +42,7 @@ import {
   IconCheck,
   IconAlertTriangle,
   IconLock,
+  IconMoreVertical,
 } from '../icons';
 import { DealerLedgerModal } from './DealerLedgerModal';
 import { useToast } from '../../context/toast-context';
@@ -387,6 +389,49 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   );
 };
 
+// -------------------------------------------------------------
+// SLEEK ACTION MENU ITEM
+// -------------------------------------------------------------
+interface ActionMenuItemProps {
+  icon: React.ReactNode;
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  danger?: boolean;
+}
+
+const ActionMenuItem: React.FC<ActionMenuItemProps> = ({ icon, label, onClick, danger }) => {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '9px',
+        width: '100%',
+        padding: '7px 10px',
+        fontSize: '12px',
+        fontWeight: danger ? 600 : 500,
+        color: danger ? '#dc2626' : '#1e293b',
+        backgroundColor: hovered ? (danger ? '#fef2f2' : '#f1f5f9') : 'transparent',
+        border: 'none',
+        borderRadius: '5px',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.12s ease',
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {icon}
+      </span>
+      <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{label}</span>
+    </button>
+  );
+};
+
 export const DealersView: React.FC = () => {
   const { showToast } = useToast();
   const [dealers, setDealers] = useState<DealerRecord[]>([]);
@@ -395,6 +440,40 @@ export const DealersView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Action Menu Portal Anchor State
+  const [menuAnchor, setMenuAnchor] = useState<{
+    id: string;
+    dealer: DealerRecord;
+    top?: number;
+    bottom?: number;
+    right: number;
+  } | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Close menu on click outside, scroll, resize
+  useEffect(() => {
+    const handleClose = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-dealer-actions-portal]')) return;
+      setMenuAnchor(null);
+    };
+    const handleScrollOrResize = () => {
+      setMenuAnchor(null);
+    };
+    document.addEventListener('mousedown', handleClose);
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      document.removeEventListener('mousedown', handleClose);
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, []);
 
   // Ledger Modal State
   const [selectedDealerForLedger, setSelectedDealerForLedger] = useState<DealerRecord | null>(null);
@@ -791,7 +870,8 @@ export const DealersView: React.FC = () => {
     {
       key: 'code',
       header: 'Dealer Code',
-      width: '120px',
+      width: '110px',
+      align: 'left',
       render: (d) => (
         <span
           style={{
@@ -807,17 +887,18 @@ export const DealersView: React.FC = () => {
     },
     {
       key: 'name',
-      header: 'Dealer & Shop Name',
+      header: 'Dealer & Business Name',
+      align: 'left',
       render: (d) => (
         <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>{d.name}</div>
+          <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '13px' }}>{d.name}</div>
           {d.businessName && (
-            <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 500 }}>
+            <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 500, marginTop: '1px' }}>
               {d.businessName}
             </div>
           )}
           {d.city && (
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '1px' }}>
               📍 {d.city}
             </div>
           )}
@@ -827,14 +908,16 @@ export const DealersView: React.FC = () => {
     {
       key: 'market',
       header: 'Market Hierarchy',
+      width: '190px',
+      align: 'left',
       render: (d) => {
         const terr = d.territory;
         return (
-          <div style={{ fontSize: '12px', maxWidth: '220px' }}>
+          <div style={{ fontSize: '12px', maxWidth: '190px' }}>
             <div style={{ fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {terr?.name || 'Unassigned Territory'}
             </div>
-            <div style={{ color: '#64748b', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ color: '#64748b', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
               {terr?.zone?.name ? `${terr.zone.name} → ${terr.zone.region?.name || ''}` : 'Direct ERP Scope'}
             </div>
           </div>
@@ -844,6 +927,8 @@ export const DealersView: React.FC = () => {
     {
       key: 'officer',
       header: 'Sales Officer',
+      width: '160px',
+      align: 'left',
       render: (d) => {
         const officer = d.assignedOfficer;
         return (
@@ -852,7 +937,7 @@ export const DealersView: React.FC = () => {
               {officer ? `${officer.firstName} ${officer.lastName}` : 'Unassigned'}
             </strong>
             {officer?.phone && (
-              <div style={{ fontSize: '11px', color: '#64748b' }}>{officer.phone}</div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>{officer.phone}</div>
             )}
           </div>
         );
@@ -861,24 +946,29 @@ export const DealersView: React.FC = () => {
     {
       key: 'creditLimit',
       header: 'Credit Limit',
+      width: '125px',
+      align: 'right',
       render: (d) => (
-        <span style={{ fontWeight: 600 }}>
+        <span style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
           PKR {Number(d.creditLimit || 0).toLocaleString()}
         </span>
       ),
     },
     {
       key: 'currentBalance',
-      header: 'Used Credit (Balance)',
+      header: 'Used Credit',
+      width: '135px',
+      align: 'right',
       render: (d) => {
         const bal = Number(d.currentBalance || 0);
         const limit = Number(d.creditLimit || 0);
         const isOverLimit = limit > 0 && bal > limit;
         return (
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
             <span
               style={{
                 fontWeight: 700,
+                fontSize: '13px',
                 color: isOverLimit ? '#dc2626' : bal > 0 ? '#ea580c' : '#16a34a',
               }}
             >
@@ -889,15 +979,14 @@ export const DealersView: React.FC = () => {
                 style={{
                   display: 'inline-block',
                   fontSize: '10px',
-                  fontWeight: 700,
+                  fontWeight: 800,
                   color: '#dc2626',
-                  backgroundColor: '#fef2f2',
-                  padding: '1px 6px',
+                  backgroundColor: '#fee2e2',
+                  padding: '1px 5px',
                   borderRadius: '4px',
-                  marginLeft: '4px',
                 }}
               >
-                Locked
+                LOCKED
               </span>
             )}
           </div>
@@ -906,13 +995,15 @@ export const DealersView: React.FC = () => {
     },
     {
       key: 'availableCredit',
-      header: 'Available Credit',
+      header: 'Available',
+      width: '120px',
+      align: 'right',
       render: (d) => {
         const limit = Number(d.creditLimit || 0);
         const bal = Number(d.currentBalance || 0);
         const available = Math.max(0, limit - bal);
         return (
-          <span style={{ fontWeight: 600, color: available > 0 ? '#16a34a' : '#64748b' }}>
+          <span style={{ fontWeight: 600, fontSize: '13px', color: available > 0 ? '#16a34a' : '#94a3b8' }}>
             PKR {available.toLocaleString()}
           </span>
         );
@@ -920,18 +1011,19 @@ export const DealersView: React.FC = () => {
     },
     {
       key: 'creditUtilization',
-      header: 'Credit %',
-      width: '130px',
+      header: 'Utilization',
+      width: '120px',
+      align: 'center',
       render: (d) => {
         const limit = Number(d.creditLimit || 0);
         const bal = Number(d.currentBalance || 0);
         const pct = limit > 0 ? Math.min(200, Math.round((bal / limit) * 100)) : 0;
         const color = pct >= 100 ? '#dc2626' : pct >= 85 ? '#ea580c' : '#16a34a';
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'center' }}>
             <div
               style={{
-                flex: 1,
+                width: '55px',
                 height: '6px',
                 borderRadius: '3px',
                 backgroundColor: '#e2e8f0',
@@ -946,7 +1038,7 @@ export const DealersView: React.FC = () => {
                 }}
               />
             </div>
-            <span style={{ fontSize: '11px', fontWeight: 700, color, width: '38px', textAlign: 'right' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color, width: '32px', textAlign: 'right' }}>
               {pct}%
             </span>
           </div>
@@ -957,6 +1049,7 @@ export const DealersView: React.FC = () => {
       key: 'status',
       header: 'Status',
       width: '90px',
+      align: 'center',
       render: (d) => (
         <StatusBadge
           status={d.status}
@@ -967,9 +1060,10 @@ export const DealersView: React.FC = () => {
     {
       key: 'actions',
       header: 'Actions',
-      width: '380px',
+      width: '135px',
+      align: 'right',
       render: (d) => (
-        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
           <Button
             variant="secondary"
             size="sm"
@@ -978,80 +1072,155 @@ export const DealersView: React.FC = () => {
               handleOpenLedger(d);
             }}
             title="View Real-Time Running Financial Ledger"
+            style={{
+              height: '30px',
+              padding: '0 10px',
+              fontSize: '12px',
+              fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
           >
             <IconFileText size={13} /> Ledger
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
-              handleDirectPdf(e, d);
+              if (menuAnchor?.id === d.id) {
+                setMenuAnchor(null);
+                return;
+              }
+              const rect = e.currentTarget.getBoundingClientRect();
+              const spaceBelow = window.innerHeight - rect.bottom;
+              const showAbove = spaceBelow < 260;
+              setMenuAnchor({
+                id: d.id,
+                dealer: d,
+                ...(showAbove
+                  ? { bottom: window.innerHeight - rect.top + 6 }
+                  : { top: rect.bottom + 6 }),
+                right: Math.max(16, window.innerWidth - rect.right),
+              });
             }}
-            title="Download PDF Ledger Statement"
-          >
-            <IconDownload size={13} /> PDF
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenEdit(d);
+            title="More Actions"
+            aria-label="More Actions"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '30px',
+              height: '30px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-default, #cbd5e1)',
+              backgroundColor: menuAnchor?.id === d.id ? '#f1f5f9' : '#ffffff',
+              color: '#475569',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              flexShrink: 0,
             }}
-            title="Edit Dealer Profile"
           >
-            <IconEdit size={13} /> Edit
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenHistory(d);
-            }}
-            title="View Market Reassignment History"
-          >
-            <IconClock size={13} /> History
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenReassign(d);
-            }}
-            title="Reassign Market Territory & Sales Officer"
-          >
-            <IconEdit size={13} /> Reassign
-          </Button>
-          <Button
-            variant={d.status === 'ACTIVE' ? 'ghost' : 'outline'}
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleStatus(d);
-            }}
-            title={d.status === 'ACTIVE' ? 'Deactivate Dealer' : 'Activate Dealer'}
-          >
-            {d.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenDelete(d);
-            }}
-            style={{ color: '#dc2626' }}
-            title="Permanently Delete Dealer"
-          >
-            <IconTrash size={13} />
-          </Button>
+            <IconMoreVertical size={16} />
+          </button>
         </div>
       ),
     },
   ];
+
+  const renderActionPortal = () => {
+    if (!isMounted || !menuAnchor) return null;
+    const d = menuAnchor.dealer;
+
+    return createPortal(
+      <div
+        data-dealer-actions-portal
+        style={{
+          position: 'fixed',
+          right: `${menuAnchor.right}px`,
+          ...(menuAnchor.top !== undefined ? { top: `${menuAnchor.top}px` } : {}),
+          ...(menuAnchor.bottom !== undefined ? { bottom: `${menuAnchor.bottom}px` } : {}),
+          backgroundColor: '#ffffff',
+          border: '1px solid #cbd5e1',
+          borderRadius: '8px',
+          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+          padding: '6px',
+          minWidth: '220px',
+          zIndex: 999999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px',
+        }}
+      >
+        <div style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', marginBottom: '2px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+            Actions: {d.code}
+          </div>
+          <div style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {d.name}
+          </div>
+        </div>
+
+        <ActionMenuItem
+          icon={<IconDownload size={14} style={{ color: '#2563eb' }} />}
+          label="Download Statement PDF"
+          onClick={(e) => {
+            handleDirectPdf(e, d);
+            setMenuAnchor(null);
+          }}
+        />
+
+        <ActionMenuItem
+          icon={<IconEdit size={14} style={{ color: '#475569' }} />}
+          label="Edit Dealer Profile"
+          onClick={() => {
+            handleOpenEdit(d);
+            setMenuAnchor(null);
+          }}
+        />
+
+        <ActionMenuItem
+          icon={<IconRefresh size={14} style={{ color: '#059669' }} />}
+          label="Reassign Officer / Territory"
+          onClick={() => {
+            handleOpenReassign(d);
+            setMenuAnchor(null);
+          }}
+        />
+
+        <ActionMenuItem
+          icon={<IconClock size={14} style={{ color: '#6366f1' }} />}
+          label="Assignment History"
+          onClick={() => {
+            handleOpenHistory(d);
+            setMenuAnchor(null);
+          }}
+        />
+
+        <ActionMenuItem
+          icon={<IconCheck size={14} style={{ color: d.status === 'ACTIVE' ? '#ea580c' : '#16a34a' }} />}
+          label={d.status === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account'}
+          onClick={() => {
+            handleToggleStatus(d);
+            setMenuAnchor(null);
+          }}
+        />
+
+        <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '4px 0' }} />
+
+        <ActionMenuItem
+          danger
+          icon={<IconTrash size={14} style={{ color: '#dc2626' }} />}
+          label="Delete Dealer"
+          onClick={() => {
+            handleOpenDelete(d);
+            setMenuAnchor(null);
+          }}
+        />
+      </div>,
+      document.body
+    );
+  };
 
   return (
     <ListPageTemplate
@@ -1146,7 +1315,10 @@ export const DealersView: React.FC = () => {
       {isLoading ? (
         <TableSkeleton rows={8} columns={9} />
       ) : (
-        <DataTable data={filteredDealers} columns={columns} />
+        <>
+          <DataTable data={filteredDealers} columns={columns} />
+          {renderActionPortal()}
+        </>
       )}
 
       {/* ------------------------------------------------------------- */}
