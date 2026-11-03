@@ -156,6 +156,7 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       if (onBatchSaved && res.data) {
         onBatchSaved(res.data);
       }
+      onClose();
     } catch (err: any) {
       showToast({ type: 'error', title: 'Error', message: err?.message || 'Failed to set active batch' });
     }
@@ -237,13 +238,11 @@ export const AddBatchModal: React.FC<AddBatchModalProps> = ({
       }
 
       resetForm();
-      await loadBatches();
       if (onBatchSaved && savedBatch) {
         onBatchSaved(savedBatch);
       }
-      setTimeout(() => {
-        batchNumberInputRef.current?.focus();
-      }, 100);
+      // Automatically close modal when batch number is added/saved
+      onClose();
     } catch (err: any) {
       showToast({ type: 'error', title: 'Save Failed', message: err?.message || 'Failed to save batch' });
     } finally {

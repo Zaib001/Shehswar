@@ -2289,6 +2289,9 @@ export class MasterDataService {
         baseUom: true,
         salesUom: true,
         company: { select: { id: true, name: true, code: true } },
+        batches: {
+          orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        },
       },
       orderBy: { productCode: 'asc' },
     });
@@ -2314,6 +2317,9 @@ export class MasterDataService {
         company: true,
         formulaBoms: { include: { components: true } },
         qcSpecifications: { include: { parameters: true } },
+        batches: {
+          orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        },
       },
     });
     if (!product) throw new NotFoundException(`Finished product with ID ${id} not found`);
@@ -2511,6 +2517,9 @@ export class MasterDataService {
         packagingMaterial: true,
         baseUom: true,
         salesUom: true,
+        batches: {
+          orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        },
       },
     });
 

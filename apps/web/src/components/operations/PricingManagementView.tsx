@@ -1037,6 +1037,9 @@ export const PricingManagementView: React.FC = () => {
         return item;
       })
     );
+
+    // Auto-close batch modal on save
+    setBatchModalProduct(null);
   };
 
   /**

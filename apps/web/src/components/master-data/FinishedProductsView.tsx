@@ -65,6 +65,13 @@ interface FinishedProductItem {
   customFields?: Record<string, any>;
   status: string;
   createdAt?: string;
+  batches?: Array<{
+    id: string;
+    batchNumber: string;
+    isActive: boolean;
+    expiryDate?: string | null;
+    availableQuantity?: number;
+  }>;
 }
 
 export const FinishedProductsView: React.FC = () => {
@@ -314,8 +321,12 @@ export const FinishedProductsView: React.FC = () => {
       key: 'batchNumber',
       label: 'Batch Number',
       render: (row: FinishedProductItem) => {
-        const activeBatch = (row as any).batches?.find((b: any) => b.isActive) || (row as any).batches?.[0];
+        const productBatches = row.batches || (row as any).batches || [];
+        const activeBatch = productBatches.find((b: any) => b.isActive) || productBatches[0];
         const batchNum = activeBatch?.batchNumber;
+        const totalBatches = productBatches.length;
+        const isExpired = activeBatch?.expiryDate ? new Date(activeBatch.expiryDate) < new Date() : false;
+
         return (
           <button
             type="button"
@@ -332,30 +343,63 @@ export const FinishedProductsView: React.FC = () => {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
-              padding: batchNum ? '3px 8px' : '2px 8px',
-              borderRadius: '5px',
+              gap: '6px',
+              padding: batchNum ? '4px 10px' : '3px 9px',
+              borderRadius: '6px',
               backgroundColor: batchNum ? '#F0FDF4' : '#F8FAFC',
               border: batchNum ? '1px solid #BBF7D0' : '1px dashed #CBD5E1',
               color: batchNum ? '#166534' : '#64748B',
-              fontFamily: batchNum ? 'var(--font-mono, monospace)' : 'inherit',
-              fontWeight: batchNum ? 700 : 500,
-              fontSize: '0.76rem',
               cursor: 'pointer',
+              transition: 'all 120ms ease',
             }}
-            title={batchNum ? `Active Batch: ${batchNum}. Click to manage batches.` : 'No batch assigned. Click to assign a batch.'}
+            title={batchNum ? `Active Batch: ${batchNum} (${totalBatches} registered). Click to manage batches.` : 'No batch assigned. Click to assign a batch.'}
           >
             {batchNum ? (
               <>
-                <span>{batchNum}</span>
-                {activeBatch?.expiryDate && new Date(activeBatch.expiryDate) < new Date() && (
-                  <span style={{ fontSize: '0.65rem', color: '#DC2626', fontWeight: 600 }}>Exp</span>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    letterSpacing: '0.3px',
+                  }}
+                >
+                  {batchNum}
+                </span>
+                {totalBatches > 1 && (
+                  <span
+                    style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      background: '#DCFCE7',
+                      color: '#15803D',
+                      padding: '1px 5px',
+                      borderRadius: '4px',
+                    }}
+                    title={`${totalBatches} batches registered`}
+                  >
+                    +{totalBatches - 1}
+                  </span>
+                )}
+                {isExpired && (
+                  <span
+                    style={{
+                      fontSize: '0.65rem',
+                      color: '#DC2626',
+                      fontWeight: 700,
+                      background: '#FEE2E2',
+                      padding: '1px 4px',
+                      borderRadius: '3px',
+                    }}
+                  >
+                    EXP
+                  </span>
                 )}
               </>
             ) : (
-              <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.74rem', fontWeight: 600 }}>
                 <IconPlus size={11} /> Add Batch
-              </>
+              </span>
             )}
           </button>
         );
@@ -921,6 +965,7 @@ export const FinishedProductsView: React.FC = () => {
           onClose={() => setBatchModalProduct(null)}
           product={batchModalProduct}
           onBatchSaved={() => {
+            setBatchModalProduct(null);
             loadData();
           }}
         />
