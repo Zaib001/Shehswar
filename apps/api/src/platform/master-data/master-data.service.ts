@@ -2410,12 +2410,126 @@ export class MasterDataService {
     return created;
   }
 
-  async updateFinishedProduct(id: string, dto: any, _actor: { id: string; email?: string }) {
-    return this.prisma.finishedProduct.update({
+  async updateFinishedProduct(id: string, dto: any, actor: { id: string; email?: string }) {
+    const existing = await this.prisma.finishedProduct.findUnique({
       where: { id },
-      data: dto,
-      include: { category: true, packSize: true, baseUom: true },
     });
+    if (!existing) {
+      throw new NotFoundException(`Finished product with ID '${id}' not found`);
+    }
+
+    const data: any = {};
+    if (dto.productName !== undefined && dto.productName !== null) {
+      data.productName = String(dto.productName).trim();
+    }
+    if (dto.urduName !== undefined) {
+      data.urduName = dto.urduName ? String(dto.urduName).trim() : null;
+    }
+    if (dto.brand !== undefined) {
+      data.brand = dto.brand ? String(dto.brand).trim() : null;
+    }
+    if (dto.grade !== undefined) {
+      data.grade = dto.grade ? String(dto.grade).trim() : null;
+    }
+    if (dto.productType !== undefined) {
+      data.productType = dto.productType ? String(dto.productType).trim() : null;
+    }
+    if (dto.mType !== undefined) {
+      data.mType = dto.mType ? String(dto.mType).trim() : null;
+    }
+    if (dto.fertilizerType !== undefined) {
+      data.fertilizerType = dto.fertilizerType ? String(dto.fertilizerType).trim() : null;
+    }
+    if (dto.productForm !== undefined) {
+      data.productForm = dto.productForm ? String(dto.productForm).trim() : null;
+    }
+
+    if (dto.categoryId !== undefined) {
+      data.categoryId = dto.categoryId && String(dto.categoryId).trim() ? String(dto.categoryId).trim() : null;
+    }
+    if (dto.packSizeId !== undefined) {
+      data.packSizeId = dto.packSizeId && String(dto.packSizeId).trim() ? String(dto.packSizeId).trim() : null;
+    }
+    if (dto.packagingMaterialId !== undefined) {
+      data.packagingMaterialId = dto.packagingMaterialId && String(dto.packagingMaterialId).trim() ? String(dto.packagingMaterialId).trim() : null;
+    }
+    if (dto.baseUomId !== undefined) {
+      data.baseUomId = dto.baseUomId && String(dto.baseUomId).trim() ? String(dto.baseUomId).trim() : null;
+    }
+    if (dto.salesUomId !== undefined) {
+      data.salesUomId = dto.salesUomId && String(dto.salesUomId).trim() ? String(dto.salesUomId).trim() : null;
+    }
+
+    if (dto.packingQuantity !== undefined) {
+      data.packingQuantity = dto.packingQuantity !== null && dto.packingQuantity !== '' ? Number(dto.packingQuantity) : null;
+    }
+    if (dto.packingUnit !== undefined) {
+      data.packingUnit = dto.packingUnit ? String(dto.packingUnit).trim() : null;
+    }
+    if (dto.ppc !== undefined) {
+      data.ppc = dto.ppc !== null && dto.ppc !== '' ? Number(dto.ppc) : 1;
+    }
+    if (dto.defaultSellingPrice !== undefined) {
+      data.defaultSellingPrice = dto.defaultSellingPrice !== null && dto.defaultSellingPrice !== '' ? Number(dto.defaultSellingPrice) : null;
+    }
+    if (dto.standardCost !== undefined) {
+      data.standardCost = dto.standardCost !== null && dto.standardCost !== '' ? Number(dto.standardCost) : null;
+    }
+    if (dto.bagWeight !== undefined) {
+      data.bagWeight = dto.bagWeight !== null && dto.bagWeight !== '' ? Number(dto.bagWeight) : null;
+    }
+    if (dto.barcode !== undefined) {
+      data.barcode = dto.barcode ? String(dto.barcode).trim() : null;
+    }
+    if (dto.status !== undefined) {
+      data.status = dto.status;
+    }
+    if (dto.approvalStatus !== undefined) {
+      data.approvalStatus = dto.approvalStatus;
+    }
+
+    // Safely preserve and store custom fields & description
+    const currentCustom = (existing.customFields as Record<string, any>) || {};
+    const mergedCustom: Record<string, any> = {
+      ...currentCustom,
+      ...(dto.customFields && typeof dto.customFields === 'object' ? dto.customFields : {}),
+    };
+    if (dto.description !== undefined) {
+      mergedCustom.description = dto.description ? String(dto.description).trim() : null;
+    }
+    if (dto.packagingContainer !== undefined) {
+      mergedCustom.packagingContainer = dto.packagingContainer !== null && dto.packagingContainer !== '' ? Number(dto.packagingContainer) : null;
+    }
+    data.customFields = mergedCustom;
+
+    const updated = await this.prisma.finishedProduct.update({
+      where: { id },
+      data,
+      include: {
+        category: true,
+        packSize: { include: { uom: true } },
+        packagingMaterial: true,
+        baseUom: true,
+        salesUom: true,
+      },
+    });
+
+    try {
+      await this.auditService.record({
+        organizationId: existing.organizationId,
+        companyId: existing.companyId,
+        actorId: actor?.id || 'system',
+        actorEmail: actor?.email,
+        resource: 'FINISHED_PRODUCT',
+        resourceId: id,
+        action: 'UPDATE',
+        previousState: existing as unknown as Record<string, unknown>,
+        newState: updated as unknown as Record<string, unknown>,
+        correlationId: uuidv7(),
+      });
+    } catch (_) {}
+
+    return updated;
   }
 
   async deleteFinishedProduct(id: string) {

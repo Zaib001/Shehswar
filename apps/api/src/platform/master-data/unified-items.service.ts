@@ -69,21 +69,27 @@ export class UnifiedItemsService {
     companyId: string;
     itemName: string;
     targetEntity: TargetEntityType;
+    excludeId?: string;
   }) {
-    const trimmed = params.itemName.trim().toLowerCase();
-    if (!trimmed) return { hasDuplicate: false };
+    const trimmed = (params.itemName || '').trim().toLowerCase();
+    if (!trimmed) return { hasDuplicate: false, isDuplicate: false };
 
     if (params.targetEntity === 'FINISHED_PRODUCT') {
+      const where: any = {
+        companyId: params.companyId,
+        productName: { equals: params.itemName.trim(), mode: 'insensitive' },
+      };
+      if (params.excludeId) {
+        where.id = { not: params.excludeId };
+      }
       const existing = await this.prisma.finishedProduct.findFirst({
-        where: {
-          companyId: params.companyId,
-          productName: { equals: params.itemName.trim(), mode: 'insensitive' },
-        },
+        where,
         select: { id: true, productCode: true, productName: true },
       });
       if (existing) {
         return {
           hasDuplicate: true,
+          isDuplicate: true,
           matchedItem: {
             id: existing.id,
             code: existing.productCode,
@@ -93,16 +99,21 @@ export class UnifiedItemsService {
         };
       }
     } else if (params.targetEntity === 'RAW_MATERIAL') {
+      const where: any = {
+        companyId: params.companyId,
+        materialName: { equals: params.itemName.trim(), mode: 'insensitive' },
+      };
+      if (params.excludeId) {
+        where.id = { not: params.excludeId };
+      }
       const existing = await this.prisma.rawMaterial.findFirst({
-        where: {
-          companyId: params.companyId,
-          materialName: { equals: params.itemName.trim(), mode: 'insensitive' },
-        },
+        where,
         select: { id: true, materialCode: true, materialName: true },
       });
       if (existing) {
         return {
           hasDuplicate: true,
+          isDuplicate: true,
           matchedItem: {
             id: existing.id,
             code: existing.materialCode,
@@ -112,16 +123,21 @@ export class UnifiedItemsService {
         };
       }
     } else {
+      const where: any = {
+        companyId: params.companyId,
+        materialName: { equals: params.itemName.trim(), mode: 'insensitive' },
+      };
+      if (params.excludeId) {
+        where.id = { not: params.excludeId };
+      }
       const existing = await this.prisma.packingMaterial.findFirst({
-        where: {
-          companyId: params.companyId,
-          materialName: { equals: params.itemName.trim(), mode: 'insensitive' },
-        },
+        where,
         select: { id: true, materialCode: true, materialName: true },
       });
       if (existing) {
         return {
           hasDuplicate: true,
+          isDuplicate: true,
           matchedItem: {
             id: existing.id,
             code: existing.materialCode,
@@ -132,7 +148,7 @@ export class UnifiedItemsService {
       }
     }
 
-    return { hasDuplicate: false };
+    return { hasDuplicate: false, isDuplicate: false };
   }
 
   /**

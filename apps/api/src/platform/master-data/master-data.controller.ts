@@ -111,10 +111,12 @@ export class MasterDataController {
     return this.unifiedItemsService.createUnifiedItem(dto, enrichedUser);
   }
 
+  @Get('check-duplicate')
   @Get('check-duplicate-item')
   async checkDuplicateItem(
     @Query('name') name: string,
     @Query('entityType') entityType: any,
+    @Query('excludeId') excludeId?: string,
     @Query('companyId') companyId?: string,
     @CurrentContext() ctx?: SecurityContext,
     @CurrentUser() user?: AuthUser,
@@ -124,6 +126,7 @@ export class MasterDataController {
       companyId: targetCompanyId,
       itemName: name,
       targetEntity: entityType,
+      excludeId,
     });
   }
 

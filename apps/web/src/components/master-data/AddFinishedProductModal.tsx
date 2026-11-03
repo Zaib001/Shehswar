@@ -233,11 +233,17 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
       setDuplicateWarning(null);
       return;
     }
+    // If editing and name has not changed, do not warn
+    if (productToEdit && name.trim().toLowerCase() === (productToEdit.productName || '').trim().toLowerCase()) {
+      setDuplicateWarning(null);
+      return;
+    }
     try {
+      const excludeParam = productToEdit?.id ? `&excludeId=${encodeURIComponent(productToEdit.id)}` : '';
       const res = await ApiClient.get<any>(
-        `/api/v1/master-data/check-duplicate?name=${encodeURIComponent(name.trim())}&entityType=FINISHED_PRODUCT`
+        `/api/v1/master-data/check-duplicate?name=${encodeURIComponent(name.trim())}&entityType=FINISHED_PRODUCT${excludeParam}`
       );
-      if (res.data?.isDuplicate) {
+      if (res.data?.isDuplicate || res.data?.hasDuplicate) {
         setDuplicateWarning(res.data);
       } else {
         setDuplicateWarning(null);
@@ -278,17 +284,23 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
       if (productToEdit) {
         const patchPayload: any = {
           productName: productName.trim(),
-          description: description.trim() || null,
+          urduName: urduName.trim() || null,
+          brand: brand.trim() || 'Shehswar Agro',
+          grade: grade.trim() || 'Standard',
           productType: productType.trim() || 'EC',
           mType: mType.trim() || 'Insecticides',
+          categoryId: selectedCategoryId || null,
           packSizeId: selectedPackSizeId || null,
           packingQuantity: commercialVolume !== '' ? Number(commercialVolume) : null,
           packingUnit: volumeUnit || null,
           ppc: ppc ? Number(ppc) : 1,
           defaultSellingPrice: baseSellingPrice ? Number(baseSellingPrice) : 0,
           status: isActive ? 'ACTIVE' : 'INACTIVE',
+          description: description.trim() || null,
+          packagingContainer: packagingContainer !== '' ? Number(packagingContainer) : null,
           customFields: {
             ...(productToEdit.customFields || {}),
+            description: description.trim() || undefined,
             urduName: urduName.trim() || undefined,
             brand: brand.trim() || 'Shehswar Agro',
             grade: grade.trim() || 'Standard',
