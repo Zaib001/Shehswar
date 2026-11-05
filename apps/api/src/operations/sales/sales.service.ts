@@ -399,7 +399,7 @@ export class SalesService {
     return { dealerId, assignedUserIds: userIds };
   }
 
-  async deleteDealer(id: string, actor: AuthUser) {
+  async deleteDealer(id: string, actor: AuthUser, force: boolean = false) {
     const companyId = actor.companyId;
     const where: any = { id };
     if (!actor.isSuperAdmin && !actor.roles.includes('ROLE_SUPER_ADMIN')) {
@@ -433,7 +433,7 @@ export class SalesService {
       dealer._count.gatePasses +
       dealer._count.provisionalReceipts;
 
-    if (totalTransactions > 0) {
+    if (totalTransactions > 0 && !force) {
       const details: string[] = [];
       if (dealer._count.salesOrders > 0) details.push(`${dealer._count.salesOrders} Sales Orders`);
       if (dealer._count.salesInvoices > 0) details.push(`${dealer._count.salesInvoices} Sales Invoices`);
@@ -444,19 +444,140 @@ export class SalesService {
       if (dealer._count.provisionalReceipts > 0) details.push(`${dealer._count.provisionalReceipts} Provisional Receipts`);
 
       throw new BadRequestException(
-        `Cannot delete dealer '${dealer.name}' (${dealer.code}) because active financial and audit history exists (${details.join(', ')}). Please change the dealer's status to 'INACTIVE' instead to preserve financial records integrity.`
+        `Cannot delete dealer '${dealer.name}' (${dealer.code}) because active financial and audit history exists (${details.join(', ')}). Use force=true to permanently delete this dealer and all related data.`
       );
     }
 
-    // Clean up dependent child records that do not contain financial postings
-    await this.prisma.salesOfficerDealerAssignment.deleteMany({ where: { dealerId: id } });
-    await this.prisma.dealerAssignmentHistory.deleteMany({ where: { dealerId: id } });
-    await this.prisma.creditLimit.deleteMany({ where: { entityId: id, level: 'DEALER' } });
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Gate passes
+      await tx.gatePassItem.deleteMany({
+        where: { gatePass: { dealerId: id } },
+      });
+      await tx.gatePass.deleteMany({ where: { dealerId: id } });
 
-    await this.prisma.dealer.delete({ where: { id } });
+      // 2. Provisional Receipt allocations & party links
+      await tx.provisionalReceiptAllocation.deleteMany({ where: { dealerId: id } });
+      await tx.provisionalReceipt.updateMany({
+        where: { partyDealerId: id },
+        data: { partyDealerId: null },
+      });
+
+      // 3. Ledger entries
+      await tx.dealerLedgerEntry.deleteMany({ where: { dealerId: id } });
+
+      // 4. Payment receipts
+      await tx.dealerPaymentReceipt.deleteMany({ where: { dealerId: id } });
+
+      // 5. Sales Returns
+      await tx.salesReturnItem.deleteMany({
+        where: { salesReturn: { dealerId: id } },
+      });
+      await tx.salesReturn.deleteMany({ where: { dealerId: id } });
+
+      // 6. Sales Invoices
+      await tx.salesInvoiceItem.deleteMany({
+        where: { salesInvoice: { dealerId: id } },
+      });
+      await tx.salesInvoice.deleteMany({ where: { dealerId: id } });
+
+      // 7. Sales Orders
+      await tx.salesOrderItem.deleteMany({
+        where: { salesOrder: { dealerId: id } },
+      });
+      await tx.salesOrder.deleteMany({ where: { dealerId: id } });
+
+      // 8. Officer assignments and history
+      await tx.salesOfficerDealerAssignment.deleteMany({ where: { dealerId: id } });
+      await tx.dealerAssignmentHistory.deleteMany({ where: { dealerId: id } });
+
+      // 9. Credit limits
+      await tx.creditLimit.deleteMany({ where: { entityId: id, level: 'DEALER' } });
+
+      // 10. Delete the dealer
+      await tx.dealer.delete({ where: { id } });
+    });
 
     this.logger.log(`Dealer ${dealer.code} (${dealer.name}) permanently deleted by ${actor.email}`);
-    return { success: true, message: `Dealer '${dealer.name}' (${dealer.code}) deleted successfully` };
+    return { success: true, message: `Dealer '${dealer.name}' (${dealer.code}) and all related records deleted successfully` };
+  }
+
+  async deleteAllDealers(actor: AuthUser) {
+    const companyId = actor.companyId;
+    const whereCompany: any = {};
+    if (!actor.isSuperAdmin && !actor.roles.includes('ROLE_SUPER_ADMIN')) {
+      whereCompany.companyId = companyId;
+    }
+
+    const dealers = await this.prisma.dealer.findMany({
+      where: whereCompany,
+      select: { id: true, code: true, name: true },
+    });
+
+    if (dealers.length === 0) {
+      return { success: true, count: 0, message: 'No dealers found to delete' };
+    }
+
+    const dealerIds = dealers.map((d) => d.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Gate passes
+      await tx.gatePassItem.deleteMany({
+        where: { gatePass: { dealerId: { in: dealerIds } } },
+      });
+      await tx.gatePass.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 2. Provisional Receipts
+      await tx.provisionalReceiptAllocation.deleteMany({ where: { dealerId: { in: dealerIds } } });
+      await tx.provisionalReceipt.updateMany({
+        where: { partyDealerId: { in: dealerIds } },
+        data: { partyDealerId: null },
+      });
+
+      // 3. Ledgers
+      await tx.dealerLedgerEntry.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 4. Payments
+      await tx.dealerPaymentReceipt.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 5. Returns
+      await tx.salesReturnItem.deleteMany({
+        where: { salesReturn: { dealerId: { in: dealerIds } } },
+      });
+      await tx.salesReturn.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 6. Invoices
+      await tx.salesInvoiceItem.deleteMany({
+        where: { salesInvoice: { dealerId: { in: dealerIds } } },
+      });
+      await tx.salesInvoice.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 7. Orders
+      await tx.salesOrderItem.deleteMany({
+        where: { salesOrder: { dealerId: { in: dealerIds } } },
+      });
+      await tx.salesOrder.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 8. Assignments
+      await tx.salesOfficerDealerAssignment.deleteMany({ where: { dealerId: { in: dealerIds } } });
+      await tx.dealerAssignmentHistory.deleteMany({ where: { dealerId: { in: dealerIds } } });
+
+      // 9. Limits
+      await tx.creditLimit.deleteMany({
+        where: { entityId: { in: dealerIds }, level: 'DEALER' },
+      });
+
+      // 10. Dealers
+      await tx.dealer.deleteMany({
+        where: { id: { in: dealerIds } },
+      });
+    });
+
+    this.logger.log(`Purged all ${dealers.length} dealers and related data by ${actor.email}`);
+    return {
+      success: true,
+      count: dealers.length,
+      message: `Successfully purged all ${dealers.length} dealers and their associated operational records.`,
+    };
   }
 
   async getDealerMarketHierarchy(dealerId: string, companyId: string) {

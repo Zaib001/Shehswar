@@ -2321,6 +2321,7 @@ export const PricingManagementView: React.FC = () => {
                         </span>
                       </td>
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
+                        {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
                         {resolvePackSizeDisplay(p)}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
@@ -3265,6 +3266,9 @@ export const PricingManagementView: React.FC = () => {
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {item.packagingMaterial ? item.packagingMaterial : ''}
+                              {item.packSize && item.packagingMaterial ? ' • ' : ''}
+                              {item.packSize ? `Pack: ${item.packSize}` : ''}
                               {resolvePackSizeDisplay(item)}
                             </div>
                           </td>
@@ -3333,6 +3337,7 @@ export const PricingManagementView: React.FC = () => {
                             )}
                           </td>
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
+                            {item.packSize || item.unit || 'Standard'}
                             {resolvePackSizeDisplay(item)}
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>
@@ -3507,6 +3512,7 @@ export const PricingManagementView: React.FC = () => {
                               )}
                             </td>
                             <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
+                              {product.packSize ? `${product.packSize} ${product.packagingMaterial || ''}`.trim() : it.unit || '-'}
                               {resolvePackSizeDisplay(product, it)}
                             </td>
                             <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>

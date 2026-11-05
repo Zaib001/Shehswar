@@ -618,6 +618,17 @@ export class MasterDataController {
     });
   }
 
+  @Delete('users/:id')
+  async deleteUser(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteUser(id, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   // 9. ROLES & PERMISSIONS
   @Get('roles')
   async getRoles(

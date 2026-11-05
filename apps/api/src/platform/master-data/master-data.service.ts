@@ -9,6 +9,7 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -1343,6 +1344,67 @@ export class MasterDataService {
     });
 
     return this.findOneUser(id);
+  }
+
+  async deleteUser(id: string, actor: { id: string; email?: string }) {
+    if (actor.id === id) {
+      throw new BadRequestException('Cannot delete your own user account');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        userRoles: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Remove user-owned credentials, roles, and sessions
+      await tx.userRole.deleteMany({ where: { userId: id } });
+      await tx.userSession.deleteMany({ where: { userId: id } });
+      await tx.passwordResetToken.deleteMany({ where: { userId: id } });
+      await tx.userNotification.deleteMany({ where: { userId: id } });
+      await tx.userMarketAssignment.deleteMany({ where: { userId: id } });
+      await tx.salesOfficerDealerAssignment.deleteMany({ where: { userId: id } });
+
+      // 2. Clear foreign key references on geographical and dealer entities
+      await tx.region.updateMany({ where: { managerId: id }, data: { managerId: null } });
+      await tx.zone.updateMany({ where: { managerId: id }, data: { managerId: null } });
+      await tx.territory.updateMany({ where: { managerId: id }, data: { managerId: null } });
+      await tx.dealer.updateMany({ where: { assignedFieldOfficerId: id }, data: { assignedFieldOfficerId: null } });
+      await tx.dealerAssignmentHistory.updateMany({ where: { salesOfficerId: id }, data: { salesOfficerId: null } });
+
+      // 3. Clear sales order and invoice references if any
+      await tx.salesOrder.updateMany({ where: { salesOfficerId: id }, data: { salesOfficerId: null } });
+      await tx.salesOrder.updateMany({ where: { areaManagerId: id }, data: { areaManagerId: null } });
+      await tx.salesOrder.updateMany({ where: { businessManagerId: id }, data: { businessManagerId: null } });
+      await tx.salesInvoice.updateMany({ where: { salesOfficerId: id }, data: { salesOfficerId: null } });
+      await tx.salesInvoice.updateMany({ where: { areaManagerId: id }, data: { areaManagerId: null } });
+      await tx.salesInvoice.updateMany({ where: { businessManagerId: id }, data: { businessManagerId: null } });
+      await tx.dealerPaymentReceipt.updateMany({ where: { salesOfficerId: id }, data: { salesOfficerId: null } });
+
+      // 4. Delete the user
+      await tx.user.delete({ where: { id } });
+    });
+
+    await this.auditService.record({
+      organizationId: user.organizationId,
+      companyId: user.companyId,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'USER',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName },
+      newState: null,
+      correlationId: uuidv7(),
+    });
+
+    return { success: true, message: `User ${user.email} successfully deleted.` };
   }
 
   // ==========================================

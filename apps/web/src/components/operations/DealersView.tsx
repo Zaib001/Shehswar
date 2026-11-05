@@ -731,10 +731,10 @@ export const DealersView: React.FC = () => {
     setIsDeleting(true);
     setDeleteErrorMessage(null);
     try {
-      await ApiClient.delete(`/api/v1/dealers/${dealerToDelete.id}`);
+      await ApiClient.delete(`/api/v1/dealers/${dealerToDelete.id}?force=true`);
       showToast({
         title: 'Dealer Deleted',
-        message: `Dealer ${dealerToDelete.name} (${dealerToDelete.code}) was permanently deleted`,
+        message: `Dealer ${dealerToDelete.name} (${dealerToDelete.code}) and all related records were permanently deleted`,
         type: 'success',
       });
       setIsDeleteModalOpen(false);
@@ -744,12 +744,33 @@ export const DealersView: React.FC = () => {
       const errMsg = err?.response?.data?.message || err?.message || 'Cannot delete dealer with historical transactions';
       setDeleteErrorMessage(errMsg);
       showToast({
-        title: 'Deletion Prevented by Audit Controls',
+        title: 'Deletion Failed',
         message: errMsg,
         type: 'error',
       });
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handlePurgeAllDealers = async () => {
+    if (!window.confirm('CRITICAL ACTION: Are you sure you want to permanently delete ALL dealers and ALL their related records (orders, invoices, returns, payments, ledgers)? This cannot be undone!')) {
+      return;
+    }
+    try {
+      const res: any = await ApiClient.delete('/api/v1/dealers/purge/all');
+      showToast({
+        title: 'All Dealers Purged',
+        message: res?.message || 'All dealers and related operational records have been permanently cleared.',
+        type: 'success',
+      });
+      loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Purge Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to purge dealers',
+        type: 'error',
+      });
     }
   };
 
@@ -1236,6 +1257,14 @@ export const DealersView: React.FC = () => {
           </Button>
           <Button variant="outline" icon={<IconRefresh size={16} />} onClick={loadData}>
             Refresh
+          </Button>
+          <Button
+            variant="outline"
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            icon={<IconTrash size={15} />}
+            onClick={handlePurgeAllDealers}
+          >
+            Purge All Dealers
           </Button>
           <Button
             variant="primary"

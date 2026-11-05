@@ -681,7 +681,7 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         title="Create & Post Direct Sales Invoice"
-        size="lg"
+        size="xl"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div
@@ -704,7 +704,10 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
               onChange={(e) => setFormData({ ...formData, dealerId: e.target.value })}
               options={[
                 { label: 'Select Dealer...', value: '' },
-                ...dealers.map((d) => ({ label: `${d.code} - ${d.name}`, value: d.id })),
+                ...dealers.map((d) => {
+                  const shortDealerName = d.name.length > 25 ? `${d.name.slice(0, 23)}…` : d.name;
+                  return { label: `${d.code} - ${shortDealerName}`, value: d.id };
+                }),
               ]}
             />
             <Select
@@ -732,13 +735,36 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
               </Button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Column Headers */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(210px, 2.5fr) minmax(170px, 1.8fr) minmax(75px, 0.8fr) minmax(95px, 1.1fr) minmax(110px, 1.2fr) 36px',
+                gap: '10px',
+                padding: '8px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                color: '#475569',
+                backgroundColor: '#f1f5f9',
+                borderRadius: '8px',
+                marginBottom: '8px',
+              }}
+            >
+              <div>Product *</div>
+              <div>Batch #</div>
+              <div>Qty *</div>
+              <div>Unit Price</div>
+              <div style={{ textAlign: 'right' }}>Total (PKR)</div>
+              <div></div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '380px', overflowY: 'auto', overflowX: 'auto', paddingRight: '4px' }}>
               {formItems.map((item, idx) => (
                 <div
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '2.5fr 2fr 1fr 1.2fr 1.2fr auto',
+                    gridTemplateColumns: 'minmax(210px, 2.5fr) minmax(170px, 1.8fr) minmax(75px, 0.8fr) minmax(95px, 1.1fr) minmax(110px, 1.2fr) 36px',
                     gap: '10px',
                     alignItems: 'center',
                     padding: '8px 12px',
@@ -747,87 +773,114 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
                     border: '1px solid #e2e8f0',
                   }}
                 >
-                  <Select
-                    value={item.finishedProductId}
-                    onChange={(e) => updateItem(idx, 'finishedProductId', e.target.value)}
-                    options={[
-                      { label: 'Select Product...', value: '' },
-                      ...products.map((p) => ({
-                        label: `${p.productCode} - ${p.productName} (Stock: ${p.stockOnHand || 0})`,
-                        value: p.id,
-                      })),
-                    ]}
-                  />
-                  {(() => {
-                    const prod = products.find((p) => p.id === item.finishedProductId);
-                    const productBatches = prod?.batches || [];
-                    const selectedBatch = productBatches.find((b: any) => b.id === item.batchId);
-                    const isExpired = selectedBatch?.expiryDate && new Date(selectedBatch.expiryDate) < new Date();
+                  <div style={{ minWidth: 0, width: '100%' }}>
+                    <Select
+                      value={item.finishedProductId}
+                      onChange={(e) => updateItem(idx, 'finishedProductId', e.target.value)}
+                      options={[
+                        { label: 'Select Product...', value: '' },
+                        ...products.map((p) => {
+                          const shortName = p.productName.length > 22 ? `${p.productName.slice(0, 20)}…` : p.productName;
+                          return {
+                            label: `${p.productCode} - ${shortName} (Stk: ${p.stockOnHand || 0})`,
+                            value: p.id,
+                          };
+                        }),
+                      ]}
+                    />
+                  </div>
+                  <div style={{ minWidth: 0, width: '100%' }}>
+                    {(() => {
+                      const prod = products.find((p) => p.id === item.finishedProductId);
+                      const productBatches = prod?.batches || [];
+                      const selectedBatch = productBatches.find((b: any) => b.id === item.batchId);
+                      const isExpired = selectedBatch?.expiryDate && new Date(selectedBatch.expiryDate) < new Date();
 
-                    if (!item.finishedProductId) {
-                      return (
-                        <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic', paddingLeft: '4px' }}>
-                          Select product first
-                        </div>
-                      );
-                    }
-
-                    if (productBatches.length === 0) {
-                      return (
-                        <div style={{ fontSize: '11px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', border: '1px solid #fde68a' }}>
-                            No Batch Assigned
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div>
-                        <Select
-                          value={item.batchId || ''}
-                          onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
-                          options={[
-                            { label: 'Select Batch...', value: '' },
-                            ...productBatches.map((b: any) => ({
-                              label: `${b.batchNumber} (${b.isActive ? 'Active • ' : ''}Stock: ${b.availableQuantity || 0}${b.expiryDate ? `, Exp: ${new Date(b.expiryDate).toLocaleDateString()}` : ''})`,
-                              value: b.id,
-                            })),
-                          ]}
-                        />
-                        {isExpired && (
-                          <div style={{ fontSize: '10px', color: '#dc2626', fontWeight: 700, marginTop: '2px' }}>
-                            ⚠️ Warning: Batch has expired
+                      if (!item.finishedProductId) {
+                        return (
+                          <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', paddingLeft: '4px' }}>
+                            Select product first
                           </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="Qty"
-                    value={item.quantity}
-                    onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    placeholder="Rate"
-                    value={item.unitPrice}
-                    onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                  />
-                  <div style={{ textAlign: 'right', fontWeight: 700, color: '#047857' }}>
+                        );
+                      }
+
+                      if (productBatches.length === 0) {
+                        return (
+                          <div style={{ fontSize: '11px', color: '#b45309', display: 'flex', alignItems: 'center' }}>
+                            <span style={{ padding: '3px 8px', borderRadius: '4px', background: '#fef3c7', border: '1px solid #fde68a', fontWeight: 600 }}>
+                              No Batch Assigned
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{ minWidth: 0, width: '100%' }}>
+                          <Select
+                            value={item.batchId || ''}
+                            onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
+                            options={[
+                              { label: 'Select Batch...', value: '' },
+                              ...productBatches.map((b: any) => ({
+                                label: `${b.batchNumber}${b.isActive ? ' ★' : ''} (Stk: ${b.availableQuantity || 0})`,
+                                value: b.id,
+                              })),
+                            ]}
+                          />
+                          {isExpired && (
+                            <div style={{ fontSize: '10px', color: '#dc2626', fontWeight: 700, marginTop: '2px' }}>
+                              ⚠️ Expired batch
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div style={{ minWidth: 0, width: '100%' }}>
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="Qty"
+                      value={item.quantity}
+                      onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                    />
+                  </div>
+                  <div style={{ minWidth: 0, width: '100%' }}>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="Rate"
+                      value={item.unitPrice}
+                      onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      minWidth: 0,
+                      width: '100%',
+                      textAlign: 'right',
+                      fontWeight: 700,
+                      color: '#047857',
+                      fontSize: '13px',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={`PKR ${item.totalPrice.toLocaleString()}`}
+                  >
                     PKR {item.totalPrice.toLocaleString()}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeItemRow(idx)}
-                    disabled={formItems.length === 1}
-                  >
-                    <IconTrash size={15} color="#ef4444" />
-                  </Button>
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeItemRow(idx)}
+                      disabled={formItems.length === 1}
+                      title="Remove line item"
+                    >
+                      <IconTrash size={15} color="#ef4444" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

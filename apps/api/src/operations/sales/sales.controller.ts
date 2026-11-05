@@ -97,12 +97,18 @@ export class DealersController {
     return this.salesService.updateDealer(id, dto, user);
   }
 
+  @Delete('purge/all')
+  async purgeAllDealers(@CurrentUser() user: AuthUser) {
+    return this.salesService.deleteAllDealers(user);
+  }
+
   @Delete(':id')
   async delete(
     @Param('id') id: string,
+    @Query('force') force: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.salesService.deleteDealer(id, user);
+    return this.salesService.deleteDealer(id, user, force === 'true' || force === '1');
   }
 
   @Post(':id/assign-officers')

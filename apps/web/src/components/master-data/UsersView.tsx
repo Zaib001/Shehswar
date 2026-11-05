@@ -289,6 +289,33 @@ interface MarketAssignmentItem {
     }
   };
 
+  const handleDeleteUser = async (user: UserRecord) => {
+    const confirmName = `${user.firstName} ${user.lastName} (${user.email})`;
+    if (!window.confirm(`Are you sure you want to permanently delete user account:\n"${confirmName}"?\nThis action will immediately revoke all access and remove assigned credentials.`)) {
+      return;
+    }
+
+    try {
+      await ApiClient.delete(`/api/v1/master-data/users/${user.id}`);
+      showToast({
+        title: 'User Deleted',
+        message: `User account "${confirmName}" has been permanently deleted.`,
+        type: 'success',
+      });
+      if (selectedUser?.id === user.id) {
+        setSelectedUser(null);
+        setMode('list');
+      }
+      await fetchData();
+    } catch (err: any) {
+      showToast({
+        title: 'Deletion Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete user account',
+        type: 'error',
+      });
+    }
+  };
+
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
       u.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -413,6 +440,15 @@ interface MarketAssignmentItem {
             }}
           >
             Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteUser(row.original)}
+          >
+            Delete
           </Button>
         </div>
       ),
@@ -1012,6 +1048,14 @@ interface MarketAssignmentItem {
             }}
           >
             Edit User
+          </Button>
+          <Button
+            variant="outline"
+            icon={<IconTrash size={16} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteUser(selectedUser)}
+          >
+            Delete User
           </Button>
           </div>
         }
