@@ -41,6 +41,7 @@ import {
   IconEdit,
   IconTrendingUp,
   IconBuilding,
+  IconTrash,
 } from '../icons';
 import { AddFinishedProductModal } from './AddFinishedProductModal';
 import { ProductImportModal } from './ProductImportModal';
@@ -93,6 +94,7 @@ export const FinishedProductsView: React.FC = () => {
   const [productToDelete, setProductToDelete] = useState<FinishedProductItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
 
   // Load Products
   const loadData = useCallback(async () => {
@@ -141,6 +143,68 @@ export const FinishedProductsView: React.FC = () => {
       });
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedProductIds(filteredProducts.map((p) => p.id));
+    } else {
+      setSelectedProductIds([]);
+    }
+  };
+
+  const handleToggleSelectProduct = (id: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(id) ? prev.filter((pId) => pId !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedProductIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently delete the ${selectedProductIds.length} selected finished products and their associated batches and BOMs? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete('/api/v1/master-data/finished-products/bulk', {
+        data: { ids: selectedProductIds },
+      });
+      showToast({
+        title: 'Bulk Delete Successful',
+        message: `${selectedProductIds.length} finished products deleted.`,
+        type: 'success',
+      });
+      setSelectedProductIds([]);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Bulk Delete Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete selected products',
+        type: 'error',
+      });
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    if (products.length === 0) return;
+    if (!window.confirm(`CRITICAL: Are you sure you want to delete ALL ${products.length} finished products and all associated data in the catalog? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete('/api/v1/master-data/finished-products/purge/all');
+      showToast({
+        title: 'All Products Deleted',
+        message: 'All finished products have been permanently deleted from the catalog.',
+        type: 'success',
+      });
+      setSelectedProductIds([]);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Purge Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete all products',
+        type: 'error',
+      });
     }
   };
 
@@ -199,6 +263,26 @@ export const FinishedProductsView: React.FC = () => {
 
   // Enterprise DataTable Columns
   const columns = [
+    {
+      key: 'select',
+      label: (
+        <input
+          type="checkbox"
+          checked={filteredProducts.length > 0 && selectedProductIds.length === filteredProducts.length}
+          onChange={(e) => handleSelectAll(e.target.checked)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+          title="Select All"
+        />
+      ),
+      render: (row: FinishedProductItem) => (
+        <input
+          type="checkbox"
+          checked={selectedProductIds.includes(row.id)}
+          onChange={() => handleToggleSelectProduct(row.id)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+        />
+      ),
+    },
     {
       key: 'productCode',
       label: 'Product Code',
@@ -602,6 +686,16 @@ export const FinishedProductsView: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            startIcon={<IconTrash size={14} />}
+            onClick={handleDeleteAll}
+            disabled={products.length === 0}
+          >
+            Delete All
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             startIcon={<IconRefresh size={14} />}
             onClick={loadData}
           >
@@ -657,6 +751,41 @@ export const FinishedProductsView: React.FC = () => {
           accentColor="#06B6D4"
         />
       </div>
+
+      {/* Selected Items Bulk Action Banner */}
+      {selectedProductIds.length > 0 && (
+        <div
+          style={{
+            padding: '12px 18px',
+            backgroundColor: '#FEF2F2',
+            border: '1.5px solid #FECACA',
+            borderRadius: '10px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            boxShadow: '0 2px 6px rgba(220, 38, 38, 0.08)',
+          }}
+        >
+          <span style={{ fontWeight: 700, color: '#991B1B', fontSize: '13px' }}>
+            ✓ {selectedProductIds.length} of {filteredProducts.length} finished products selected
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedProductIds([])}>
+              Deselect All
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              style={{ backgroundColor: '#DC2626', borderColor: '#DC2626', color: '#fff' }}
+              startIcon={<IconTrash size={14} />}
+              onClick={handleDeleteSelected}
+            >
+              Delete Selected ({selectedProductIds.length})
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Toolbar matching SalesOrdersView and RawMaterialsView */}
       <Card style={{ marginBottom: '20px' }}>

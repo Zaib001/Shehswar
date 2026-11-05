@@ -226,6 +226,17 @@ export class MasterDataController {
     });
   }
 
+  @Delete('organizations/:id')
+  async deleteOrganization(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteOrganization(id, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   // 2. COMPANIES
   @Get('companies')
   async getCompanies(
@@ -306,6 +317,17 @@ export class MasterDataController {
     });
   }
 
+  @Delete('companies/:id')
+  async deleteCompany(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteCompany(id, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   // 3. PLANTS
   @Get('plants')
   async getPlants(
@@ -353,6 +375,17 @@ export class MasterDataController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.masterDataService.updatePlant(id, dto, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
+  @Delete('plants/:id')
+  async deletePlant(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deletePlant(id, {
       id: user?.id || 'system',
       email: user?.email,
     });
@@ -406,6 +439,17 @@ export class MasterDataController {
     });
   }
 
+  @Delete('branches/:id')
+  async deleteBranch(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteBranch(id, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   // 5. DEPARTMENTS
   @Get('departments')
   async getDepartments(
@@ -454,6 +498,17 @@ export class MasterDataController {
     });
   }
 
+  @Delete('departments/:id')
+  async deleteDepartment(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteDepartment(id, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   // 6. WAREHOUSES
   @Get('warehouses')
   async getWarehouses(
@@ -497,6 +552,17 @@ export class MasterDataController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.masterDataService.updateWarehouse(id, dto, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
+  @Delete('warehouses/:id')
+  async deleteWarehouse(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteWarehouse(id, {
       id: user?.id || 'system',
       email: user?.email,
     });
@@ -1006,6 +1072,16 @@ export class MasterDataController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.masterDataService.updateFinishedProduct(id, dto, { id: user?.id || 'system', email: user?.email });
+  }
+
+  @Delete('finished-products/bulk')
+  async deleteBulkFinishedProducts(@Body('ids') ids: string[]) {
+    return this.masterDataService.deleteBulkFinishedProducts(ids);
+  }
+
+  @Delete('finished-products/purge/all')
+  async purgeAllFinishedProducts(@Query('companyId') companyId?: string) {
+    return this.masterDataService.deleteAllFinishedProducts(companyId);
   }
 
   @Delete('finished-products/:id')

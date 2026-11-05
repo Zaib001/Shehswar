@@ -16,8 +16,8 @@ import {
 export interface ColumnDef<T> {
   key?: string;
   id?: string;
-  header?: string;
-  label?: string;
+  header?: React.ReactNode;
+  label?: React.ReactNode;
   accessorKey?: keyof T | string;
   cell?: (props: any, index?: number) => React.ReactNode;
   render?: (row: T, index?: number) => React.ReactNode;

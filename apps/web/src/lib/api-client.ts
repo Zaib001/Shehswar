@@ -180,13 +180,15 @@ export class ApiClient {
     return data;
   }
 
-  static async delete<T>(
+  static async delete<T, B = unknown>(
     path: string,
+    body?: B,
     headers?: Record<string, string>,
   ): Promise<ApiResponse<T>> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: 'DELETE',
       headers: this.getHeaders(headers),
+      body: body ? JSON.stringify(body) : undefined,
     });
 
     const data = await res.json();

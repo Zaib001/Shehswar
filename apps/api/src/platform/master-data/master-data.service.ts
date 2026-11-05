@@ -187,6 +187,34 @@ export class MasterDataService {
     return updated;
   }
 
+  async deleteOrganization(id: string, actor: { id: string; email?: string }) {
+    const org = await this.findOneOrganization(id);
+    await this.prisma.$transaction(async (tx) => {
+      const companies = await tx.company.findMany({ where: { organizationId: id }, select: { id: true } });
+      const compIds = companies.map((c) => c.id);
+      if (compIds.length > 0) {
+        await tx.warehouse.deleteMany({ where: { companyId: { in: compIds } } });
+        await tx.department.deleteMany({ where: { companyId: { in: compIds } } });
+        await tx.branch.deleteMany({ where: { companyId: { in: compIds } } });
+        await tx.plant.deleteMany({ where: { companyId: { in: compIds } } });
+        await tx.company.deleteMany({ where: { id: { in: compIds } } });
+      }
+      await tx.organization.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: id,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'ORGANIZATION',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: org as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Organization ${org.name} deleted.` };
+  }
+
   // ==========================================
   // 2. COMPANY MANAGEMENT
   // ==========================================
@@ -384,6 +412,32 @@ export class MasterDataService {
     return updated;
   }
 
+  async deleteCompany(id: string, actor: { id: string; email?: string }) {
+    const company = await this.findOneCompany(id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.updateMany({ where: { parentCompanyId: id }, data: { parentCompanyId: null } });
+      await tx.warehouseStock.deleteMany({ where: { warehouse: { companyId: id } } });
+      await tx.warehouse.deleteMany({ where: { companyId: id } });
+      await tx.department.deleteMany({ where: { companyId: id } });
+      await tx.branch.deleteMany({ where: { companyId: id } });
+      await tx.plant.deleteMany({ where: { companyId: id } });
+      await tx.company.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: company.organizationId,
+      companyId: id,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'COMPANY',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: company as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Company ${company.name} deleted.` };
+  }
+
   private async bindManagerToCompany(companyId: string, managerUserId?: string, managerName?: string) {
     if (!managerUserId && !managerName) return;
 
@@ -533,6 +587,28 @@ export class MasterDataService {
     return updated;
   }
 
+  async deletePlant(id: string, actor: { id: string; email?: string }) {
+    const plant = await this.findOnePlant(id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.warehouse.updateMany({ where: { plantId: id }, data: { plantId: null } });
+      await tx.productionLine.updateMany({ where: { plantId: id }, data: { plantId: null } });
+      await tx.plant.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: (plant as any).company?.organizationId || 'system',
+      companyId: plant.companyId,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'PLANT',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: plant as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Plant ${plant.name} deleted.` };
+  }
+
   // ==========================================
   // 4. BRANCH MANAGEMENT
   // ==========================================
@@ -630,6 +706,28 @@ export class MasterDataService {
     return updated;
   }
 
+  async deleteBranch(id: string, actor: { id: string; email?: string }) {
+    const branch = await this.findOneBranch(id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.warehouse.updateMany({ where: { branchId: id }, data: { branchId: null } });
+      await tx.employee.updateMany({ where: { branchId: id }, data: { branchId: null } });
+      await tx.branch.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: branch.company.organizationId,
+      companyId: branch.companyId,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'BRANCH',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: branch as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Branch ${branch.name} deleted.` };
+  }
+
   // ==========================================
   // 5. DEPARTMENT MANAGEMENT
   // ==========================================
@@ -717,6 +815,27 @@ export class MasterDataService {
     });
 
     return updated;
+  }
+
+  async deleteDepartment(id: string, actor: { id: string; email?: string }) {
+    const dept = await this.findOneDepartment(id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.employee.updateMany({ where: { departmentId: id }, data: { departmentId: null } });
+      await tx.department.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: dept.company.organizationId,
+      companyId: dept.companyId,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'DEPARTMENT',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: dept as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Department ${dept.name} deleted.` };
   }
 
   // ==========================================
@@ -819,6 +938,28 @@ export class MasterDataService {
     });
 
     return updated;
+  }
+
+  async deleteWarehouse(id: string, actor: { id: string; email?: string }) {
+    const wh = await this.findOneWarehouse(id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.warehouseStock.deleteMany({ where: { warehouseId: id } });
+      await tx.warehouseLocation.deleteMany({ where: { warehouseId: id } });
+      await tx.warehouse.delete({ where: { id } });
+    });
+    await this.auditService.record({
+      organizationId: wh.company.organizationId,
+      companyId: wh.companyId,
+      actorId: actor.id,
+      actorEmail: actor.email,
+      resource: 'WAREHOUSE',
+      resourceId: id,
+      action: 'DELETE',
+      previousState: wh as unknown as Record<string, unknown>,
+      newState: null,
+      correlationId: uuidv7(),
+    });
+    return { success: true, message: `Warehouse ${wh.name} deleted.` };
   }
 
   // ==========================================
@@ -2605,13 +2746,56 @@ export class MasterDataService {
 
   async deleteFinishedProduct(id: string) {
     try {
-      return await this.prisma.finishedProduct.delete({ where: { id } });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.productBatch.deleteMany({ where: { finishedProductId: id } });
+        await tx.productCosting.deleteMany({ where: { finishedProductId: id } });
+        const boms = await tx.formulaBom.findMany({ where: { finishedProductId: id }, select: { id: true } });
+        const bomIds = boms.map((b: any) => b.id);
+        if (bomIds.length > 0) {
+          await tx.formulaBomComponent.deleteMany({ where: { formulaId: { in: bomIds } } });
+          await tx.formulaBom.deleteMany({ where: { id: { in: bomIds } } });
+        }
+        await tx.rateListItem.deleteMany({ where: { finishedProductId: id } });
+        await tx.productRateList.deleteMany({ where: { finishedProductId: id } });
+        await tx.qcSpecification.deleteMany({ where: { finishedProductId: id } });
+        await tx.warehouseStock.deleteMany({ where: { finishedProductId: id } });
+        await tx.finishedProduct.delete({ where: { id } });
+      });
+      return { success: true };
     } catch {
       return await this.prisma.finishedProduct.update({
         where: { id },
         data: { deletedAt: new Date(), status: 'INACTIVE' },
       });
     }
+  }
+
+  async deleteBulkFinishedProducts(ids: string[]) {
+    if (!ids || ids.length === 0) return { count: 0, success: true };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.productBatch.deleteMany({ where: { finishedProductId: { in: ids } } });
+      await tx.productCosting.deleteMany({ where: { finishedProductId: { in: ids } } });
+      const boms = await tx.formulaBom.findMany({ where: { finishedProductId: { in: ids } }, select: { id: true } });
+      const bomIds = boms.map((b: any) => b.id);
+      if (bomIds.length > 0) {
+        await tx.formulaBomComponent.deleteMany({ where: { formulaId: { in: bomIds } } });
+        await tx.formulaBom.deleteMany({ where: { id: { in: bomIds } } });
+      }
+      await tx.rateListItem.deleteMany({ where: { finishedProductId: { in: ids } } });
+      await tx.productRateList.deleteMany({ where: { finishedProductId: { in: ids } } });
+      await tx.qcSpecification.deleteMany({ where: { finishedProductId: { in: ids } } });
+      await tx.warehouseStock.deleteMany({ where: { finishedProductId: { in: ids } } });
+      await tx.finishedProduct.deleteMany({ where: { id: { in: ids } } });
+    });
+    return { count: ids.length, success: true };
+  }
+
+  async deleteAllFinishedProducts(companyId?: string) {
+    const where: any = {};
+    if (companyId) where.companyId = companyId;
+    const prods = await this.prisma.finishedProduct.findMany({ where, select: { id: true } });
+    const ids = prods.map((p: any) => p.id);
+    return this.deleteBulkFinishedProducts(ids);
   }
 
   // 18. WAREHOUSE LOCATIONS (Hierarchy: Zone > Rack > Bin)

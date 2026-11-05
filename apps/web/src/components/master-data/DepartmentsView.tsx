@@ -28,6 +28,7 @@ import {
   IconBuildings,
   IconCheck,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -159,10 +160,36 @@ export const DepartmentsView: React.FC = () => {
           >
             Edit
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteDept(row.original)}
+          >
+            Delete
+          </Button>
         </div>
       ),
     },
   ];
+
+  const handleDeleteDept = async (dept: DepartmentDto) => {
+    if (!window.confirm(`Are you sure you want to delete department "${dept.name}" (${dept.code})? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/departments/${dept.id}`);
+      showToast({ title: 'Deleted', message: `Department ${dept.name} deleted successfully.`, type: 'success' });
+      if (selectedDept?.id === dept.id) {
+        setSelectedDept(null);
+        setMode('list');
+      }
+      fetchData();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete department', type: 'error' });
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

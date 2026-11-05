@@ -31,6 +31,7 @@ import {
   IconCheck,
   IconClock,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -80,6 +81,23 @@ export const OrganizationsView: React.FC = () => {
     address: '',
     isActive: true,
   });
+
+  const handleDeleteOrg = async (org: OrganizationDto) => {
+    if (!window.confirm(`Are you sure you want to delete organization "${org.name}" (${org.code}) and all its associated structure? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/organizations/${org.id}`);
+      showToast({ title: 'Deleted', message: `Organization ${org.name} deleted successfully.`, type: 'success' });
+      if (selectedOrg?.id === org.id) {
+        setSelectedOrg(null);
+        setMode('list');
+      }
+      fetchOrganizations();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete organization', type: 'error' });
+    }
+  };
 
   const filteredOrgs = organizations.filter((org) => {
     const matchesSearch =
@@ -182,6 +200,15 @@ export const OrganizationsView: React.FC = () => {
             }}
           >
             Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteOrg(row.original)}
+          >
+            Delete
           </Button>
         </div>
       ),

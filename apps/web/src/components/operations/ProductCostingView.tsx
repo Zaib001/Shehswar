@@ -119,8 +119,10 @@ export const ProductCostingView: React.FC = () => {
   const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Section 1: Raw Material Selection
+  // Section 1: Raw Material Selection & Pricing Mode
   const [selectedRawMaterialId, setSelectedRawMaterialId] = useState<string>('');
+  const [costMode, setCostMode] = useState<'BATCH_TOTAL' | 'PER_UNIT'>('BATCH_TOTAL');
+  const [customRawMaterialCost, setCustomRawMaterialCost] = useState<number | ''>('');
 
   // Section 2: Production Output
   const [packSize, setPackSize] = useState<number>(2);
@@ -302,17 +304,31 @@ export const ProductCostingView: React.FC = () => {
   }, [selectedRawMaterial]);
 
   // Actual Unit Cost (PKR per base unit, e.g. per Liter or per KG)
-  const rawMaterialUnitCost = useMemo(() => {
+  const defaultRawMaterialCost = useMemo(() => {
     if (!selectedRawMaterial) return 0;
     const cost = Number(
+      selectedRawMaterial.standardCost ??
+      selectedRawMaterial.lastPurchaseCost ??
       selectedRawMaterial.costPerBaseUnit ??
       selectedRawMaterial.unitRate ??
-      selectedRawMaterial.lastPurchaseCost ??
-      selectedRawMaterial.standardCost ??
-      1000
+      0
     );
-    return cost > 0 ? cost : 1000;
+    return cost;
   }, [selectedRawMaterial]);
+
+  useEffect(() => {
+    if (selectedRawMaterial) {
+      const val = defaultRawMaterialCost > 0 ? defaultRawMaterialCost : 0;
+      setCustomRawMaterialCost(val);
+    }
+  }, [selectedRawMaterialId, selectedRawMaterial, defaultRawMaterialCost]);
+
+  const rawMaterialUnitCost = useMemo(() => {
+    if (customRawMaterialCost !== '' && Number(customRawMaterialCost) >= 0) {
+      return Number(customRawMaterialCost);
+    }
+    return defaultRawMaterialCost;
+  }, [customRawMaterialCost, defaultRawMaterialCost]);
 
   const rawMaterialUnitName = useMemo(() => {
     return (
@@ -334,15 +350,21 @@ export const ProductCostingView: React.FC = () => {
     return size * units;
   }, [packSize, outputBottles]);
 
-  // Stock Availability Check (Requirement 6)
+  // Stock Availability Check
   const isStockSufficient = useMemo(() => {
+    if (availableQuantity <= 0) return true; // Don't block calculation if stock hasn't been posted yet
     return availableQuantity >= requiredRawMaterial;
   }, [availableQuantity, requiredRawMaterial]);
 
-  // Raw Material Batch Cost = Required Quantity × Actual Unit Cost
+  // Raw Material Batch Cost:
+  // If BATCH_TOTAL mode: user entered or fetched the total RM value for the batch (e.g. 4,000,000 PKR).
+  // If PER_UNIT mode: user entered rate per Liter/Kg, so total = requiredRawMaterial * rate.
   const rawMaterialTotalCost = useMemo(() => {
+    if (costMode === 'BATCH_TOTAL') {
+      return rawMaterialUnitCost;
+    }
     return requiredRawMaterial * rawMaterialUnitCost;
-  }, [requiredRawMaterial, rawMaterialUnitCost]);
+  }, [costMode, requiredRawMaterial, rawMaterialUnitCost]);
 
   // Raw Material Cost Per Bottle
   const rawMaterialCostPerBottle = useMemo(() => {
@@ -360,7 +382,7 @@ export const ProductCostingView: React.FC = () => {
     return rawMaterialTotalCost + totalPackagingCost;
   }, [rawMaterialTotalCost, totalPackagingCost]);
 
-  // MANDATORY FORMULA (Requirement 13):
+  // MANDATORY FORMULA:
   // Cost Per Bottle = (Raw Material Cost + Total Packaging Cost) ÷ Number of Finished Units
   const costPerBottle = useMemo(() => {
     const units = Number(outputBottles) || 0;
@@ -816,43 +838,154 @@ export const ProductCostingView: React.FC = () => {
                 </div>
 
                 {selectedRawMaterial && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Material Name
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Valuation / Pricing Mode Selector */}
+                    <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>
+                        Raw Material Cost Valuation Method:
                       </div>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
-                        {selectedRawMaterial.materialName}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                        <label
+                          onClick={() => setCostMode('BATCH_TOTAL')}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: `2px solid ${costMode === 'BATCH_TOTAL' ? '#059669' : '#cbd5e1'}`,
+                            background: costMode === 'BATCH_TOTAL' ? '#ecfdf5' : '#ffffff',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="costMode"
+                            checked={costMode === 'BATCH_TOTAL'}
+                            onChange={() => setCostMode('BATCH_TOTAL')}
+                            style={{ marginTop: '2px', accentColor: '#059669' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                              Total Batch Raw Material Value (PKR)
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                              Total invoice / consumed bulk amount (e.g. 4,000,000 PKR). Single bottle RM = Total Value ÷ Output Bottles.
+                            </div>
+                          </div>
+                        </label>
+
+                        <label
+                          onClick={() => setCostMode('PER_UNIT')}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: `2px solid ${costMode === 'PER_UNIT' ? '#059669' : '#cbd5e1'}`,
+                            background: costMode === 'PER_UNIT' ? '#ecfdf5' : '#ffffff',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="costMode"
+                            checked={costMode === 'PER_UNIT'}
+                            onChange={() => setCostMode('PER_UNIT')}
+                            style={{ marginTop: '2px', accentColor: '#059669' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                              Rate Per Unit (PKR / {rawMaterialUnitName})
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                              Specific rate per Liter or Kg. Total RM = Required Volume × Rate.
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* Cost Input Field */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+                            {costMode === 'BATCH_TOTAL'
+                              ? 'Enter Total Batch RM Value (PKR) *'
+                              : `Enter Rate Per ${rawMaterialUnitName} (PKR) *`}
+                          </label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={costMode === 'BATCH_TOTAL' ? 1000 : 1}
+                            value={customRawMaterialCost}
+                            onChange={(e) => setCustomRawMaterialCost(e.target.value === '' ? '' : Number(e.target.value))}
+                            placeholder={costMode === 'BATCH_TOTAL' ? 'e.g. 4000000' : 'e.g. 2000'}
+                          />
+                        </div>
+
+                        <div style={{ fontSize: '11px', color: '#047857', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px' }}>
+                          {costMode === 'BATCH_TOTAL' ? (
+                            <span>
+                              <strong>Arithmetic:</strong> PKR {Number(rawMaterialTotalCost).toLocaleString()} total bulk ÷ {outputBottles} units = <strong>PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()}</strong> RM per bottle.
+                            </span>
+                          ) : (
+                            <span>
+                              <strong>Arithmetic:</strong> {requiredRawMaterial} {rawMaterialUnitName} × PKR {rawMaterialUnitCost.toLocaleString()} = <strong>PKR {rawMaterialTotalCost.toLocaleString()}</strong> total RM.
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Available Quantity
+                    {/* Summary Metric Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                          Material Name
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {selectedRawMaterial.materialName}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '1px' }}>
+                          Code: {selectedRawMaterial.materialCode}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#047857', marginTop: '2px' }}>
-                        {availableQuantity.toLocaleString()} {rawMaterialUnitName}
-                      </div>
-                    </div>
 
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Unit Cost (Actual)
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                          Available Quantity
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#047857', marginTop: '2px' }}>
+                          {availableQuantity.toLocaleString()} {rawMaterialUnitName}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '1px' }}>
+                          Stock on Hand
+                        </div>
                       </div>
-                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
-                        PKR {rawMaterialUnitCost.toLocaleString()} / {rawMaterialUnitName}
-                      </div>
-                      <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                        Source: Procurement
-                      </div>
-                    </div>
 
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Inventory Value
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                          {costMode === 'BATCH_TOTAL' ? 'Total Batch RM Cost' : `Rate per ${rawMaterialUnitName}`}
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+                          PKR {rawMaterialTotalCost.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '1px' }}>
+                          {costMode === 'BATCH_TOTAL' ? 'Batch Flat Amount' : `Per ${rawMaterialUnitName}`}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
-                        PKR {(availableQuantity * rawMaterialUnitCost).toLocaleString()}
+
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                          RM Cost Per Bottle
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#047857', marginTop: '2px' }}>
+                          PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '1px' }}>
+                          Before packaging & ops
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -915,23 +1048,32 @@ export const ProductCostingView: React.FC = () => {
                 </div>
 
                 {/* Arithmetic Breakdown */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '12px 16px', borderRadius: '8px', marginBottom: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', background: 'var(--bg-subtle)', padding: '12px 16px', borderRadius: '8px', marginBottom: '14px', border: '1px solid var(--border-default)' }}>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Required Raw Material:</div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Bulk Volume:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
                       {packSize} {packSizeUnit} × {outputBottles} = <strong>{requiredRawMaterial} {packSizeUnit}</strong>
                     </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Raw Material Cost:</div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      PKR {rawMaterialTotalCost.toLocaleString()}
+                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                      Required inventory volume
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>RM Cost per Bottle:</div>
-                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#047857' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Raw Material Cost:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                      PKR {rawMaterialTotalCost.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                      {costMode === 'BATCH_TOTAL' ? 'Batch Flat Amount' : `${requiredRawMaterial} ${packSizeUnit} × PKR ${rawMaterialUnitCost.toLocaleString()}`}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>RM Cost per Bottle:</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#047857', marginTop: '2px' }}>
                       PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()} / bottle
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                      Total RM ÷ {outputBottles} bottles
                     </div>
                   </div>
                 </div>

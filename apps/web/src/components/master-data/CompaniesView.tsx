@@ -32,6 +32,7 @@ import {
   IconCheck,
   IconProduction,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -190,6 +191,23 @@ export const CompaniesView: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
+  const handleDeleteCompany = async (comp: CompanyDto) => {
+    if (!window.confirm(`Are you sure you want to delete company "${comp.name}" (${comp.code}) and all its organizational units? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/companies/${comp.id}`);
+      showToast({ title: 'Deleted', message: `Company ${comp.name} was successfully deleted.`, type: 'success' });
+      if (selectedCompany?.id === comp.id) {
+        setSelectedCompany(null);
+        setMode('list');
+      }
+      await fetchCompanies();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete company', type: 'error' });
+    }
+  };
+
   const columns: ColumnDef<CompanyDto>[] = [
     {
       id: 'code',
@@ -315,6 +333,15 @@ export const CompaniesView: React.FC = () => {
             }}
           >
             Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteCompany(row.original)}
+          >
+            Delete
           </Button>
         </div>
       ),

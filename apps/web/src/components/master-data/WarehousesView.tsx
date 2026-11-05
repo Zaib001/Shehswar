@@ -30,6 +30,7 @@ import {
   IconBuildings,
   IconAlertTriangle,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -202,10 +203,36 @@ export const WarehousesView: React.FC = () => {
           >
             Edit
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteWarehouse(row.original)}
+          >
+            Delete
+          </Button>
         </div>
       ),
     },
   ];
+
+  const handleDeleteWarehouse = async (wh: WarehouseDto) => {
+    if (!window.confirm(`Are you sure you want to delete warehouse "${wh.name}" (${wh.code})? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/warehouses/${wh.id}`);
+      showToast({ title: 'Deleted', message: `Warehouse ${wh.name} deleted successfully.`, type: 'success' });
+      if (selectedWarehouse?.id === wh.id) {
+        setSelectedWarehouse(null);
+        setMode('list');
+      }
+      fetchData();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete warehouse', type: 'error' });
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

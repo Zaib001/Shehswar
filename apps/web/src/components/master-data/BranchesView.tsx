@@ -29,6 +29,7 @@ import {
   IconBuildings,
   IconCheck,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -181,10 +182,36 @@ export const BranchesView: React.FC = () => {
           >
             Edit
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeleteBranch(row.original)}
+          >
+            Delete
+          </Button>
         </div>
       ),
     },
   ];
+
+  const handleDeleteBranch = async (branch: any) => {
+    if (!window.confirm(`Are you sure you want to delete branch "${branch.name}" (${branch.code})? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/branches/${branch.id}`);
+      showToast({ title: 'Deleted', message: `Branch ${branch.name} deleted successfully.`, type: 'success' });
+      if (selectedBranch?.id === branch.id) {
+        setSelectedBranch(null);
+        setMode('list');
+      }
+      fetchData();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete branch', type: 'error' });
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

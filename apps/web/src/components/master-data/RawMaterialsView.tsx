@@ -138,24 +138,39 @@ export const RawMaterialsView: React.FC = () => {
   });
 
   const handleSave = async () => {
-    if (!formData.code || !formData.name || !formData.categoryId || !formData.uomId) {
-      showToast({ title: 'Validation Error', message: 'Code, name, category, and Base UOM are required', type: 'error' });
+    const finalName = formData.name.trim();
+    if (!finalName) {
+      showToast({ title: 'Validation Error', message: 'Material Name is required', type: 'error' });
       return;
     }
+
+    const finalCode = (formData.code || `RM-${String(materials.length + 1).padStart(3, '0')}`).trim().toUpperCase();
+    const finalUomId = formData.uomId || uoms.find((u) => /kg|liter|ltr/i.test(u.name))?.id || uoms[0]?.id;
+    const finalCategoryId = formData.categoryId || rawCategories[0]?.id || categories[0]?.id;
+
+    if (!finalUomId) {
+      showToast({ title: 'Validation Error', message: 'Please select a Base Unit (UOM)', type: 'error' });
+      return;
+    }
+    if (!finalCategoryId) {
+      showToast({ title: 'Validation Error', message: 'A material category is required', type: 'error' });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const payload = {
-        materialCode: formData.code.trim().toUpperCase(),
-        materialName: formData.name.trim(),
+        materialCode: finalCode,
+        materialName: finalName,
         description: formData.description?.trim() || undefined,
-        categoryId: formData.categoryId,
-        baseUomId: formData.uomId,
-        purchaseUomId: formData.purchaseUomId || formData.uomId,
+        categoryId: finalCategoryId,
+        baseUomId: finalUomId,
+        purchaseUomId: formData.purchaseUomId || finalUomId,
         purchaseConversionFactor: formData.purchaseConversionFactor ? Number(formData.purchaseConversionFactor) : 1,
         grade: formData.grade?.trim() || undefined,
         specifications: formData.specifications?.trim() || undefined,
         storageRequirements: formData.storageRequirements?.trim() || undefined,
-        standardCost: formData.standardCost !== '' ? Number(formData.standardCost) : undefined,
+        standardCost: formData.standardCost !== '' ? Number(formData.standardCost) : 0,
         minStock: formData.minStock !== '' ? Number(formData.minStock) : undefined,
         reorderPoint: formData.reorderPoint !== '' ? Number(formData.reorderPoint) : undefined,
         leadTimeDays: formData.leadTimeDays !== '' ? Number(formData.leadTimeDays) : undefined,
@@ -165,10 +180,10 @@ export const RawMaterialsView: React.FC = () => {
 
       if (mode === 'edit' && selectedMaterial) {
         await ApiClient.patch(`/api/v1/master-data/raw-materials/${selectedMaterial.id}`, payload);
-        showToast({ title: 'Updated', message: `${formData.name} has been updated`, type: 'success' });
+        showToast({ title: 'Updated', message: `${finalName} has been updated`, type: 'success' });
       } else {
         await ApiClient.post('/api/v1/master-data/raw-materials', payload);
-        showToast({ title: 'Created', message: `${formData.name} registered in Raw Material Master`, type: 'success' });
+        showToast({ title: 'Created', message: `${finalName} registered in Raw Material Master`, type: 'success' });
       }
       await fetchData();
       setMode('list');
@@ -385,64 +400,36 @@ export const RawMaterialsView: React.FC = () => {
         isSaving={isSaving}
         sections={[
           {
-            title: 'Identity',
+            title: '1. Primary Material Details (Quick Entry)',
             fields: [
-              {
-                label: 'Material Code *',
-                required: true,
-                field: <Input value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })} placeholder="e.g. RM-CHL-001 or RM-SOLV-01" style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }} />,
-              },
               {
                 label: 'Material Name *',
                 required: true,
-                field: <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g. Chlorpyrifos Technical 98%" />,
-              },
-              {
-                label: 'Description',
-                field: <Input value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Brief description of active or solvent" />,
-              },
-              {
-                label: 'Grade / Quality',
-                field: <Input value={formData.grade} onChange={(e) => setFormData({ ...formData, grade: e.target.value })} placeholder="e.g. Technical Grade, Food" />,
-              },
-            ],
-          },
-          {
-            title: 'Classification',
-            fields: [
-              {
-                label: 'Material Category *',
-                required: true,
                 field: (
-                  <Select
-                    value={formData.categoryId}
-                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                    options={[
-                      { value: '', label: 'Select Category' },
-                      ...rawCategories.map((c) => ({
-                        value: c.id,
-                        label: c.code ? `${c.code} — ${c.name}` : c.name,
-                      })),
-                    ]}
+                  <Input
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="e.g. FOOD, Chlorpyrifos Technical, Solvent"
+                    autoFocus
                   />
                 ),
               },
               {
-                label: 'Hazardous Material',
+                label: 'Standard Cost / Purchase Price (PKR) *',
+                required: true,
                 field: (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem 0' }}>
-                    <input type="checkbox" checked={formData.isHazardous} onChange={(e) => setFormData({ ...formData, isHazardous: e.target.checked })} />
-                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>This material is classified as hazardous / dangerous goods</span>
-                  </label>
+                  <Input
+                    type="number"
+                    step="any"
+                    value={formData.standardCost}
+                    onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
+                    placeholder="e.g. 400000"
+                    style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                  />
                 ),
               },
-            ],
-          },
-          {
-            title: 'Units & Purchasing',
-            fields: [
               {
-                label: 'Base UOM *',
+                label: 'Unit of Measure (UOM) *',
                 required: true,
                 field: (
                   <Select
@@ -455,46 +442,20 @@ export const RawMaterialsView: React.FC = () => {
                         purchaseUomId: formData.purchaseUomId || newBase,
                       });
                     }}
-                    options={[{ value: '', label: 'Select Base UOM' }, ...uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.symbol || u.code})` }))]}
+                    options={[
+                      { value: '', label: 'Select Unit (e.g. Kg, Liter)' },
+                      ...uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.symbol || u.code})` })),
+                    ]}
                   />
                 ),
               },
               {
-                label: 'Purchase UOM',
-                field: (
-                  <Select
-                    value={formData.purchaseUomId || formData.uomId}
-                    onChange={(e) => setFormData({ ...formData, purchaseUomId: e.target.value })}
-                    options={[{ value: '', label: 'Same as Base UOM' }, ...uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.symbol || u.code})` }))]}
-                  />
-                ),
-              },
-              {
-                label: 'Purchase Conversion Factor',
+                label: 'Material Code (Auto-generated)',
                 field: (
                   <Input
-                    type="number"
-                    step="any"
-                    value={formData.purchaseConversionFactor}
-                    onChange={(e) => setFormData({ ...formData, purchaseConversionFactor: e.target.value })}
-                    placeholder="1 Purchase UOM = X Base UOM (e.g. 1)"
-                  />
-                ),
-              },
-            ],
-          },
-          {
-            title: 'Costing & Valuation',
-            fields: [
-              {
-                label: 'Standard Cost (PKR)',
-                field: (
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={formData.standardCost}
-                    onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
-                    placeholder="e.g. 1500.00"
+                    value={formData.code}
+                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                    placeholder="Auto-generated e.g. RM-001"
                     style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}
                   />
                 ),
@@ -502,8 +463,43 @@ export const RawMaterialsView: React.FC = () => {
             ],
           },
           {
-            title: 'Inventory & Storage Rules',
+            title: '2. Classification & Technical Attributes (Optional)',
             fields: [
+              {
+                label: 'Material Category',
+                field: (
+                  <Select
+                    value={formData.categoryId || rawCategories[0]?.id || ''}
+                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                    options={[
+                      ...rawCategories.map((c) => ({
+                        value: c.id,
+                        label: c.code ? `${c.code} — ${c.name}` : c.name,
+                      })),
+                    ]}
+                  />
+                ),
+              },
+              {
+                label: 'Grade / Quality',
+                field: (
+                  <Input
+                    value={formData.grade}
+                    onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+                    placeholder="e.g. Technical Grade, Food"
+                  />
+                ),
+              },
+              {
+                label: 'Description / Remarks',
+                field: (
+                  <Input
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Optional notes or formulation details"
+                  />
+                ),
+              },
               {
                 label: 'Storage Requirements',
                 field: (
@@ -515,33 +511,26 @@ export const RawMaterialsView: React.FC = () => {
                 ),
               },
               {
-                label: 'Minimum Stock Level',
-                field: <Input type="number" value={formData.minStock} onChange={(e) => setFormData({ ...formData, minStock: e.target.value })} placeholder="e.g. 100" />,
-              },
-              {
-                label: 'Reorder Point',
-                field: <Input type="number" value={formData.reorderPoint} onChange={(e) => setFormData({ ...formData, reorderPoint: e.target.value })} placeholder="e.g. 250" />,
-              },
-              {
-                label: 'Procurement Lead Time (days)',
-                field: <Input type="number" value={formData.leadTimeDays} onChange={(e) => setFormData({ ...formData, leadTimeDays: e.target.value })} placeholder="e.g. 14" />,
-              },
-              {
-                label: 'Technical Specifications',
-                field: <Input value={formData.specifications} onChange={(e) => setFormData({ ...formData, specifications: e.target.value })} placeholder="e.g. Purity ≥ 46% N, moisture <0.5%" />,
-              },
-            ],
-          },
-          {
-            title: 'Status',
-            fields: [
-              {
-                label: 'Material Status',
+                label: 'Hazardous Material',
                 field: (
-                  <Select
-                    value={formData.isActive ? 'true' : 'false'}
-                    onChange={(e) => setFormData({ ...formData, isActive: e.target.value === 'true' })}
-                    options={[{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }]}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem 0' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.isHazardous}
+                      onChange={(e) => setFormData({ ...formData, isHazardous: e.target.checked })}
+                    />
+                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Classified as hazardous / dangerous goods</span>
+                  </label>
+                ),
+              },
+              {
+                label: 'Minimum Stock Level',
+                field: (
+                  <Input
+                    type="number"
+                    value={formData.minStock}
+                    onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
+                    placeholder="e.g. 0"
                   />
                 ),
               },
@@ -561,13 +550,15 @@ export const RawMaterialsView: React.FC = () => {
         label: 'Register Material',
         icon: <IconPlus size={16} />,
         onClick: () => {
+          const autoCode = `RM-${String(materials.length + 1).padStart(3, '0')}`;
+          const defaultUom = uoms.find((u) => /kg|liter|ltr/i.test(u.name))?.id || uoms[0]?.id || '';
           setFormData({
-            code: '',
+            code: autoCode,
             name: '',
             description: '',
-            categoryId: rawCategories[0]?.id || '',
-            uomId: uoms[0]?.id || '',
-            purchaseUomId: uoms[0]?.id || '',
+            categoryId: rawCategories[0]?.id || categories[0]?.id || '',
+            uomId: defaultUom,
+            purchaseUomId: defaultUom,
             purchaseConversionFactor: '1',
             grade: '',
             specifications: '',

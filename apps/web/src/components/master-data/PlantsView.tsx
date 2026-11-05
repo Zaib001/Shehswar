@@ -30,6 +30,7 @@ import {
   IconCheck,
   IconBuildings,
   IconRefresh,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 
@@ -170,10 +171,36 @@ export const PlantsView: React.FC = () => {
           >
             Edit
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<IconTrash size={14} />}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+            onClick={() => handleDeletePlant(row.original)}
+          >
+            Delete
+          </Button>
         </div>
       ),
     },
   ];
+
+  const handleDeletePlant = async (plant: PlantDto) => {
+    if (!window.confirm(`Are you sure you want to delete plant "${plant.name}" (${plant.code})? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/master-data/plants/${plant.id}`);
+      showToast({ title: 'Deleted', message: `Plant ${plant.name} deleted successfully.`, type: 'success' });
+      if (selectedPlant?.id === plant.id) {
+        setSelectedPlant(null);
+        setMode('list');
+      }
+      fetchData();
+    } catch (err: any) {
+      showToast({ title: 'Error', message: err?.response?.data?.message || err?.message || 'Failed to delete plant', type: 'error' });
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
