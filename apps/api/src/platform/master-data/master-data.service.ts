@@ -3580,7 +3580,23 @@ export class MasterDataService {
 
   async deleteRegion(id: string, actor: { id: string; email?: string }) {
     const region = await this.findOneRegion(id);
-    await this.prisma.region.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      const zones = await tx.zone.findMany({ where: { regionId: id }, select: { id: true } });
+      const zoneIds = zones.map((z) => z.id);
+      if (zoneIds.length > 0) {
+        const territories = await tx.territory.findMany({ where: { zoneId: { in: zoneIds } }, select: { id: true } });
+        const territoryIds = territories.map((t) => t.id);
+        if (territoryIds.length > 0) {
+          await tx.userMarketAssignment.deleteMany({ where: { territoryId: { in: territoryIds } } });
+          await tx.dealer.updateMany({ where: { territoryId: { in: territoryIds } }, data: { territoryId: null } });
+          await tx.territory.deleteMany({ where: { id: { in: territoryIds } } });
+        }
+        await tx.userMarketAssignment.deleteMany({ where: { zoneId: { in: zoneIds } } });
+        await tx.zone.deleteMany({ where: { id: { in: zoneIds } } });
+      }
+      await tx.userMarketAssignment.deleteMany({ where: { regionId: id } });
+      await tx.region.delete({ where: { id } });
+    });
     await this.auditService.record({
       organizationId: region.company.organizationId,
       companyId: region.companyId,
@@ -3736,7 +3752,17 @@ export class MasterDataService {
 
   async deleteZone(id: string, actor: { id: string; email?: string }) {
     const zone = await this.findOneZone(id);
-    await this.prisma.zone.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      const territories = await tx.territory.findMany({ where: { zoneId: id }, select: { id: true } });
+      const territoryIds = territories.map((t) => t.id);
+      if (territoryIds.length > 0) {
+        await tx.userMarketAssignment.deleteMany({ where: { territoryId: { in: territoryIds } } });
+        await tx.dealer.updateMany({ where: { territoryId: { in: territoryIds } }, data: { territoryId: null } });
+        await tx.territory.deleteMany({ where: { id: { in: territoryIds } } });
+      }
+      await tx.userMarketAssignment.deleteMany({ where: { zoneId: id } });
+      await tx.zone.delete({ where: { id } });
+    });
     await this.auditService.record({
       organizationId: zone.region.company.organizationId,
       companyId: zone.region.companyId,
@@ -3920,7 +3946,11 @@ export class MasterDataService {
 
   async deleteTerritory(id: string, actor: { id: string; email?: string }) {
     const territory = await this.findOneTerritory(id);
-    await this.prisma.territory.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userMarketAssignment.deleteMany({ where: { territoryId: id } });
+      await tx.dealer.updateMany({ where: { territoryId: id }, data: { territoryId: null } });
+      await tx.territory.delete({ where: { id } });
+    });
     await this.auditService.record({
       organizationId: territory.zone.region.company.organizationId,
       companyId: territory.zone.region.companyId,

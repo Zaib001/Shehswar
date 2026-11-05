@@ -2077,6 +2077,66 @@ export class SalesService {
     });
   }
 
+  async deleteInvoice(id: string, actor: AuthUser) {
+    const invoice = await this.prisma.salesInvoice.findFirst({
+      where: { id, companyId: actor.companyId },
+      include: { items: true, dealer: true },
+    });
+    if (!invoice) throw new NotFoundException('Sales invoice not found');
+
+    return this.transactionService.runInTransaction(async (tx) => {
+      // 1. If invoice was POSTED, reverse stock and dealer balance
+      if (invoice.postingStatus === 'POSTED') {
+        if (!invoice.isDeliveryChallan) {
+          for (const item of invoice.items) {
+            if (item.finishedProductId) {
+              await this.inventoryService.applyMovement(tx, {
+                organizationId: invoice.organizationId,
+                companyId: invoice.companyId,
+                warehouseId: invoice.warehouseId,
+                itemType: 'FINISHED_PRODUCT',
+                finishedProductId: item.finishedProductId,
+                quantityChange: Number(item.quantity),
+                transactionType: 'ADJUSTMENT',
+                referenceId: invoice.id,
+                referenceNumber: `REV-${invoice.invoiceNumber}`,
+                notes: `Reversal of deleted invoice ${invoice.invoiceNumber}`,
+              });
+
+              if (item.batchId) {
+                await tx.productBatch.update({
+                  where: { id: item.batchId },
+                  data: {
+                    availableQuantity: { increment: Number(item.quantity) },
+                  },
+                }).catch(() => null);
+              }
+            }
+          }
+        }
+
+        // Adjust dealer balance
+        if (invoice.dealerId && Number(invoice.netAmount) > 0) {
+          await tx.dealer.update({
+            where: { id: invoice.dealerId },
+            data: {
+              currentBalance: { decrement: Number(invoice.netAmount) },
+            },
+          }).catch(() => null);
+        }
+      }
+
+      // 2. Clean ledger entries
+      await tx.dealerLedgerEntry.deleteMany({ where: { salesInvoiceId: invoice.id } }).catch(() => null);
+      await tx.stockLedgerEntry.deleteMany({ where: { salesInvoiceId: invoice.id } }).catch(() => null);
+
+      // 3. Delete invoice (items cascade automatically)
+      await tx.salesInvoice.delete({ where: { id } });
+
+      return { success: true, message: `Invoice ${invoice.invoiceNumber} deleted successfully.` };
+    });
+  }
+
   // ============================
   // SALES RETURN
   // ============================

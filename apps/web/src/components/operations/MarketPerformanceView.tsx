@@ -24,7 +24,7 @@
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
-import { Button } from '../ui/Button';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../ui';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
 import { SalesInvoiceExportData, exportMarketPerformancePdf } from '../../lib/pdf-export';
 import {
@@ -351,7 +351,7 @@ export const MarketPerformanceView: React.FC = () => {
     );
   }, [performanceData?.dealers, tableSearch]);
 
-  // Filtered products for Tier 6
+  // Filtered products for Tier 6 and provincial formulation drill-down
   const filteredProducts = useMemo(() => {
     if (!performanceData?.products) return [];
     if (!tableSearch.trim()) return performanceData.products;
@@ -362,6 +362,82 @@ export const MarketPerformanceView: React.FC = () => {
         p.packing?.toLowerCase().includes(q)
     );
   }, [performanceData?.products, tableSearch]);
+
+  // Dynamic chart entities based on active drill-down tier
+  const chartEntities = useMemo(() => {
+    if (!performanceData) return [];
+    if (currentLevel === 'GROUP') {
+      return (performanceData.regions || []).map((r: any) => ({
+        id: r.regionId,
+        name: r.regionName,
+        code: r.regionCode,
+        target: Number(r.target || 0),
+        actual: Number(r.actualSales || 0),
+        achievement: Number(r.achievementPercent || 0),
+        subtitle: r.businessManager || 'Business Manager',
+        onClick: () => navigateToRegion(r.regionId, r.regionName, r.regionCode),
+      }));
+    }
+    if (currentLevel === 'REGION') {
+      return (performanceData.zones || []).map((z: any) => ({
+        id: z.zoneId,
+        name: z.zoneName,
+        code: z.zoneCode,
+        target: Number(z.target || 0),
+        actual: Number(z.actualSales || 0),
+        achievement: Number(z.achievementPercent || 0),
+        subtitle: z.areaManager || 'Area Manager',
+        onClick: () => navigateToZone(z.zoneId, z.zoneName, z.zoneCode),
+      }));
+    }
+    if (currentLevel === 'ZONE') {
+      return (performanceData.territories || []).map((t: any) => ({
+        id: t.territoryId,
+        name: t.territoryName,
+        code: t.territoryCode,
+        target: Number(t.target || 0),
+        actual: Number(t.actualSales || 0),
+        achievement: Number(t.achievementPercent || 0),
+        subtitle: t.primaryOfficer || 'Sales Officer',
+        onClick: () => navigateToTerritory(t.territoryId, t.territoryName, t.territoryCode),
+      }));
+    }
+    if (currentLevel === 'TERRITORY' || currentLevel === 'OFFICER') {
+      return (performanceData.dealers || []).slice(0, 10).map((d: any) => ({
+        id: d.dealerId,
+        name: d.dealerName,
+        code: d.dealerCode,
+        target: Number(d.monthlyTarget || 0),
+        actual: Number(d.actualSales || 0),
+        achievement: Number(d.achievementPercent || 0),
+        subtitle: d.city || 'Dealer Account',
+        onClick: () => navigateToDealer(d.dealerId, d.dealerName, d.dealerCode),
+      }));
+    }
+    return [];
+  }, [performanceData, currentLevel]);
+
+  // Distribution metrics for health meter
+  const healthStats = useMemo(() => {
+    if (!chartEntities.length) return { met: 0, track: 0, moderate: 0, focus: 0, total: 0 };
+    let met = 0;
+    let track = 0;
+    let moderate = 0;
+    let focus = 0;
+    for (const e of chartEntities) {
+      if (e.achievement >= 100) met++;
+      else if (e.achievement >= 75) track++;
+      else if (e.achievement >= 40) moderate++;
+      else focus++;
+    }
+    return { met, track, moderate, focus, total: chartEntities.length };
+  }, [chartEntities]);
+
+  // Max value for bar scaling
+  const maxChartValue = useMemo(() => {
+    if (!chartEntities.length) return 1;
+    return Math.max(...chartEntities.map((e: any) => Math.max(e.target, e.actual)), 1);
+  }, [chartEntities]);
 
   // Tier PDF Export Handler
   const handleExportCurrentTierPdf = () => {
@@ -1169,6 +1245,310 @@ export const MarketPerformanceView: React.FC = () => {
           <IconAlertTriangle size={18} />
           <span>{error}</span>
         </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────── */}
+      {/* VISUAL PERFORMANCE GRAPHS & LEADERBOARD                   */}
+      {/* ───────────────────────────────────────────────────────── */}
+      {!loading && performanceData && chartEntities.length > 0 && currentLevel !== 'DEALER' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.8fr) minmax(320px, 1fr)', gap: '16px' }}>
+          {/* Visual Graph 1: Comparative Target vs Actual Bar Chart */}
+          <Card>
+            <CardHeader style={{ paddingBottom: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+                    <IconTrendingUp size={16} color="var(--brand-primary)" />
+                    Target vs. Actual Sales Performance
+                  </CardTitle>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                    Comparative revenue breakdown for {breadcrumbs[breadcrumbs.length - 1]?.name} • Click bar to drill down
+                  </p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: '10px', height: '10px', backgroundColor: '#e2e8f0', borderRadius: '2px', border: '1px dashed #94a3b8' }} />
+                    <span>Target</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: '10px', height: '10px', background: 'linear-gradient(180deg, #10b981 0%, #059669 100%)', borderRadius: '2px' }} />
+                    <span>Actual Sales</span>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', height: '190px', padding: '16px 0 10px 0', overflowX: 'auto' }}>
+                {chartEntities.map((ent: any, i: number) => {
+                  const targetHeight = Math.max(8, Math.min(100, Math.round((ent.target / maxChartValue) * 100)));
+                  const actualHeight = Math.max(8, Math.min(100, Math.round((ent.actual / maxChartValue) * 100)));
+                  const isTopAchiever = ent.achievement >= 100;
+                  const isGood = ent.achievement >= 75;
+                  const barGradient = isTopAchiever
+                    ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
+                    : isGood
+                    ? 'linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%)'
+                    : ent.achievement >= 40
+                    ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)'
+                    : 'linear-gradient(180deg, #ef4444 0%, #b91c1c 100%)';
+
+                  return (
+                    <div
+                      key={ent.id || i}
+                      onClick={ent.onClick}
+                      title={`${ent.name} (${ent.code})\nActual: ${fmtPKR(ent.actual)}\nTarget: ${fmtPKR(ent.target)}\nAchievement: ${ent.achievement}% (Click to drill down)`}
+                      style={{
+                        flex: 1,
+                        minWidth: '60px',
+                        maxWidth: '90px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '6px',
+                        height: '100%',
+                        justifyContent: 'flex-end',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: '6px',
+                        transition: 'background 0.15s ease',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 800,
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                          background: isTopAchiever ? '#dcfce7' : isGood ? '#e0f2fe' : '#fef3c7',
+                          color: isTopAchiever ? '#166534' : isGood ? '#0369a1' : '#92400e',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {ent.achievement}%
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', width: '100%', height: '100%', justifyContent: 'center' }}>
+                        {/* Target Bar */}
+                        <div
+                          style={{
+                            width: '40%',
+                            height: `${targetHeight}%`,
+                            background: '#f1f5f9',
+                            border: '1px dashed #94a3b8',
+                            borderRadius: '4px 4px 0 0',
+                          }}
+                        />
+                        {/* Actual Sales Bar */}
+                        <div
+                          style={{
+                            width: '50%',
+                            height: `${actualHeight}%`,
+                            background: barGradient,
+                            borderRadius: '4px 4px 0 0',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          }}
+                        />
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--text-primary)',
+                          textAlign: 'center',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: '80px',
+                        }}
+                      >
+                        {ent.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Side Performance Cards: Health & Leaderboard */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Quota Health Spectrum */}
+            <Card>
+              <CardHeader style={{ paddingBottom: '6px' }}>
+                <CardTitle style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <IconSparkles size={14} color="#059669" />
+                  Portfolio Quota Health
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* 4-part health bar */}
+                <div style={{ width: '100%', height: '10px', background: '#f1f5f9', borderRadius: '999px', display: 'flex', overflow: 'hidden', marginBottom: '12px' }}>
+                  <div style={{ width: `${(healthStats.met / (healthStats.total || 1)) * 100}%`, background: '#10b981' }} title={`Target Met: ${healthStats.met}`} />
+                  <div style={{ width: `${(healthStats.track / (healthStats.total || 1)) * 100}%`, background: '#3b82f6' }} title={`On Track: ${healthStats.track}`} />
+                  <div style={{ width: `${(healthStats.moderate / (healthStats.total || 1)) * 100}%`, background: '#f59e0b' }} title={`Moderate: ${healthStats.moderate}`} />
+                  <div style={{ width: `${(healthStats.focus / (healthStats.total || 1)) * 100}%`, background: '#ef4444' }} title={`Needs Focus: ${healthStats.focus}`} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '11px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+                    <span>Target Met (≥100%): <strong>{healthStats.met}</strong></span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#0369a1' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }} />
+                    <span>On Track (75-99%): <strong>{healthStats.track}</strong></span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#92400e' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} />
+                    <span>Moderate (40-74%): <strong>{healthStats.moderate}</strong></span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991b1b' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }} />
+                    <span>Needs Focus (&lt;40%): <strong>{healthStats.focus}</strong></span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Top Performers Leaderboard */}
+            <Card>
+              <CardHeader style={{ paddingBottom: '6px' }}>
+                <CardTitle style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <IconShield size={14} color="#1d4ed8" />
+                  Top Ranked Performance Contributors
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {[...chartEntities]
+                    .sort((a, b) => b.actual - a.actual)
+                    .slice(0, 3)
+                    .map((item, idx) => {
+                      const share = Number(metrics.totalRevenue) > 0
+                        ? Math.round((item.actual / Number(metrics.totalRevenue)) * 100)
+                        : 0;
+                      return (
+                        <div
+                          key={item.id || idx}
+                          onClick={item.onClick}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '6px 8px',
+                            background: '#f8fafc',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              style={{
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '50%',
+                                background: idx === 0 ? '#fef08a' : idx === 1 ? '#e2e8f0' : '#fed7aa',
+                                color: '#1e293b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 800,
+                                fontSize: '10px',
+                              }}
+                            >
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <strong style={{ color: 'var(--text-primary)' }}>{item.name}</strong>
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>{item.subtitle}</div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700, color: '#047857' }}>{fmtPKR(item.actual)}</div>
+                            <div style={{ fontSize: '10px', color: '#64748b' }}>{share}% provincial share</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────────────────────────────────────────────────── */}
+      {/* COMMERCIAL ITEMS & PRODUCT FORMULATION PERFORMANCE        */}
+      {/* ───────────────────────────────────────────────────────── */}
+      {!loading && performanceData?.products && performanceData.products.length > 0 && currentLevel !== 'DEALER' && (
+        <Card style={{ marginBottom: '4px' }}>
+          <CardHeader style={{ paddingBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>
+                  <IconPackage size={17} color="#2563eb" />
+                  Commercial SKU & Chemical Formulation Sales Performance
+                </CardTitle>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                  Real product-level volume, pack sizes, and revenue posted in {performanceData?.period?.periodLabel || 'period'}
+                </p>
+              </div>
+              <Badge variant="primary">
+                {performanceData.products.length} Formulations Tracked
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '8px 12px' }}>Product Formulation</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center' }}>Pack Size</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Quantity Sold</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Sales Revenue (PKR)</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center', width: '22%' }}>Revenue Share %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.slice(0, 10).map((prod: any, idx: number) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {prod.productName}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, color: '#475569' }}>
+                          {prod.packing}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>
+                        {Number(prod.quantitySold || 0).toLocaleString()} <span style={{ fontSize: '10px', color: '#64748b' }}>units</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857' }}>
+                        {fmtPKR(prod.salesAmount)}
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ flex: 1, height: '7px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                width: `${Math.min(100, prod.shareOfTotalPercent || 0)}%`,
+                                height: '100%',
+                                background: 'linear-gradient(90deg, #2563eb 0%, #10b981 100%)',
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: '11px', fontWeight: 700, color: '#2563eb', minWidth: '36px', textAlign: 'right' }}>
+                            {prod.shareOfTotalPercent}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ───────────────────────────────────────────────────────── */}

@@ -146,6 +146,31 @@ export class MarketPerformanceService {
     return { regionId, zoneId, territoryId, salesOfficerId };
   }
 
+  private aggregateTopProducts(invoices: any[], totalRevenue: number) {
+    const map = new Map<string, { productName: string; packing: string; quantitySold: number; salesAmount: number }>();
+    for (const inv of invoices) {
+      for (const item of (inv.items || [])) {
+        const name = item.productName || 'Agricultural Formulation';
+        const pack = item.packing || 'Commercial Pack';
+        const key = `${name}_${pack}`;
+        if (!map.has(key)) {
+          map.set(key, { productName: name, packing: pack, quantitySold: 0, salesAmount: 0 });
+        }
+        const p = map.get(key)!;
+        const q = Number(item.quantity || 0);
+        p.quantitySold += q;
+        p.salesAmount += Number(item.netAmount || (q * Number(item.rate || 0)) || 0);
+      }
+    }
+    return Array.from(map.values())
+      .sort((a, b) => b.salesAmount - a.salesAmount)
+      .slice(0, 15)
+      .map((p) => ({
+        ...p,
+        shareOfTotalPercent: totalRevenue > 0 ? Number(((p.salesAmount / totalRevenue) * 100).toFixed(1)) : 0,
+      }));
+  }
+
   /**
    * 1. GROUP LEVEL PERFORMANCE (Punjab Total + Regional Breakdown)
    */
@@ -187,7 +212,7 @@ export class MarketPerformanceService {
               },
             },
           },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.region.findMany({
@@ -314,6 +339,7 @@ export class MarketPerformanceService {
         achievementPercent: Number(groupAchievement.toFixed(2)),
       },
       regions: regionalBreakdown,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -367,7 +393,7 @@ export class MarketPerformanceService {
               },
             },
           },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.zone.findMany({
@@ -493,6 +519,7 @@ export class MarketPerformanceService {
         achievementPercent: Number(achievementPercent.toFixed(2)),
       },
       zones: zonesBreakdown,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -539,7 +566,7 @@ export class MarketPerformanceService {
               assignedFieldOfficerId: true,
             },
           },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.territory.findMany({
@@ -658,6 +685,7 @@ export class MarketPerformanceService {
         achievementPercent: Number(achievementPercent.toFixed(2)),
       },
       territories: territoryBreakdown,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -713,7 +741,7 @@ export class MarketPerformanceService {
           salesOfficer: {
             select: { id: true, firstName: true, lastName: true },
           },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.salesTarget.findMany({
@@ -835,6 +863,7 @@ export class MarketPerformanceService {
         achievementPercent: Number(((totalRevenue / finalTerritoryTarget) * 100).toFixed(2)),
       },
       officers,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -874,7 +903,7 @@ export class MarketPerformanceService {
           dealer: {
             select: { id: true, code: true, name: true, city: true, annualAgreementTarget: true, monthlySalesTarget: true },
           },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.dealer.findMany({
@@ -996,6 +1025,7 @@ export class MarketPerformanceService {
         zone: a.zone ? { id: a.zone.id, name: a.zone.name, code: a.zone.code } : null,
         territory: a.territory ? { id: a.territory.id, name: a.territory.name, code: a.territory.code } : null,
       })),
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -1171,7 +1201,7 @@ export class MarketPerformanceService {
           territoryId: true,
           territory: { select: { id: true, name: true, code: true } },
           zone: { select: { id: true, name: true, code: true } },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.zone.findMany({
@@ -1242,6 +1272,7 @@ export class MarketPerformanceService {
       },
       zones: zones.map((z: any) => ({ id: z.id, name: z.name, code: z.code, territoryCount: z.territories.length })),
       territories: territoryBreakdown,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 
@@ -1277,7 +1308,7 @@ export class MarketPerformanceService {
           zoneId: true,
           zone: { select: { id: true, name: true, code: true } },
           region: { select: { id: true, name: true, code: true } },
-          items: { select: { quantity: true } },
+          items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
       this.prisma.region.findMany({

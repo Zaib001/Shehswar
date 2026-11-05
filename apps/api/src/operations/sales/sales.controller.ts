@@ -287,6 +287,11 @@ export class SalesInvoicesController {
   async postInvoice(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.salesService.postInvoice(id, user);
   }
+
+  @Delete(':id')
+  async deleteInvoice(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.salesService.deleteInvoice(id, user);
+  }
 }
 
 // ==========================================

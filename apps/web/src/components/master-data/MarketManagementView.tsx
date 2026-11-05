@@ -220,6 +220,39 @@ export const MarketManagementView: React.FC = () => {
     }
   };
 
+  const handleDeleteRegion = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to permanently delete Region "${name}" and all its subordinate zones and territories? This action cannot be undone.`)) return;
+    try {
+      await ApiClient.delete(`/api/v1/master-data/regions/${id}`);
+      showToast({ title: 'Deleted', message: `Region ${name} deleted successfully`, type: 'success' });
+      loadAll();
+    } catch (err: any) {
+      showToast({ title: 'Delete Failed', message: err?.message || 'Failed to delete region', type: 'error' });
+    }
+  };
+
+  const handleDeleteZone = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to permanently delete Zone "${name}" and its subordinate territories? This action cannot be undone.`)) return;
+    try {
+      await ApiClient.delete(`/api/v1/master-data/zones/${id}`);
+      showToast({ title: 'Deleted', message: `Zone ${name} deleted successfully`, type: 'success' });
+      loadAll();
+    } catch (err: any) {
+      showToast({ title: 'Delete Failed', message: err?.message || 'Failed to delete zone', type: 'error' });
+    }
+  };
+
+  const handleDeleteTerritory = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to permanently delete Territory "${name}"? This action cannot be undone.`)) return;
+    try {
+      await ApiClient.delete(`/api/v1/master-data/territories/${id}`);
+      showToast({ title: 'Deleted', message: `Territory ${name} deleted successfully`, type: 'success' });
+      loadAll();
+    } catch (err: any) {
+      showToast({ title: 'Delete Failed', message: err?.message || 'Failed to delete territory', type: 'error' });
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px' }}>
       {/* Page Header */}
@@ -441,7 +474,16 @@ export const MarketManagementView: React.FC = () => {
                           </strong>
                         </span>
                       </div>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>{reg.zones?.length || 0} Zones</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>{reg.zones?.length || 0} Zones</span>
+                        <button
+                          onClick={() => handleDeleteRegion(reg.id, reg.name)}
+                          title="Delete Region"
+                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px 4px' }}
+                        >
+                          <IconTrash size={15} />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Zones inside Region */}
@@ -473,13 +515,22 @@ export const MarketManagementView: React.FC = () => {
                               </span>
                               <strong style={{ fontSize: '14px' }}>{zone.name}</strong>
                             </div>
-                            <span style={{ fontSize: '12px', color: '#047857' }}>
-                              AM:{' '}
-                              {zone.areaManager?.name ||
-                                (zone.areaManager
-                                  ? `${zone.areaManager.firstName || ''} ${zone.areaManager.lastName || ''}`.trim()
-                                  : 'Unassigned')}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '12px', color: '#047857' }}>
+                                AM:{' '}
+                                {zone.areaManager?.name ||
+                                  (zone.areaManager
+                                    ? `${zone.areaManager.firstName || ''} ${zone.areaManager.lastName || ''}`.trim()
+                                    : 'Unassigned')}
+                              </span>
+                              <button
+                                onClick={() => handleDeleteZone(zone.id, zone.name)}
+                                title="Delete Zone"
+                                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '1px 3px' }}
+                              >
+                                <IconTrash size={13} />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Territories inside Zone */}
@@ -517,18 +568,27 @@ export const MarketManagementView: React.FC = () => {
                                       Assigned SO: <strong style={{ color: '#2563eb' }}>{soDisplay}</strong>
                                     </div>
                                   </div>
-                                  <span
-                                    style={{
-                                      backgroundColor: '#e2e8f0',
-                                      color: '#334155',
-                                      fontWeight: 600,
-                                      padding: '2px 6px',
-                                      borderRadius: '10px',
-                                      fontSize: '11px',
-                                    }}
-                                  >
-                                    {dealersCount} Dealers
-                                  </span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span
+                                      style={{
+                                        backgroundColor: '#e2e8f0',
+                                        color: '#334155',
+                                        fontWeight: 600,
+                                        padding: '2px 6px',
+                                        borderRadius: '10px',
+                                        fontSize: '11px',
+                                      }}
+                                    >
+                                      {dealersCount} Dealers
+                                    </span>
+                                    <button
+                                      onClick={() => handleDeleteTerritory(terr.id, terr.name)}
+                                      title="Delete Territory"
+                                      style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '1px 3px' }}
+                                    >
+                                      <IconTrash size={13} />
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -568,17 +628,28 @@ export const MarketManagementView: React.FC = () => {
                   key: 'actions',
                   header: 'Actions',
                   render: (r: any) => (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<IconEdit size={14} />}
-                      onClick={() => {
-                        setRegionForm({ id: r.id, code: r.code, name: r.name, managerId: r.managerId || '' });
-                        setIsRegionModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<IconEdit size={14} />}
+                        onClick={() => {
+                          setRegionForm({ id: r.id, code: r.code, name: r.name, managerId: r.managerId || '' });
+                          setIsRegionModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        icon={<IconTrash size={14} />}
+                        style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                        onClick={() => handleDeleteRegion(r.id, r.name)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -612,17 +683,28 @@ export const MarketManagementView: React.FC = () => {
                   key: 'actions',
                   header: 'Actions',
                   render: (z: any) => (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<IconEdit size={14} />}
-                      onClick={() => {
-                        setZoneForm({ id: z.id, code: z.code, name: z.name, regionId: z.regionId, managerId: z.managerId || '' });
-                        setIsZoneModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<IconEdit size={14} />}
+                        onClick={() => {
+                          setZoneForm({ id: z.id, code: z.code, name: z.name, regionId: z.regionId, managerId: z.managerId || '' });
+                          setIsZoneModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        icon={<IconTrash size={14} />}
+                        style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                        onClick={() => handleDeleteZone(z.id, z.name)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -657,17 +739,28 @@ export const MarketManagementView: React.FC = () => {
                   key: 'actions',
                   header: 'Actions',
                   render: (t: any) => (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<IconEdit size={14} />}
-                      onClick={() => {
-                        setTerritoryForm({ id: t.id, code: t.code, name: t.name, zoneId: t.zoneId, managerId: t.managerId || '' });
-                        setIsTerritoryModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<IconEdit size={14} />}
+                        onClick={() => {
+                          setTerritoryForm({ id: t.id, code: t.code, name: t.name, zoneId: t.zoneId, managerId: t.managerId || '' });
+                          setIsTerritoryModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        icon={<IconTrash size={14} />}
+                        style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                        onClick={() => handleDeleteTerritory(t.id, t.name)}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   ),
                 },
               ]}

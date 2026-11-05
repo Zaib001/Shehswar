@@ -370,6 +370,27 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
   const totalBilled = filteredInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
   const totalCount = filteredInvoices.length;
 
+  const handleDeleteInvoice = async (inv: any) => {
+    if (!window.confirm(`Are you sure you want to permanently delete Sales Invoice "${inv.invoiceNumber}"? This will reverse any posted stock deductions and dealer ledger balances.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete(`/api/v1/sales-invoices/${inv.id}`);
+      showToast({
+        title: 'Invoice Deleted',
+        message: `Sales Invoice ${inv.invoiceNumber} has been removed.`,
+        type: 'success',
+      });
+      loadInvoices();
+    } catch (err: any) {
+      showToast({
+        title: 'Delete Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete sales invoice',
+        type: 'error',
+      });
+    }
+  };
+
   const columns: ColumnDef<any>[] = [
     {
       key: 'invoiceNumber',
@@ -507,6 +528,24 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
           >
             <IconRotateCcw size={14} />
             Return
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDeleteInvoice(inv)}
+            style={{
+              fontWeight: 600,
+              fontSize: '12px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              color: '#ef4444',
+              borderColor: '#fca5a5',
+            }}
+            title="Delete this sales invoice"
+          >
+            <IconTrash size={14} />
+            Delete
           </Button>
         </div>
       ),
