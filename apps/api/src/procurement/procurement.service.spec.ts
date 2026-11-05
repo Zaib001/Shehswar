@@ -138,7 +138,12 @@ describe('Procurement & Vendor Management Module', () => {
       dispatch: jest.fn().mockResolvedValue(undefined),
     };
 
-    vendorService = new VendorService(mockPrisma, mockAudit, mockApprovalEngine, mockNotification);
+    const mockCodeGen = {
+      generateCode: jest.fn().mockResolvedValue('VEN-000001'),
+      previewNextCode: jest.fn().mockResolvedValue('VEN-000001'),
+    };
+
+    vendorService = new VendorService(mockPrisma, mockAudit, mockApprovalEngine, mockNotification, mockCodeGen as any);
     prService = new PurchaseRequisitionService(
       mockPrisma,
       mockAudit,

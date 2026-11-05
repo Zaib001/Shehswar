@@ -19,7 +19,12 @@ export type EntityCodeType =
   | 'PACK_SIZE'
   | 'UOM'
   | 'CATEGORY'
-  | 'DEALER';
+  | 'DEALER'
+  | 'VENDOR'
+  | 'WAREHOUSE'
+  | 'REGION'
+  | 'ZONE'
+  | 'TERRITORY';
 
 @Injectable()
 export class CodeGenerationService {
@@ -47,6 +52,11 @@ export class CodeGenerationService {
       PACK_SIZE: { prefix: 'PS', pad: 6 },
       UOM: { prefix: 'UOM', pad: 4 },
       DEALER: { prefix: 'DLR', pad: 6 },
+      VENDOR: { prefix: 'VEN', pad: 6 },
+      WAREHOUSE: { prefix: 'WH', pad: 6 },
+      REGION: { prefix: 'REG', pad: 6 },
+      ZONE: { prefix: 'ZONE', pad: 6 },
+      TERRITORY: { prefix: 'TER', pad: 6 },
     };
 
     const config = prefixMap[entityType as Exclude<EntityCodeType, 'CATEGORY'>];
@@ -182,6 +192,111 @@ export class CodeGenerationService {
       return candidate;
     }
 
+    if (entityType === 'VENDOR') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.vendor.findFirst({
+        where: { companyId, code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.vendor.findFirst({
+          where: { companyId, code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
+    if (entityType === 'WAREHOUSE') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.warehouse.findFirst({
+        where: { companyId, code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.warehouse.findFirst({
+          where: { companyId, code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
+    if (entityType === 'REGION') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.region.findFirst({
+        where: { companyId, code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.region.findFirst({
+          where: { companyId, code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
+    if (entityType === 'ZONE') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.zone.findFirst({
+        where: { code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.zone.findFirst({
+          where: { code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
+    if (entityType === 'TERRITORY') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.territory.findFirst({
+        where: { code: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.territory.findFirst({
+          where: { code: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
     return `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
   }
 
@@ -239,6 +354,11 @@ export class CodeGenerationService {
       UOM: { prefix: 'UOM', pad: 4 },
       CATEGORY: { prefix: '41', pad: 2 },
       DEALER: { prefix: 'DLR', pad: 6 },
+      VENDOR: { prefix: 'VEN', pad: 6 },
+      WAREHOUSE: { prefix: 'WH', pad: 6 },
+      REGION: { prefix: 'REG', pad: 6 },
+      ZONE: { prefix: 'ZONE', pad: 6 },
+      TERRITORY: { prefix: 'TER', pad: 6 },
     };
     const config = prefixMap[params.entityType];
     const seq = await this.prisma.documentSequence.findUnique({

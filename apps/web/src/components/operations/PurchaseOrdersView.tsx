@@ -26,6 +26,7 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
+  SearchableCombobox,
 } from '../ui';
 import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFileText, IconArrowLeft } from '../icons';
 import { useToast } from '../../context/toast-context';
@@ -75,6 +76,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
   const [packingMaterials, setPackingMaterials] = useState<any[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -303,6 +305,20 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     unit: m.baseUom?.symbol || m.baseUom?.code || m.uom?.symbol || m.uom?.code || m.unit || '',
   });
 
+  const normalizeFinishedProduct = (p: any) => {
+    const packLabel = p.packSize ? `${p.packSize.sizeValue || ''} ${p.packSize.uom?.symbol || p.packSize.uom?.name || ''}`.trim() : (p.packing || '');
+    return {
+      id: p.id,
+      productCode: p.productCode || p.code || '',
+      productName: p.productName || p.name || 'Unnamed Product',
+      packSize: packLabel,
+      unit: p.salesUom?.symbol || p.baseUom?.symbol || p.packSize?.uom?.symbol || 'Units',
+      standardCost: Number(p.standardCost) || Number(p.lastPurchaseCost) || 0,
+      mrp: Number(p.mrp) || 0,
+      status: p.status || 'ACTIVE',
+    };
+  };
+
   // Robust array unpacker for API responses
   const unpackArray = (res: any): any[] => {
     if (!res) return [];
@@ -326,6 +342,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         ApiClient.get<any>('/api/v1/master-data/warehouses'),
         ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true'),
         ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true'),
+        ApiClient.get<any>('/api/v1/master-data/finished-products?all=true'),
       ]);
 
       const poList = results[0].status === 'fulfilled' ? unpackArray(results[0].value) : [];
@@ -333,12 +350,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       const whList = results[2].status === 'fulfilled' ? unpackArray(results[2].value) : [];
       const rmList = results[3].status === 'fulfilled' ? unpackArray(results[3].value).map(normalizeMaterial) : [];
       const pmList = results[4].status === 'fulfilled' ? unpackArray(results[4].value).map(normalizeMaterial) : [];
+      const fpList = results[5]?.status === 'fulfilled' ? unpackArray(results[5].value).map(normalizeFinishedProduct) : [];
 
       setOrders(poList);
       setVendors(vList);
       setWarehouses(whList);
       setRawMaterials(rmList);
       setPackingMaterials(pmList);
+      setFinishedProducts(fpList);
 
       setFormVendorId((current) => current || (vList.length > 0 ? (vList[0]?.id || '') : ''));
       setFormWarehouseId((current) => current || (whList.length > 0 ? (whList[0]?.id || '') : ''));
@@ -439,6 +458,11 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true').then((pmRes) => {
         const list = unpackArray(pmRes).map(normalizeMaterial);
         if (list.length > 0) setPackingMaterials(list);
+      }).catch(() => null);
+
+      ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').then((fpRes) => {
+        const list = unpackArray(fpRes).map(normalizeFinishedProduct);
+        if (list.length > 0) setFinishedProducts(list);
       }).catch(() => null);
 
       if (matchedWarehouse?.id) {
@@ -614,31 +638,50 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     if (field === 'materialId') {
       const rm = rawMaterials.find((m) => m.id === value);
       if (rm) {
+        item.materialId = rm.id;
         item.itemName = rm.materialName;
         item.materialType = 'RAW_MATERIAL';
         item.unitRate = Number(rm.lastPurchaseCost || rm.standardCost || 0);
         if (rm.specifications) item.packing = rm.specifications;
         if (rm.baseUom?.code) item.unit = rm.baseUom.code;
         else if (rm.purchaseUom?.code) item.unit = rm.purchaseUom.code;
+        else if (rm.unit) item.unit = rm.unit;
       } else {
         const pm = packingMaterials.find((m) => m.id === value);
         if (pm) {
+          item.materialId = pm.id;
           item.itemName = pm.materialName;
           item.materialType = 'PACKING_MATERIAL';
           item.unitRate = Number(pm.lastPurchaseCost || pm.standardCost || 0);
-          if (pm.description) item.packing = pm.description;
+          if (pm.description || pm.specifications) item.packing = pm.description || pm.specifications;
           if (pm.baseUom?.code) item.unit = pm.baseUom.code;
           else if (pm.purchaseUom?.code) item.unit = pm.purchaseUom.code;
+          else if (pm.unit) item.unit = pm.unit;
+        } else {
+          const fp = finishedProducts.find((p) => p.id === value);
+          if (fp) {
+            item.materialId = fp.id;
+            item.itemName = fp.productName;
+            item.materialType = 'FINISHED_PRODUCT';
+            item.unitRate = Number(fp.standardCost || fp.mrp || 0);
+            if (fp.packSize) item.packing = fp.packSize;
+            if (fp.unit) item.unit = fp.unit;
+          }
         }
       }
     }
 
     if (field === 'materialType') {
-      if (value === 'PACKING_MATERIAL' && item.materialType !== 'PACKING_MATERIAL') {
+      item.materialType = value;
+      if (value === 'FINISHED_PRODUCT') {
+        const fpMatch = finishedProducts.find((p) => p.id === item.materialId);
+        if (!fpMatch) item.materialId = undefined;
+        item.unit = item.unit || 'Units';
+      } else if (value === 'PACKING_MATERIAL') {
         const pmMatch = packingMaterials.find((m) => m.id === item.materialId);
         if (!pmMatch) item.materialId = undefined;
         if (!item.unit || item.unit === 'KG') item.unit = 'PCS';
-      } else if (value === 'RAW_MATERIAL' && item.materialType !== 'RAW_MATERIAL') {
+      } else if (value === 'RAW_MATERIAL') {
         const rmMatch = rawMaterials.find((m) => m.id === item.materialId);
         if (!rmMatch) item.materialId = undefined;
         if (!item.unit || item.unit === 'PCS') item.unit = 'KG';
@@ -684,6 +727,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         extraFields: extractedExtraFields,
         items: formItems.map((it) => ({
           ...it,
+          materialType: it.materialType || 'RAW_MATERIAL',
+          rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
+          packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
+          finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
           warehouseId: it.warehouseId || formWarehouseId || undefined,
         })),
         status: 'CONFIRMED',
@@ -2196,33 +2243,20 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
                     Supplier / Vendor *
                   </label>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <div style={{ flex: 1 }}>
-                      <Select
-                        value={formVendorId}
-                        onChange={(e) => setFormVendorId(e?.target?.value !== undefined ? e.target.value : (typeof e === 'string' ? e : ''))}
-                        placeholder="-- Select Vendor --"
-                        options={[
-                          { label: '-- Select Vendor --', value: '' },
-                          ...vendors.map((v) => ({
-                            label: v.code ? `${v.code} - ${v.name}` : v.name,
-                            value: v.id,
-                            subtext: v.vendorType || undefined,
-                          })),
-                        ]}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setIsQuickVendorModalOpen(true)}
-                      title="Add new vendor into Master Records"
-                      style={{ height: '38px', padding: '0 10px', whiteSpace: 'nowrap' }}
-                    >
-                      <IconPlus size={14} /> New Vendor
-                    </Button>
-                  </div>
+                  <SearchableCombobox
+                    id="field-po-vendor"
+                    value={formVendorId}
+                    onChange={(val) => setFormVendorId(val)}
+                    options={vendors.map((v) => ({
+                      value: v.id,
+                      label: v.code ? `${v.code} - ${v.name}` : v.name,
+                      badge: v.vendorType || undefined,
+                    }))}
+                    placeholder="Type to search vendor..."
+                    addNewLabel="+ Add Vendor"
+                    onAddNew={() => setIsQuickVendorModalOpen(true)}
+                    nextFocusId="field-po-date"
+                  />
                   {extractedVendorRaw && (
                     <div style={{ fontSize: '11px', color: '#2563eb', marginTop: '4px', fontWeight: 500 }}>
                       Extracted from document: &ldquo;{extractedVendorRaw}&rdquo;
@@ -2234,24 +2268,34 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
                     Receiving Warehouse *
                   </label>
-                  <Select
+                  <SearchableCombobox
+                    id="field-po-warehouse"
                     value={formWarehouseId}
-                    onChange={(e) => setFormWarehouseId(e.target.value)}
-                    options={[
-                      { label: 'Select Warehouse', value: '' },
-                      ...warehouses.map((w) => ({ label: `${w.code} - ${w.name}`, value: w.id })),
-                    ]}
+                    onChange={(val) => setFormWarehouseId(val)}
+                    options={warehouses.map((w) => ({
+                      value: w.id,
+                      label: `${w.code} - ${w.name}`,
+                    }))}
+                    placeholder="Type to search warehouse..."
+                    nextFocusId="field-po-mat-type-0"
                   />
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                    Expected Delivery Date
+                    Expected Delivery Date / PO Date
                   </label>
                   <Input
+                    id="field-po-date"
                     type="date"
                     value={formExpectedDate}
                     onChange={(e) => setFormExpectedDate(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        document.getElementById('field-po-warehouse')?.focus();
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -2373,8 +2417,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         {/* Material Type */}
                         <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
                           <select
+                            id={`field-po-mat-type-${idx}`}
                             value={item.materialType || 'RAW_MATERIAL'}
                             onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById(`field-po-item-${idx}`)?.focus();
+                              }
+                            }}
                             style={{
                               width: '100%',
                               height: '36px',
@@ -2391,102 +2442,81 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           >
                             <option value="RAW_MATERIAL">Raw Material</option>
                             <option value="PACKING_MATERIAL">Packaging Material</option>
-                            <option value="FINISHED_PRODUCT">Finished Good</option>
+                            <option value="FINISHED_PRODUCT">Finished Product</option>
                           </select>
                         </td>
 
                         {/* Item Name / Product Selection */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle', minWidth: '240px' }}>
+                        <td style={{ padding: '8px 14px', verticalAlign: 'middle', minWidth: '260px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            {/* Product Selection Dropdown */}
-                            <select
-                              value={item.materialId || (item.itemName ? '__custom__' : '')}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                if (val === '__custom__') {
-                                  updateItem(idx, 'materialId', '');
-                                } else if (val) {
+                            <SearchableCombobox
+                              id={`field-po-item-${idx}`}
+                              value={item.materialId || ''}
+                              onChange={(val) => {
+                                if (val) {
                                   updateItem(idx, 'materialId', val);
                                 } else {
                                   updateItem(idx, 'materialId', '');
                                   updateItem(idx, 'itemName', '');
                                 }
                               }}
-                              style={{
-                                width: '100%',
-                                height: '34px',
-                                padding: '0 8px',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                border: '1px solid #cbd5e1',
-                                backgroundColor: '#ffffff',
-                                color: '#0f172a',
-                                boxSizing: 'border-box',
-                                cursor: 'pointer',
+                              options={
+                                item.materialType === 'FINISHED_PRODUCT'
+                                  ? finishedProducts.map((p) => ({
+                                      value: p.id,
+                                      label: `[${p.productCode}] ${p.productName}${p.packSize ? ` (${p.packSize})` : ''}`,
+                                      subtext: p.packSize ? `Pack: ${p.packSize}` : undefined,
+                                      badge: p.status,
+                                    }))
+                                  : item.materialType === 'PACKING_MATERIAL'
+                                  ? packingMaterials.map((m) => ({
+                                      value: m.id,
+                                      label: `[${m.materialCode}] ${m.materialName}`,
+                                      subtext: m.specifications || undefined,
+                                    }))
+                                  : rawMaterials.map((m) => ({
+                                      value: m.id,
+                                      label: `[${m.materialCode}] ${m.materialName}`,
+                                      subtext: m.specifications || undefined,
+                                    }))
+                              }
+                              placeholder={
+                                item.materialType === 'FINISHED_PRODUCT'
+                                  ? 'Type to search finished product...'
+                                  : item.materialType === 'PACKING_MATERIAL'
+                                  ? 'Type to search packing material...'
+                                  : 'Type to search raw material...'
+                              }
+                              addNewLabel="+ Quick Add Item"
+                              onAddNew={() => {
+                                setTargetItemIndexForMat(idx);
+                                setNewMatName(item.itemName || '');
+                                setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
+                                setNewMatRate(item.unitRate || 0);
+                                setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
+                                setNewMatPacking(item.packing || 'Bulk');
+                                setIsQuickMaterialModalOpen(true);
                               }}
-                            >
-                              <option value="">
-                                {item.materialType === 'PACKING_MATERIAL'
-                                  ? '-- Select Packaging Material --'
-                                  : '-- Select Raw Material --'}
-                              </option>
-                              {(item.materialType === 'PACKING_MATERIAL' ? packingMaterials : rawMaterials).map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  [{m.materialCode}] {m.materialName} {m.standardCost ? `(PKR ${Number(m.standardCost).toLocaleString()})` : ''}
-                                </option>
-                              ))}
-                              <option value="__custom__">Custom / Non-Catalog Item...</option>
-                            </select>
+                              nextFocusId={`field-po-qty-${idx}`}
+                            />
 
-                            {/* Item Description / Custom Name input & quick master button */}
                             <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
                               <input
                                 value={item.itemName || ''}
                                 onChange={(e) => updateItem(idx, 'itemName', e.target.value)}
-                                placeholder={item.materialId ? 'Product description / specs' : 'Enter product name...'}
+                                placeholder={item.materialId ? 'Product description / specs' : 'Or type non-catalog product name...'}
                                 style={{
                                   flex: 1,
                                   height: '28px',
                                   padding: '0 8px',
                                   borderRadius: '5px',
-                                  fontSize: '12px',
+                                  fontSize: '11px',
                                   border: '1px solid #e2e8f0',
                                   backgroundColor: item.materialId ? '#f8fafc' : '#ffffff',
                                   color: '#0f172a',
                                   boxSizing: 'border-box',
                                 }}
                               />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTargetItemIndexForMat(idx);
-                                  setNewMatName(item.itemName || '');
-                                  setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
-                                  setNewMatRate(item.unitRate || 0);
-                                  setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
-                                  setNewMatPacking(item.packing || 'Bulk');
-                                  setIsQuickMaterialModalOpen(true);
-                                }}
-                                title="Register this product directly into Master Catalog"
-                                style={{
-                                  padding: '0 8px',
-                                  height: '28px',
-                                  borderRadius: '5px',
-                                  border: '1px solid #cbd5e1',
-                                  backgroundColor: '#f1f5f9',
-                                  cursor: 'pointer',
-                                  color: '#334155',
-                                  fontSize: '11px',
-                                  fontWeight: 600,
-                                  whiteSpace: 'nowrap',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                }}
-                              >
-                                <IconPlus size={11} /> Master
-                              </button>
                             </div>
                           </div>
                         </td>
@@ -2561,11 +2591,18 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         {/* Quantity */}
                         <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
                           <input
+                            id={`field-po-qty-${idx}`}
                             type="number"
                             min="0"
                             step="any"
                             value={item.quantity}
                             onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById(`field-po-rate-${idx}`)?.focus();
+                              }
+                            }}
                             style={{
                               width: '100%',
                               height: '36px',
@@ -2585,11 +2622,25 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         {/* Rate */}
                         <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
                           <input
+                            id={`field-po-rate-${idx}`}
                             type="number"
                             min="0"
                             step="any"
                             value={item.unitRate}
                             onChange={(e) => updateItem(idx, 'unitRate', parseFloat(e.target.value) || 0)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (idx === formItems.length - 1) {
+                                  addItemRow();
+                                  setTimeout(() => {
+                                    document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
+                                  }, 50);
+                                } else {
+                                  document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
+                                }
+                              }
+                            }}
                             style={{
                               width: '100%',
                               height: '36px',
@@ -2905,7 +2956,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           onAction={() => fileInputRef.current?.click()}
         />
       ) : (
-        <DataTable columns={columns} data={filteredOrders} keyExtractor={(o) => o.id} />
+        <DataTable
+          columns={columns}
+          data={filteredOrders}
+          keyExtractor={(o) => o.id}
+          onRowDoubleClick={(order: PurchaseOrderRecord) => {
+            setSelectedOrder(order);
+            setMode('detail');
+          }}
+        />
       )}
       {renderVerifyModal()}
       {renderSplitModal()}

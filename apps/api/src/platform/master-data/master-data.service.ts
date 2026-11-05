@@ -882,6 +882,14 @@ export class MasterDataService {
 
   async createWarehouse(dto: CreateWarehouseDto, actor: { id: string; email?: string }) {
     const company = await this.findOneCompany(dto.companyId);
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: dto.companyId,
+        organizationId: company.organizationId,
+        entityType: 'WAREHOUSE',
+      });
+    }
     const whId = uuidv7();
 
     const created = await this.prisma.warehouse.create({
@@ -890,7 +898,7 @@ export class MasterDataService {
         companyId: dto.companyId,
         plantId: dto.plantId,
         branchId: dto.branchId,
-        code: dto.code.toUpperCase(),
+        code,
         name: dto.name,
         type: dto.type || 'RAW_MATERIAL',
         location: dto.location,
@@ -1760,12 +1768,17 @@ export class MasterDataService {
       ? Boolean(dto.isBaseUnit)
       : (dto.isBase !== undefined ? Boolean(dto.isBase) : false);
     const status = dto.status || (dto.isActive !== undefined ? (dto.isActive ? 'ACTIVE' : 'INACTIVE') : 'ACTIVE');
+    const uomCode = (dto.code || dto.symbol || dto.name || `UOM${Math.floor(Math.random() * 9000 + 1000)}`)
+      .toUpperCase()
+      .trim()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 10);
 
     const created = await this.prisma.unitOfMeasure.create({
       data: {
         id: uuidv7(),
         organizationId: dto.organizationId,
-        code: dto.code.toUpperCase().trim(),
+        code: uomCode,
         name: dto.name.trim(),
         category,
         symbol: dto.symbol ? dto.symbol.trim() : null,
@@ -2105,6 +2118,15 @@ export class MasterDataService {
       if (u) purchaseUomId = u.id;
     }
 
+    let materialCode = (dto.materialCode || dto.code || '').trim().toUpperCase();
+    if (!materialCode || materialCode === 'AUTO') {
+      materialCode = await this.codeGen.generateCode({
+        companyId: companyId!,
+        organizationId: organizationId!,
+        entityType: 'RAW_MATERIAL',
+      });
+    }
+
     const created = await this.prisma.rawMaterial.create({
       data: {
         id: uuidv7(),
@@ -2113,7 +2135,7 @@ export class MasterDataService {
         categoryId: categoryId || null,
         baseUomId: baseUomId || null,
         purchaseUomId: purchaseUomId || null,
-        materialCode: (dto.materialCode || dto.code || '').toUpperCase(),
+        materialCode,
         materialName: dto.materialName || dto.name,
         description: dto.description || null,
         grade: dto.grade || null,
@@ -2276,6 +2298,15 @@ export class MasterDataService {
       if (u) purchaseUomId = u.id;
     }
 
+    let materialCode = (dto.materialCode || dto.code || '').trim().toUpperCase();
+    if (!materialCode || materialCode === 'AUTO') {
+      materialCode = await this.codeGen.generateCode({
+        companyId: companyId!,
+        organizationId: organizationId!,
+        entityType: 'PACKING_MATERIAL',
+      });
+    }
+
     const created = await this.prisma.packingMaterial.create({
       data: {
         id: uuidv7(),
@@ -2284,7 +2315,7 @@ export class MasterDataService {
         categoryId: categoryId || null,
         baseUomId: baseUomId || null,
         purchaseUomId: purchaseUomId || null,
-        materialCode: (dto.materialCode || dto.code || '').toUpperCase(),
+        materialCode,
         materialName: dto.materialName || dto.name,
         description: dto.description || null,
         packCompatibility: dto.packCompatibility || dto.packagingType || null,
@@ -3489,11 +3520,20 @@ export class MasterDataService {
     const company = await this.prisma.company.findUnique({ where: { id: dto.companyId } });
     if (!company) throw new NotFoundException('Company not found');
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: dto.companyId,
+        organizationId: company.organizationId,
+        entityType: 'REGION',
+      });
+    }
+
     const created = await this.prisma.region.create({
       data: {
         id: uuidv7(),
         companyId: dto.companyId,
-        code: dto.code.toUpperCase(),
+        code,
         name: dto.name,
         managerId: dto.managerId || null,
         isActive: dto.isActive ?? true,
@@ -3661,11 +3701,20 @@ export class MasterDataService {
     });
     if (!region) throw new NotFoundException('Region not found');
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: region.companyId,
+        organizationId: region.company.organizationId,
+        entityType: 'ZONE',
+      });
+    }
+
     const created = await this.prisma.zone.create({
       data: {
         id: uuidv7(),
         regionId: dto.regionId,
-        code: dto.code.toUpperCase(),
+        code,
         name: dto.name,
         managerId: dto.managerId || null,
         isActive: dto.isActive ?? true,
@@ -3853,11 +3902,20 @@ export class MasterDataService {
     });
     if (!zone) throw new NotFoundException('Zone not found');
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: zone.region.companyId,
+        organizationId: zone.region.company.organizationId,
+        entityType: 'TERRITORY',
+      });
+    }
+
     const created = await this.prisma.territory.create({
       data: {
         id: uuidv7(),
         zoneId: dto.zoneId,
-        code: dto.code.toUpperCase(),
+        code,
         name: dto.name,
         managerId: dto.managerId || null,
         isActive: dto.isActive ?? true,

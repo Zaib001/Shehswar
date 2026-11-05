@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { DocumentNumberingService } from '../../platform/document-numbering/document-numbering.service';
+import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 import { uuidv7 } from '@shehswar/shared';
 import { AuthUser } from '@shehswar/types';
 
@@ -51,6 +52,7 @@ export class OperationalPoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documentNumbering: DocumentNumberingService,
+    private readonly codeGen: CodeGenerationService,
   ) {}
 
   async findAll(companyId?: string, filters?: { status?: string; vendorId?: string; search?: string }) {
@@ -153,9 +155,14 @@ export class OperationalPoService {
     });
     if (existing) return existing;
 
-    const code =
-      params.code ||
-      `VEND-${cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'VEND'}-${Math.floor(100 + Math.random() * 900)}`;
+    let code = (params.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'VENDOR',
+      });
+    }
 
     const newVendor = await this.prisma.vendor.create({
       data: {
@@ -195,7 +202,11 @@ export class OperationalPoService {
       });
       if (existing) return existing;
 
-      const code = `PM-${cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'PACK'}-${Math.floor(100 + Math.random() * 900)}`;
+      const code = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'PACKING_MATERIAL',
+      });
       const pm = await this.prisma.packingMaterial.create({
         data: {
           id: uuidv7(),
@@ -218,7 +229,11 @@ export class OperationalPoService {
     });
     if (existing) return existing;
 
-    const code = `RM-${cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'RAW'}-${Math.floor(100 + Math.random() * 900)}`;
+    const code = await this.codeGen.generateCode({
+      companyId,
+      organizationId,
+      entityType: 'RAW_MATERIAL',
+    });
     const rm = await this.prisma.rawMaterial.create({
       data: {
         id: uuidv7(),
@@ -264,19 +279,40 @@ export class OperationalPoService {
     let discountTotal = 0;
 
     const itemsData = await Promise.all(
-      dto.items.map(async (item) => {
-        let materialId = item.materialId || null;
+      dto.items.map(async (item: any) => {
+        let materialId = item.materialId || item.rawMaterialId || item.packingMaterialId || item.finishedProductId || null;
         const materialType = item.materialType || 'RAW_MATERIAL';
-        const cleanName = item.itemName.trim();
+        const cleanName = (item.itemName || '').trim();
+        let materialCodeSnapshot = item.materialCodeSnapshot || null;
 
-        // If materialId not already linked, auto-match or auto-create in Master Data
-        if (!materialId && cleanName) {
-          if (materialType === 'PACKING_MATERIAL') {
-            let pm = await this.prisma.packingMaterial.findFirst({
+        // Auto-match or link with master database
+        if (materialType === 'FINISHED_PRODUCT') {
+          let fp = materialId
+            ? await this.prisma.finishedProduct.findUnique({ where: { id: materialId } })
+            : null;
+          if (!fp && cleanName) {
+            fp = await this.prisma.finishedProduct.findFirst({
+              where: { companyId, productName: { equals: cleanName, mode: 'insensitive' } },
+            });
+          }
+          if (fp) {
+            materialId = fp.id;
+            materialCodeSnapshot = fp.productCode;
+          }
+        } else if (materialType === 'PACKING_MATERIAL') {
+          let pm = materialId
+            ? await this.prisma.packingMaterial.findUnique({ where: { id: materialId } })
+            : null;
+          if (!pm && cleanName) {
+            pm = await this.prisma.packingMaterial.findFirst({
               where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
             });
             if (!pm) {
-              const code = `PM-${cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'PACK'}-${Math.floor(100 + Math.random() * 900)}`;
+              const code = await this.codeGen.generateCode({
+                companyId,
+                organizationId: company.organizationId,
+                entityType: 'PACKING_MATERIAL',
+              });
               pm = await this.prisma.packingMaterial.create({
                 data: {
                   id: uuidv7(),
@@ -291,13 +327,26 @@ export class OperationalPoService {
                 },
               });
             }
+          }
+          if (pm) {
             materialId = pm.id;
-          } else {
-            let rm = await this.prisma.rawMaterial.findFirst({
+            materialCodeSnapshot = pm.materialCode;
+          }
+        } else {
+          // RAW_MATERIAL
+          let rm = materialId
+            ? await this.prisma.rawMaterial.findUnique({ where: { id: materialId } })
+            : null;
+          if (!rm && cleanName) {
+            rm = await this.prisma.rawMaterial.findFirst({
               where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
             });
             if (!rm) {
-              const code = `RM-${cleanName.replace(/[^A-Za-z0-9]/g, '').slice(0, 5).toUpperCase() || 'RAW'}-${Math.floor(100 + Math.random() * 900)}`;
+              const code = await this.codeGen.generateCode({
+                companyId,
+                organizationId: company.organizationId,
+                entityType: 'RAW_MATERIAL',
+              });
               rm = await this.prisma.rawMaterial.create({
                 data: {
                   id: uuidv7(),
@@ -313,7 +362,10 @@ export class OperationalPoService {
                 },
               });
             }
+          }
+          if (rm) {
             materialId = rm.id;
+            materialCodeSnapshot = rm.materialCode;
           }
         }
 
@@ -340,6 +392,7 @@ export class OperationalPoService {
           discountAmount: disc,
           taxAmount: tax,
           lineTotal: line,
+          materialCodeSnapshot,
           materialNameSnapshot: item.itemName,
           specificationSnapshot: item.packing ? `Packing: ${item.packing}` : null,
         };

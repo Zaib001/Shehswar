@@ -426,7 +426,28 @@ export const PackingMaterialsView: React.FC = () => {
       ) : filtered.length === 0 ? (
         <EmptyState title="No Packing Materials Found" description={searchQuery ? 'No materials match your search.' : 'No packing materials registered yet.'} actionLabel={searchQuery ? 'Clear Search' : undefined} onAction={searchQuery ? () => { setSearchQuery(''); setTypeFilter('ALL'); } : undefined} />
       ) : (
-        <DataTable columns={columns} data={filtered} />
+        <DataTable
+          columns={columns}
+          data={filtered}
+          onRowDoubleClick={(row: PackingMaterial) => {
+            setSelectedMaterial(row);
+            setFormData({
+              code: row.code,
+              name: row.name,
+              description: row.description || '',
+              categoryId: row.categoryId,
+              uomId: row.uomId,
+              purchaseUomId: row.purchaseUomId || row.uomId,
+              packagingType: row.packagingType || 'BAG',
+              printingRequired: row.printingRequired,
+              standardCost: row.standardCost !== undefined ? row.standardCost.toString() : '',
+              minStock: row.minStock?.toString() || '',
+              leadTimeDays: row.leadTimeDays?.toString() || '',
+              isActive: row.isActive,
+            });
+            setMode('edit');
+          }}
+        />
       )}
 
       {deletingMaterial && (

@@ -15,8 +15,8 @@ export class CreateRegionDto {
   companyId!: string;
 
   @IsString()
-  @IsNotEmpty()
-  code!: string;
+  @IsOptional()
+  code?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -51,8 +51,8 @@ export class CreateZoneDto {
   regionId!: string;
 
   @IsString()
-  @IsNotEmpty()
-  code!: string;
+  @IsOptional()
+  code?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -87,8 +87,8 @@ export class CreateTerritoryDto {
   zoneId!: string;
 
   @IsString()
-  @IsNotEmpty()
-  code!: string;
+  @IsOptional()
+  code?: string;
 
   @IsString()
   @IsNotEmpty()

@@ -31,6 +31,7 @@ import {
   AuthUser,
 } from '@shehswar/types';
 import { FinanceService } from '../finance/finance.service';
+import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 
 @Injectable()
 export class PurchaseService {
@@ -44,6 +45,7 @@ export class PurchaseService {
     private readonly costingService: CostingService,
     private readonly documentNumbering: DocumentNumberingService,
     private readonly financeService: FinanceService,
+    private readonly codeGen: CodeGenerationService,
   ) {}
 
   // ============================
@@ -736,30 +738,11 @@ export class PurchaseService {
       }
     }
 
-    // 2. Generate a clean material code from the name
-    const codeBase = cleanItemName
-      .replace(/[^a-zA-Z0-9\s]/g, '')
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 3)
-      .map((w) => w.substring(0, 3).toUpperCase())
-      .join('-');
-
-    const basePrefix = (codeBase || (materialType === 'RAW_MATERIAL' ? 'RM' : 'PM')).substring(0, 15);
-
-    // Check for code collisions and append unique suffix if needed
-    const tryCode = async (base: string, attempt: number = 0): Promise<string> => {
-      const suffix = attempt === 0 ? '' : `-${attempt}-${Math.floor(100 + Math.random() * 900)}`;
-      const code = `${base}${suffix}`.substring(0, 40);
-      const existing =
-        materialType === 'RAW_MATERIAL'
-          ? await this.prisma.rawMaterial.findFirst({ where: { companyId, materialCode: code } })
-          : await this.prisma.packingMaterial.findFirst({ where: { companyId, materialCode: code } });
-      if (existing) return tryCode(base, attempt + 1);
-      return code;
-    };
-
-    const materialCode = await tryCode(basePrefix);
+    const materialCode = await this.codeGen.generateCode({
+      companyId,
+      organizationId,
+      entityType: materialType,
+    });
     const baseUomId = await this.resolveUom(organizationId, unit, packing);
     const categoryId = await this.resolveCategory(organizationId, materialType);
 
@@ -804,7 +787,11 @@ export class PurchaseService {
           if (existing) {
             return { id: existing.id, materialCode: existing.materialCode, materialName: existing.materialName, type: 'RAW_MATERIAL' };
           }
-          const retryCode = `${basePrefix}-${Date.now().toString().slice(-6)}`;
+          const retryCode = await this.codeGen.generateCode({
+            companyId,
+            organizationId,
+            entityType: 'RAW_MATERIAL',
+          });
           const mat = await this.prisma.rawMaterial.create({
             data: {
               id: uuidv7(),
@@ -865,7 +852,11 @@ export class PurchaseService {
           if (existing) {
             return { id: existing.id, materialCode: existing.materialCode, materialName: existing.materialName, type: 'PACKING_MATERIAL' };
           }
-          const retryCode = `${basePrefix}-${Date.now().toString().slice(-6)}`;
+          const retryCode = await this.codeGen.generateCode({
+            companyId,
+            organizationId,
+            entityType: 'PACKING_MATERIAL',
+          });
           const mat = await this.prisma.packingMaterial.create({
             data: {
               id: uuidv7(),
@@ -1205,9 +1196,14 @@ export class PurchaseService {
     params: { name: string; code?: string; location?: string },
     actor: AuthUser,
   ) {
-    const code =
-      params.code ||
-      `WH-${params.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+    let code = (params.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId: actor.companyId,
+        organizationId: actor.organizationId,
+        entityType: 'WAREHOUSE',
+      });
+    }
 
     return this.prisma.warehouse.create({
       data: {

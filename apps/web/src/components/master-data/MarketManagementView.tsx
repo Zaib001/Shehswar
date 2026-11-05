@@ -110,16 +110,17 @@ export const MarketManagementView: React.FC = () => {
 
   // Handlers for Region
   const handleSaveRegion = async () => {
-    if (!regionForm.code || !regionForm.name) {
-      showToast({ title: 'Validation Error', message: 'Code and Name are required', type: 'error' });
+    if (!regionForm.name) {
+      showToast({ title: 'Validation Error', message: 'Region Name is required', type: 'error' });
       return;
     }
     try {
+      const payload = { ...regionForm, code: regionForm.code?.trim() || 'AUTO' };
       if (regionForm.id) {
-        await ApiClient.put(`/api/v1/master-data/regions/${regionForm.id}`, regionForm);
+        await ApiClient.put(`/api/v1/master-data/regions/${regionForm.id}`, payload);
         showToast({ title: 'Success', message: 'Region updated successfully', type: 'success' });
       } else {
-        await ApiClient.post('/api/v1/master-data/regions', regionForm);
+        await ApiClient.post('/api/v1/master-data/regions', payload);
         showToast({ title: 'Success', message: 'Region created successfully', type: 'success' });
       }
       setIsRegionModalOpen(false);
@@ -132,16 +133,17 @@ export const MarketManagementView: React.FC = () => {
 
   // Handlers for Zone
   const handleSaveZone = async () => {
-    if (!zoneForm.code || !zoneForm.name || !zoneForm.regionId) {
-      showToast({ title: 'Validation Error', message: 'Code, Name, and Region are required', type: 'error' });
+    if (!zoneForm.name || !zoneForm.regionId) {
+      showToast({ title: 'Validation Error', message: 'Zone Name and Region are required', type: 'error' });
       return;
     }
     try {
+      const payload = { ...zoneForm, code: zoneForm.code?.trim() || 'AUTO' };
       if (zoneForm.id) {
-        await ApiClient.put(`/api/v1/master-data/zones/${zoneForm.id}`, zoneForm);
+        await ApiClient.put(`/api/v1/master-data/zones/${zoneForm.id}`, payload);
         showToast({ title: 'Success', message: 'Zone updated successfully', type: 'success' });
       } else {
-        await ApiClient.post('/api/v1/master-data/zones', zoneForm);
+        await ApiClient.post('/api/v1/master-data/zones', payload);
         showToast({ title: 'Success', message: 'Zone created successfully', type: 'success' });
       }
       setIsZoneModalOpen(false);
@@ -154,16 +156,17 @@ export const MarketManagementView: React.FC = () => {
 
   // Handlers for Territory
   const handleSaveTerritory = async () => {
-    if (!territoryForm.code || !territoryForm.name || !territoryForm.zoneId) {
-      showToast({ title: 'Validation Error', message: 'Code, Name, and Zone are required', type: 'error' });
+    if (!territoryForm.name || !territoryForm.zoneId) {
+      showToast({ title: 'Validation Error', message: 'Territory Name and Zone are required', type: 'error' });
       return;
     }
     try {
+      const payload = { ...territoryForm, code: territoryForm.code?.trim() || 'AUTO' };
       if (territoryForm.id) {
-        await ApiClient.put(`/api/v1/master-data/territories/${territoryForm.id}`, territoryForm);
+        await ApiClient.put(`/api/v1/master-data/territories/${territoryForm.id}`, payload);
         showToast({ title: 'Success', message: 'Territory updated successfully', type: 'success' });
       } else {
-        await ApiClient.post('/api/v1/master-data/territories', territoryForm);
+        await ApiClient.post('/api/v1/master-data/territories', payload);
         showToast({ title: 'Success', message: 'Territory created successfully', type: 'success' });
       }
       setIsTerritoryModalOpen(false);
@@ -613,6 +616,10 @@ export const MarketManagementView: React.FC = () => {
           <CardContent>
             <DataTable
               data={regions}
+              onRowDoubleClick={(r: any) => {
+                setRegionForm({ id: r.id, code: r.code, name: r.name, managerId: r.managerId || '' });
+                setIsRegionModalOpen(true);
+              }}
               columns={[
                 { key: 'code', header: 'Region Code', render: (r: any) => <strong style={{ color: '#2563eb' }}>{r.code}</strong> },
                 { key: 'name', header: 'Region Name', render: (r: any) => <strong>{r.name}</strong> },
@@ -667,6 +674,10 @@ export const MarketManagementView: React.FC = () => {
           <CardContent>
             <DataTable
               data={zones}
+              onRowDoubleClick={(z: any) => {
+                setZoneForm({ id: z.id, code: z.code, name: z.name, regionId: z.regionId, managerId: z.managerId || '' });
+                setIsZoneModalOpen(true);
+              }}
               columns={[
                 { key: 'code', header: 'Zone Code', render: (z: any) => <strong style={{ color: '#059669' }}>{z.code}</strong> },
                 { key: 'name', header: 'Zone Name', render: (z: any) => <strong>{z.name}</strong> },
@@ -722,6 +733,10 @@ export const MarketManagementView: React.FC = () => {
           <CardContent>
             <DataTable
               data={territories}
+              onRowDoubleClick={(t: any) => {
+                setTerritoryForm({ id: t.id, code: t.code, name: t.name, zoneId: t.zoneId, managerId: t.managerId || '' });
+                setIsTerritoryModalOpen(true);
+              }}
               columns={[
                 { key: 'code', header: 'Territory Code', render: (t: any) => <strong style={{ color: '#d97706' }}>{t.code}</strong> },
                 { key: 'name', header: 'Territory Name', render: (t: any) => <strong>{t.name}</strong> },
@@ -866,10 +881,11 @@ export const MarketManagementView: React.FC = () => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <Input
-            label="Region Code *"
-            value={regionForm.code}
+            label="Region Code (Auto-Generated by Backend)"
+            value={regionForm.code || '(Auto Generated)'}
             onChange={(e) => setRegionForm({ ...regionForm, code: e.target.value })}
-            placeholder="e.g. REG-WEST"
+            placeholder="Auto Generated (e.g. REG-000001)"
+            disabled={true}
           />
           <Input
             label="Region Name *"
@@ -912,10 +928,11 @@ export const MarketManagementView: React.FC = () => {
             ]}
           />
           <Input
-            label="Zone Code *"
-            value={zoneForm.code}
+            label="Zone Code (Auto-Generated by Backend)"
+            value={zoneForm.code || '(Auto Generated)'}
             onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value })}
-            placeholder="e.g. ZONE-FSD"
+            placeholder="Auto Generated (e.g. ZONE-000001)"
+            disabled={true}
           />
           <Input
             label="Zone Name *"
@@ -958,10 +975,11 @@ export const MarketManagementView: React.FC = () => {
             ]}
           />
           <Input
-            label="Territory Code *"
-            value={territoryForm.code}
+            label="Territory Code (Auto-Generated by Backend)"
+            value={territoryForm.code || '(Auto Generated)'}
             onChange={(e) => setTerritoryForm({ ...territoryForm, code: e.target.value })}
-            placeholder="e.g. TERR-FSD-01"
+            placeholder="Auto Generated (e.g. TER-000001)"
+            disabled={true}
           />
           <Input
             label="Territory Name *"

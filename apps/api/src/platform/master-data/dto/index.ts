@@ -413,8 +413,8 @@ export class CreateWarehouseDto {
   branchId?: string;
 
   @IsString()
-  @IsNotEmpty()
-  code!: string;
+  @IsOptional()
+  code?: string;
 
   @IsString()
   @IsNotEmpty()

@@ -1345,7 +1345,11 @@ export const DealersView: React.FC = () => {
         <TableSkeleton rows={8} columns={9} />
       ) : (
         <>
-          <DataTable data={filteredDealers} columns={columns} />
+          <DataTable
+            data={filteredDealers}
+            columns={columns}
+            onRowDoubleClick={(d) => handleOpenEdit(d)}
+          />
           {renderActionPortal()}
         </>
       )}

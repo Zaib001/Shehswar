@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { ListPageTemplate, FormPageTemplate } from '../templates';
-import { Card, CardContent, Button, Input, Select, DataTable, KpiCard, StatusBadge, TableSkeleton, EmptyState, ErrorState } from '../ui';
+import { Card, CardContent, Button, Input, Select, DataTable, KpiCard, StatusBadge, TableSkeleton, EmptyState, ErrorState, SearchableCombobox } from '../ui';
 import { useToast } from '../../context/toast-context';
 import { IconPackage, IconPlus, IconRefresh, IconDownload, IconEdit, IconCheck, IconTrash } from '../icons';
 
@@ -71,6 +71,80 @@ export const RawMaterialsView: React.FC = () => {
     standardCost: '',
     isActive: true,
   });
+
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [newCategoryData, setNewCategoryData] = useState({ name: '', description: '' });
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+
+  const [isAddUomOpen, setIsAddUomOpen] = useState(false);
+  const [newUomData, setNewUomData] = useState({ name: '', symbol: '', category: 'WEIGHT' });
+  const [isSavingUom, setIsSavingUom] = useState(false);
+
+  const handleCreateCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newCategoryData.name.trim()) {
+      showToast({ title: 'Validation Error', message: 'Category Name is required', type: 'error' });
+      return;
+    }
+    setIsSavingCategory(true);
+    try {
+      const res = await ApiClient.post<any>('/api/v1/master-data/material-categories', {
+        name: newCategoryData.name.trim(),
+        description: newCategoryData.description.trim() || undefined,
+        categoryType: 'RAW_MATERIAL',
+        code: 'AUTO',
+      });
+      const createdCat = res.data;
+      showToast({ title: 'Category Created', message: `${createdCat.name} was added`, type: 'success' });
+      const catRes = await ApiClient.get<any[]>('/api/v1/master-data/material-categories');
+      setCategories(catRes.data || []);
+      setFormData((prev) => ({ ...prev, categoryId: createdCat.id }));
+      setIsAddCategoryOpen(false);
+      setNewCategoryData({ name: '', description: '' });
+      setTimeout(() => {
+        document.getElementById('field-rm-uom')?.focus();
+      }, 100);
+    } catch (err: any) {
+      showToast({ title: 'Failed to create category', message: err.message || 'Error creating category', type: 'error' });
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
+
+  const handleCreateUom = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newUomData.name.trim() || !newUomData.symbol.trim()) {
+      showToast({ title: 'Validation Error', message: 'UOM Name and Symbol are required', type: 'error' });
+      return;
+    }
+    setIsSavingUom(true);
+    try {
+      const res = await ApiClient.post<any>('/api/v1/master-data/uoms', {
+        name: newUomData.name.trim(),
+        symbol: newUomData.symbol.trim(),
+        category: newUomData.category,
+        code: newUomData.symbol.toUpperCase().trim(),
+      });
+      const createdUom = res.data;
+      showToast({ title: 'UOM Created', message: `${createdUom.name} (${createdUom.symbol}) was added`, type: 'success' });
+      const uomRes = await ApiClient.get<any[]>('/api/v1/master-data/uoms');
+      setUoms(uomRes.data || []);
+      setFormData((prev) => ({
+        ...prev,
+        uomId: createdUom.id,
+        purchaseUomId: prev.purchaseUomId || createdUom.id,
+      }));
+      setIsAddUomOpen(false);
+      setNewUomData({ name: '', symbol: '', category: 'WEIGHT' });
+      setTimeout(() => {
+        document.getElementById('field-rm-cost')?.focus();
+      }, 100);
+    } catch (err: any) {
+      showToast({ title: 'Failed to create UOM', message: err.message || 'Error creating UOM', type: 'error' });
+    } finally {
+      setIsSavingUom(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -144,7 +218,7 @@ export const RawMaterialsView: React.FC = () => {
       return;
     }
 
-    const finalCode = (formData.code || `RM-${String(materials.length + 1).padStart(3, '0')}`).trim().toUpperCase();
+    const finalCode = (formData.code || 'AUTO').trim().toUpperCase();
     const finalUomId = formData.uomId || uoms.find((u) => /kg|liter|ltr/i.test(u.name))?.id || uoms[0]?.id;
     const finalCategoryId = formData.categoryId || rawCategories[0]?.id || categories[0]?.id;
 
@@ -387,157 +461,299 @@ export const RawMaterialsView: React.FC = () => {
 
   if (mode === 'create' || mode === 'edit') {
     return (
-      <FormPageTemplate
-        title={mode === 'create' ? 'Register Raw Material' : `Edit — ${selectedMaterial?.name}`}
-        subtitle="Raw material master record: chemicals, agricultural inputs, and process materials"
-        breadcrumbs={[
-          { label: 'Master Data', href: '#' },
-          { label: 'Raw Materials', href: '#' },
-          { label: mode === 'create' ? 'New Material' : 'Edit' },
-        ]}
-        onSave={handleSave}
-        onCancel={() => setMode('list')}
-        isSaving={isSaving}
-        sections={[
-          {
-            title: '1. Primary Material Details (Quick Entry)',
-            fields: [
-              {
-                label: 'Material Name *',
-                required: true,
-                field: (
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g. FOOD, Chlorpyrifos Technical, Solvent"
-                    autoFocus
-                  />
-                ),
-              },
-              {
-                label: 'Standard Cost / Purchase Price (PKR) *',
-                required: true,
-                field: (
-                  <Input
-                    type="number"
-                    step="any"
-                    value={formData.standardCost}
-                    onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
-                    placeholder="e.g. 400000"
-                    style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}
-                  />
-                ),
-              },
-              {
-                label: 'Unit of Measure (UOM) *',
-                required: true,
-                field: (
-                  <Select
-                    value={formData.uomId}
-                    onChange={(e) => {
-                      const newBase = e.target.value;
-                      setFormData({
-                        ...formData,
-                        uomId: newBase,
-                        purchaseUomId: formData.purchaseUomId || newBase,
-                      });
-                    }}
-                    options={[
-                      { value: '', label: 'Select Unit (e.g. Kg, Liter)' },
-                      ...uoms.map((u) => ({ value: u.id, label: `${u.name} (${u.symbol || u.code})` })),
-                    ]}
-                  />
-                ),
-              },
-              {
-                label: 'Material Code (Auto-generated)',
-                field: (
-                  <Input
-                    value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    placeholder="Auto-generated e.g. RM-001"
-                    style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}
-                  />
-                ),
-              },
-            ],
-          },
-          {
-            title: '2. Classification & Technical Attributes (Optional)',
-            fields: [
-              {
-                label: 'Material Category',
-                field: (
-                  <Select
-                    value={formData.categoryId || rawCategories[0]?.id || ''}
-                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                    options={[
-                      ...rawCategories.map((c) => ({
+      <>
+        <FormPageTemplate
+          title={mode === 'create' ? 'Register Raw Material' : `Edit — ${selectedMaterial?.name}`}
+          subtitle="Keyboard-first fast entry: Type Name -> Category -> UoM -> Rate/Cost -> Grade -> Enter to Save"
+          breadcrumbs={[
+            { label: 'Master Data', href: '#' },
+            { label: 'Raw Materials', href: '#' },
+            { label: mode === 'create' ? 'New Material' : 'Edit' },
+          ]}
+          onSave={handleSave}
+          onCancel={() => setMode('list')}
+          isSaving={isSaving}
+          sections={[
+            {
+              title: '1. Primary Material Details (Keyboard Flow)',
+              fields: [
+                {
+                  label: 'Material Name *',
+                  required: true,
+                  field: (
+                    <Input
+                      id="field-rm-name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          document.getElementById('field-rm-category')?.focus();
+                        }
+                      }}
+                      placeholder="e.g. FOOD, Chlorpyrifos Technical, Solvent (Press Enter for Category)"
+                      autoFocus
+                    />
+                  ),
+                },
+                {
+                  label: 'Material Category *',
+                  required: true,
+                  field: (
+                    <SearchableCombobox
+                      id="field-rm-category"
+                      value={formData.categoryId || (rawCategories[0]?.id ?? '')}
+                      onChange={(val) => setFormData({ ...formData, categoryId: val })}
+                      options={rawCategories.map((c) => ({
                         value: c.id,
                         label: c.code ? `${c.code} — ${c.name}` : c.name,
-                      })),
+                      }))}
+                      placeholder="Type to search category..."
+                      addNewLabel="+ Add Material Category"
+                      onAddNew={() => setIsAddCategoryOpen(true)}
+                      nextFocusId="field-rm-uom"
+                    />
+                  ),
+                },
+                {
+                  label: 'Base Unit of Measure (UOM) *',
+                  required: true,
+                  field: (
+                    <SearchableCombobox
+                      id="field-rm-uom"
+                      value={formData.uomId}
+                      onChange={(val) => {
+                        setFormData({
+                          ...formData,
+                          uomId: val,
+                          purchaseUomId: formData.purchaseUomId || val,
+                        });
+                      }}
+                      options={uoms.map((u) => ({
+                        value: u.id,
+                        label: `${u.name} (${u.symbol || u.code})`,
+                      }))}
+                      placeholder="Type to search Unit (e.g. Kg, Liter)..."
+                      addNewLabel="+ Add UoM"
+                      onAddNew={() => setIsAddUomOpen(true)}
+                      nextFocusId="field-rm-cost"
+                    />
+                  ),
+                },
+                {
+                  label: 'Standard Cost / Purchase Price (PKR) *',
+                  required: true,
+                  field: (
+                    <Input
+                      id="field-rm-cost"
+                      type="number"
+                      step="any"
+                      value={formData.standardCost}
+                      onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          document.getElementById('field-rm-grade')?.focus();
+                        }
+                      }}
+                      placeholder="e.g. 400000 (Press Enter for Grade)"
+                      style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                    />
+                  ),
+                },
+                {
+                  label: 'Grade / Quality',
+                  field: (
+                    <Input
+                      id="field-rm-grade"
+                      value={formData.grade}
+                      onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSave();
+                        }
+                      }}
+                      placeholder="e.g. Technical Grade, Food (Press Enter to Save)"
+                    />
+                  ),
+                },
+                {
+                  label: 'Material Code (Backend Auto-Generated)',
+                  field: (
+                    <Input
+                      value={formData.code || 'AUTO (Generated sequentially by Backend)'}
+                      disabled
+                      placeholder="Auto-generated e.g. RM-000001"
+                      style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, background: '#f8fafc', color: '#64748b' }}
+                    />
+                  ),
+                },
+              ],
+            },
+            {
+              title: '2. Classification & Technical Attributes (Optional)',
+              fields: [
+                {
+                  label: 'Storage Requirements',
+                  field: (
+                    <Input
+                      value={formData.storageRequirements}
+                      onChange={(e) => setFormData({ ...formData, storageRequirements: e.target.value })}
+                      placeholder="e.g. Cool, dry ventilated bay, keep below 30°C"
+                    />
+                  ),
+                },
+                {
+                  label: 'Hazardous Material',
+                  field: (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem 0' }}>
+                      <input
+                        type="checkbox"
+                        checked={formData.isHazardous}
+                        onChange={(e) => setFormData({ ...formData, isHazardous: e.target.checked })}
+                      />
+                      <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Classified as hazardous / dangerous goods</span>
+                    </label>
+                  ),
+                },
+                {
+                  label: 'Minimum Stock Level',
+                  field: (
+                    <Input
+                      type="number"
+                      value={formData.minStock}
+                      onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
+                      placeholder="e.g. 0"
+                    />
+                  ),
+                },
+                {
+                  label: 'Description / Remarks',
+                  field: (
+                    <Input
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="Optional notes or formulation details"
+                    />
+                  ),
+                },
+              ],
+            },
+          ]}
+        />
+
+        {isAddCategoryOpen && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100,
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '12px', padding: '24px', maxWidth: '440px', width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                + Add Material Category
+              </h3>
+              <form onSubmit={handleCreateCategory}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                    Category Name *
+                  </label>
+                  <Input
+                    value={newCategoryData.name}
+                    onChange={(e) => setNewCategoryData({ ...newCategoryData, name: e.target.value })}
+                    placeholder="e.g. Solvents, Emulsifiers, Technicals"
+                    autoFocus
+                  />
+                </div>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                    Description (Optional)
+                  </label>
+                  <Input
+                    value={newCategoryData.description}
+                    onChange={(e) => setNewCategoryData({ ...newCategoryData, description: e.target.value })}
+                    placeholder="Category description"
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <Button variant="secondary" type="button" onClick={() => setIsAddCategoryOpen(false)} disabled={isSavingCategory}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" type="submit" disabled={isSavingCategory}>
+                    {isSavingCategory ? 'Saving...' : 'Save & Select'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {isAddUomOpen && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100,
+          }}>
+            <div style={{
+              background: 'white', borderRadius: '12px', padding: '24px', maxWidth: '440px', width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                + Add Unit of Measure (UOM)
+              </h3>
+              <form onSubmit={handleCreateUom}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                    UOM Name *
+                  </label>
+                  <Input
+                    value={newUomData.name}
+                    onChange={(e) => setNewUomData({ ...newUomData, name: e.target.value })}
+                    placeholder="e.g. Kilogram, Litre, Gram"
+                    autoFocus
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                    UOM Symbol *
+                  </label>
+                  <Input
+                    value={newUomData.symbol}
+                    onChange={(e) => setNewUomData({ ...newUomData, symbol: e.target.value })}
+                    placeholder="e.g. kg, L, gm"
+                  />
+                </div>
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px' }}>
+                    Category
+                  </label>
+                  <Select
+                    value={newUomData.category}
+                    onChange={(e) => setNewUomData({ ...newUomData, category: e.target.value })}
+                    options={[
+                      { value: 'WEIGHT', label: 'Weight' },
+                      { value: 'VOLUME', label: 'Volume' },
+                      { value: 'UNIT', label: 'Unit / Piece' },
+                      { value: 'LENGTH', label: 'Length' },
                     ]}
                   />
-                ),
-              },
-              {
-                label: 'Grade / Quality',
-                field: (
-                  <Input
-                    value={formData.grade}
-                    onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
-                    placeholder="e.g. Technical Grade, Food"
-                  />
-                ),
-              },
-              {
-                label: 'Description / Remarks',
-                field: (
-                  <Input
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Optional notes or formulation details"
-                  />
-                ),
-              },
-              {
-                label: 'Storage Requirements',
-                field: (
-                  <Input
-                    value={formData.storageRequirements}
-                    onChange={(e) => setFormData({ ...formData, storageRequirements: e.target.value })}
-                    placeholder="e.g. Cool, dry ventilated bay, keep below 30°C"
-                  />
-                ),
-              },
-              {
-                label: 'Hazardous Material',
-                field: (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem 0' }}>
-                    <input
-                      type="checkbox"
-                      checked={formData.isHazardous}
-                      onChange={(e) => setFormData({ ...formData, isHazardous: e.target.checked })}
-                    />
-                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>Classified as hazardous / dangerous goods</span>
-                  </label>
-                ),
-              },
-              {
-                label: 'Minimum Stock Level',
-                field: (
-                  <Input
-                    type="number"
-                    value={formData.minStock}
-                    onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
-                    placeholder="e.g. 0"
-                  />
-                ),
-              },
-            ],
-          },
-        ]}
-      />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <Button variant="secondary" type="button" onClick={() => setIsAddUomOpen(false)} disabled={isSavingUom}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" type="submit" disabled={isSavingUom}>
+                    {isSavingUom ? 'Saving...' : 'Save & Select'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -550,10 +766,9 @@ export const RawMaterialsView: React.FC = () => {
         label: 'Register Material',
         icon: <IconPlus size={16} />,
         onClick: () => {
-          const autoCode = `RM-${String(materials.length + 1).padStart(3, '0')}`;
           const defaultUom = uoms.find((u) => /kg|liter|ltr/i.test(u.name))?.id || uoms[0]?.id || '';
           setFormData({
-            code: autoCode,
+            code: '',
             name: '',
             description: '',
             categoryId: rawCategories[0]?.id || categories[0]?.id || '',
@@ -622,7 +837,32 @@ export const RawMaterialsView: React.FC = () => {
           onAction={searchQuery ? () => { setSearchQuery(''); setCategoryFilter('ALL'); } : undefined}
         />
       ) : (
-        <DataTable columns={columns} data={filtered} />
+        <DataTable
+          columns={columns}
+          data={filtered}
+          onRowDoubleClick={(row: RawMaterial) => {
+            setSelectedMaterial(row);
+            setFormData({
+              code: row.code,
+              name: row.name,
+              description: row.description || '',
+              categoryId: row.categoryId,
+              uomId: row.uomId,
+              purchaseUomId: row.purchaseUomId || row.uomId,
+              purchaseConversionFactor: row.purchaseConversionFactor ? row.purchaseConversionFactor.toString() : '1',
+              grade: row.grade || '',
+              specifications: row.specifications || '',
+              minStock: row.minStock !== undefined ? row.minStock.toString() : '',
+              reorderPoint: row.reorderPoint !== undefined ? row.reorderPoint.toString() : '',
+              leadTimeDays: row.leadTimeDays !== undefined ? row.leadTimeDays.toString() : '',
+              isHazardous: row.isHazardous,
+              storageRequirements: row.storageRequirements || '',
+              standardCost: row.standardCost !== undefined ? row.standardCost.toString() : '',
+              isActive: row.isActive,
+            });
+            setMode('edit');
+          }}
+        />
       )}
 
       {deletingMaterial && (

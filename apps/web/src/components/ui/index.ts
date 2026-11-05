@@ -21,3 +21,4 @@ export * from './EmptyState';
 export * from './ErrorState';
 export * from './FileUpload';
 export * from './DataTable';
+export * from './SearchableCombobox';

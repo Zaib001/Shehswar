@@ -15,6 +15,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { AuditService } from '../../platform/audit/audit.service';
 import { ApprovalEngineService } from '../../platform/approvals/approval-engine.service';
 import { NotificationService } from '../../platform/notifications/notification.service';
+import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 import { uuidv7 } from '@shehswar/shared';
 import {
   CreateVendorDto,
@@ -34,6 +35,7 @@ export class VendorService {
     private readonly auditService: AuditService,
     private readonly approvalEngine: ApprovalEngineService,
     private readonly notificationService: NotificationService,
+    private readonly codeGen: CodeGenerationService,
   ) {}
 
   /**
@@ -47,17 +49,26 @@ export class VendorService {
       throw new BadRequestException('Organization and Company context are required to create a Vendor');
     }
 
+    let code = (dto.code || '').trim().toUpperCase();
+    if (!code || code === 'AUTO') {
+      code = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'VENDOR',
+      });
+    }
+
     // 1. Duplicate code validation within company
     const existingCode = await this.prisma.vendor.findFirst({
       where: {
         companyId,
-        code: dto.code,
+        code,
       },
     });
 
     if (existingCode) {
       throw new ConflictException(
-        `Vendor with code '${dto.code}' already exists in this company.`,
+        `Vendor with code '${code}' already exists in this company.`,
       );
     }
 
@@ -85,7 +96,7 @@ export class VendorService {
         id: vendorId,
         organizationId,
         companyId,
-        code: dto.code,
+        code: code,
         name: dto.name,
         legalName: dto.legalName,
         vendorType: dto.vendorType,

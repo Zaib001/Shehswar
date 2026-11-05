@@ -579,7 +579,17 @@ export function DataTable<T extends Record<string, any>>({
                   <tr
                     key={id}
                     onClick={() => onRowClick?.(item)}
-                    onDoubleClick={() => onRowDoubleClick?.(item)}
+                    onDoubleClick={(e) => {
+                      const target = e.target as HTMLElement | null;
+                      if (target && target.closest('button, a, input, select, textarea, [role="button"], [role="checkbox"], .no-row-dblclick')) {
+                        return;
+                      }
+                      const sel = window.getSelection();
+                      if (sel && sel.toString().trim().length > 0) {
+                        return;
+                      }
+                      onRowDoubleClick?.(item);
+                    }}
                     title={onRowDoubleClick ? 'Double-click to edit record' : undefined}
                     className="modern-table-row"
                     style={{
@@ -662,7 +672,17 @@ export function DataTable<T extends Record<string, any>>({
               <div
                 key={id}
                 onClick={() => onRowClick?.(item)}
-                onDoubleClick={() => onRowDoubleClick?.(item)}
+                onDoubleClick={(e) => {
+                  const target = e.target as HTMLElement | null;
+                  if (target && target.closest('button, a, input, select, textarea, [role="button"], [role="checkbox"], .no-row-dblclick')) {
+                    return;
+                  }
+                  const sel = window.getSelection();
+                  if (sel && sel.toString().trim().length > 0) {
+                    return;
+                  }
+                  onRowDoubleClick?.(item);
+                }}
                 title={onRowDoubleClick ? 'Double-click to edit record' : undefined}
                 className="modern-hover-card"
                 style={{
