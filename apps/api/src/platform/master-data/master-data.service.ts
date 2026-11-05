@@ -943,8 +943,33 @@ export class MasterDataService {
   async deleteWarehouse(id: string, actor: { id: string; email?: string }) {
     const wh = await this.findOneWarehouse(id);
     await this.prisma.$transaction(async (tx) => {
+      // 1. Unlink nullable references
+      await tx.purchaseOrder.updateMany({ where: { warehouseId: id }, data: { warehouseId: null } });
+      await tx.salesOrder.updateMany({ where: { warehouseId: id }, data: { warehouseId: null } });
+
+      // 2. Reassign non-nullable transaction references to a sibling warehouse if one exists
+      const fallback = await tx.warehouse.findFirst({ where: { companyId: wh.companyId, id: { not: id } } });
+      if (fallback) {
+        await tx.goodsReceiptNote.updateMany({ where: { warehouseId: id }, data: { warehouseId: fallback.id } });
+        await tx.purchaseInvoice.updateMany({ where: { warehouseId: id }, data: { warehouseId: fallback.id } });
+        await tx.purchaseReturn.updateMany({ where: { warehouseId: id }, data: { warehouseId: fallback.id } });
+        await tx.salesInvoice.updateMany({ where: { warehouseId: id }, data: { warehouseId: fallback.id } });
+        await tx.salesReturn.updateMany({ where: { warehouseId: id }, data: { warehouseId: fallback.id } });
+      } else {
+        // No other warehouse exists in the company: purge dependent transaction records (items cascade automatically)
+        await tx.goodsReceiptNote.deleteMany({ where: { warehouseId: id } });
+        await tx.purchaseInvoice.deleteMany({ where: { warehouseId: id } });
+        await tx.purchaseReturn.deleteMany({ where: { warehouseId: id } });
+        await tx.salesInvoice.deleteMany({ where: { warehouseId: id } });
+        await tx.salesReturn.deleteMany({ where: { warehouseId: id } });
+      }
+
+      // 3. Delete stock ledger entries, warehouse stocks, and locations
+      await tx.stockLedgerEntry.deleteMany({ where: { warehouseId: id } });
       await tx.warehouseStock.deleteMany({ where: { warehouseId: id } });
       await tx.warehouseLocation.deleteMany({ where: { warehouseId: id } });
+
+      // 4. Finally delete the warehouse
       await tx.warehouse.delete({ where: { id } });
     });
     await this.auditService.record({
@@ -960,6 +985,24 @@ export class MasterDataService {
       correlationId: uuidv7(),
     });
     return { success: true, message: `Warehouse ${wh.name} deleted.` };
+  }
+
+  async deleteBulkWarehouses(ids: string[], actor: { id: string; email?: string }) {
+    if (!ids || ids.length === 0) return { success: true, count: 0 };
+    for (const id of ids) {
+      await this.deleteWarehouse(id, actor);
+    }
+    return { success: true, count: ids.length };
+  }
+
+  async deleteAllWarehouses(companyId?: string, actor?: { id: string; email?: string }) {
+    const where: any = {};
+    if (companyId) where.companyId = companyId;
+    const warehouses = await this.prisma.warehouse.findMany({ where, select: { id: true } });
+    for (const wh of warehouses) {
+      await this.deleteWarehouse(wh.id, actor || { id: 'system' });
+    }
+    return { success: true, count: warehouses.length };
   }
 
   // ==========================================

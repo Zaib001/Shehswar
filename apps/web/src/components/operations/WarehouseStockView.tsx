@@ -21,7 +21,7 @@ import {
   TableSkeleton,
   EmptyState,
 } from '../ui';
-import { IconRefresh } from '../icons';
+import { IconRefresh, IconTrash } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 
@@ -46,9 +46,11 @@ export const WarehouseStockView: React.FC = () => {
   const [stocks, setStocks] = useState<WarehouseStockRecord[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [warehouseFilter, setWarehouseFilter] = useState('ALL');
   const [itemTypeFilter, setItemTypeFilter] = useState('ALL');
+  const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -94,6 +96,112 @@ export const WarehouseStockView: React.FC = () => {
     return matchesSearch && matchesWh && matchesType;
   });
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedStockIds(filteredStocks.map((s) => s.id));
+    } else {
+      setSelectedStockIds([]);
+    }
+  };
+
+  const handleToggleSelectStock = (id: string) => {
+    setSelectedStockIds((prev) =>
+      prev.includes(id) ? prev.filter((sId) => sId !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteStockItem = async (s: WarehouseStockRecord) => {
+    const name =
+      s.rawMaterial?.materialName ||
+      s.packingMaterial?.materialName ||
+      s.finishedProduct?.productName ||
+      'Item';
+    const whName = s.warehouse?.name || 'Warehouse';
+    if (!window.confirm(`Are you sure you want to permanently delete/clear the stock record for "${name}" from "${whName}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsActionLoading(true);
+      await ApiClient.delete(`/api/v1/warehouse-stock/${s.id}`);
+      showToast({
+        title: 'Stock Removed',
+        message: `Stock entry for ${name} has been deleted.`,
+        type: 'success',
+      });
+      setSelectedStockIds((prev) => prev.filter((id) => id !== s.id));
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Deletion Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete stock item',
+        type: 'error',
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleDeleteSelectedStock = async () => {
+    if (selectedStockIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently delete the ${selectedStockIds.length} selected stock records? This will clear stock levels for these items.`)) {
+      return;
+    }
+
+    try {
+      setIsActionLoading(true);
+      await ApiClient.delete('/api/v1/warehouse-stock/bulk', {
+        ids: selectedStockIds,
+      });
+      showToast({
+        title: 'Bulk Stock Delete Successful',
+        message: `${selectedStockIds.length} stock records deleted.`,
+        type: 'success',
+      });
+      setSelectedStockIds([]);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Bulk Deletion Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete selected stock records',
+        type: 'error',
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handlePurgeAllStock = async () => {
+    const whLabel = warehouseFilter !== 'ALL'
+      ? `in selected warehouse "${warehouses.find((w) => w.id === warehouseFilter)?.name || warehouseFilter}"`
+      : 'across ALL warehouses';
+
+    if (!window.confirm(`⚠️ WARNING: Are you sure you want to PURGE AND CLEAR ALL STOCK ${whLabel}? This will permanently remove all stock records and ledger movements. This action CANNOT be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsActionLoading(true);
+      const url = `/api/v1/warehouse-stock/purge/all${warehouseFilter !== 'ALL' ? `?warehouseId=${warehouseFilter}` : ''}`;
+      await ApiClient.delete(url);
+      showToast({
+        title: 'All Stock Purged',
+        message: `Inventory stock has been completely reset.`,
+        type: 'success',
+      });
+      setSelectedStockIds([]);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Purge Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to purge stock',
+        type: 'error',
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   // KPIs
   const totalItemsCount = stocks.length;
   const rawMaterialValuation = stocks
@@ -108,6 +216,26 @@ export const WarehouseStockView: React.FC = () => {
   const totalValuation = rawMaterialValuation + packingValuation + finishedGoodsValuation;
 
   const columns: ColumnDef<WarehouseStockRecord>[] = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={filteredStocks.length > 0 && selectedStockIds.length === filteredStocks.length}
+          onChange={(e) => handleSelectAll(e.target.checked)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+          title="Select All Stock Items"
+        />
+      ),
+      render: (s) => (
+        <input
+          type="checkbox"
+          checked={selectedStockIds.includes(s.id)}
+          onChange={() => handleToggleSelectStock(s.id)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+        />
+      ),
+    },
     {
       key: 'code',
       header: 'Item Code',
@@ -176,6 +304,22 @@ export const WarehouseStockView: React.FC = () => {
         );
       },
     },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (s) => (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isActionLoading}
+          onClick={() => handleDeleteStockItem(s)}
+          style={{ color: '#ef4444', borderColor: '#fca5a5', padding: '4px 8px', fontSize: '11px' }}
+          title="Delete Stock Record"
+        >
+          <IconTrash size={13} /> Delete Stock
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -183,9 +327,19 @@ export const WarehouseStockView: React.FC = () => {
       title="Warehouse Stock & Inventory"
       subtitle="The centralized live inventory ledger. Reflects stock movements from Purchases, Sales, and Returns."
       actions={
-        <Button variant="secondary" onClick={loadData}>
-          <IconRefresh size={16} /> Refresh Stock Levels
-        </Button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Button variant="secondary" onClick={loadData} disabled={isActionLoading}>
+            <IconRefresh size={16} /> Refresh Stock Levels
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handlePurgeAllStock}
+            disabled={isActionLoading || stocks.length === 0}
+            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+          >
+            <IconTrash size={16} /> Purge All Stock
+          </Button>
+        </div>
       }
     >
       {/* Valuation KPIs */}
@@ -218,6 +372,44 @@ export const WarehouseStockView: React.FC = () => {
           subtitle="Cartons, bottles, labels"
         />
       </div>
+
+      {/* Bulk Action Toolbar */}
+      {selectedStockIds.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>
+            ✓ {selectedStockIds.length} stock {selectedStockIds.length === 1 ? 'item' : 'items'} selected
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedStockIds([])}
+              style={{ fontSize: '12px' }}
+            >
+              Deselect All
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDeleteSelectedStock}
+              disabled={isActionLoading}
+              style={{ backgroundColor: '#dc2626', color: '#ffffff', borderColor: '#b91c1c', fontSize: '12px' }}
+            >
+              <IconTrash size={14} /> Delete Selected Stock ({selectedStockIds.length})
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>

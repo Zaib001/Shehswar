@@ -420,4 +420,19 @@ export class WarehouseStockController {
   async getProductsForSale(@CurrentUser() user: AuthUser) {
     return this.salesService.getProductsForSale(user.companyId);
   }
+
+  @Delete('bulk')
+  async deleteBulkStock(@Body('ids') ids: string[], @CurrentUser() user: AuthUser) {
+    return this.salesService.deleteBulkWarehouseStock(ids, user.companyId);
+  }
+
+  @Delete('purge/all')
+  async purgeAllStock(@CurrentUser() user: AuthUser, @Query('warehouseId') warehouseId?: string) {
+    return this.salesService.purgeAllWarehouseStock(user.companyId, warehouseId);
+  }
+
+  @Delete(':id')
+  async deleteStockRecord(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.salesService.deleteWarehouseStock(id, user.companyId);
+  }
 }

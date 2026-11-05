@@ -2706,6 +2706,73 @@ export class SalesService {
     });
   }
 
+  async deleteWarehouseStock(id: string, _companyId?: string) {
+    const stock = await this.prisma.warehouseStock.findUnique({
+      where: { id },
+    });
+    if (!stock) {
+      return { success: true, message: 'Stock record already deleted.' };
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.stockLedgerEntry.deleteMany({
+        where: {
+          warehouseId: stock.warehouseId,
+          rawMaterialId: stock.rawMaterialId,
+          packingMaterialId: stock.packingMaterialId,
+          finishedProductId: stock.finishedProductId,
+        },
+      });
+      await tx.warehouseStock.delete({
+        where: { id },
+      });
+    });
+    return { success: true, message: 'Stock item deleted successfully.' };
+  }
+
+  async deleteBulkWarehouseStock(ids: string[], companyId?: string) {
+    if (!ids || ids.length === 0) return { success: true, count: 0 };
+    const where: any = { id: { in: ids } };
+    if (companyId) where.companyId = companyId;
+    const stocks = await this.prisma.warehouseStock.findMany({ where });
+    await this.prisma.$transaction(async (tx) => {
+      for (const stock of stocks) {
+        await tx.stockLedgerEntry.deleteMany({
+          where: {
+            warehouseId: stock.warehouseId,
+            rawMaterialId: stock.rawMaterialId,
+            packingMaterialId: stock.packingMaterialId,
+            finishedProductId: stock.finishedProductId,
+          },
+        });
+      }
+      await tx.warehouseStock.deleteMany({
+        where: { id: { in: ids } },
+      });
+    });
+    return { success: true, count: stocks.length };
+  }
+
+  async purgeAllWarehouseStock(companyId?: string, warehouseId?: string) {
+    const where: any = {};
+    if (companyId) where.companyId = companyId;
+    if (warehouseId && warehouseId !== 'ALL') where.warehouseId = warehouseId;
+
+    const stocks = await this.prisma.warehouseStock.findMany({ where });
+    await this.prisma.$transaction(async (tx) => {
+      if (warehouseId && warehouseId !== 'ALL') {
+        await tx.stockLedgerEntry.deleteMany({ where: { warehouseId, ...(companyId ? { companyId } : {}) } });
+        await tx.warehouseStock.deleteMany({ where: { warehouseId, ...(companyId ? { companyId } : {}) } });
+      } else if (companyId) {
+        await tx.stockLedgerEntry.deleteMany({ where: { companyId } });
+        await tx.warehouseStock.deleteMany({ where: { companyId } });
+      } else {
+        await tx.stockLedgerEntry.deleteMany({});
+        await tx.warehouseStock.deleteMany({});
+      }
+    });
+    return { success: true, count: stocks.length };
+  }
+
   // ============================
   // SERIALIZERS
   // ============================

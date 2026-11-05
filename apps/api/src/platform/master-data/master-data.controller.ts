@@ -557,6 +557,28 @@ export class MasterDataController {
     });
   }
 
+  @Delete('warehouses/bulk')
+  async deleteBulkWarehouses(
+    @Body('ids') ids: string[],
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteBulkWarehouses(ids, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
+  @Delete('warehouses/purge/all')
+  async purgeAllWarehouses(
+    @Query('companyId') companyId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.masterDataService.deleteAllWarehouses(companyId, {
+      id: user?.id || 'system',
+      email: user?.email,
+    });
+  }
+
   @Delete('warehouses/:id')
   async deleteWarehouse(
     @Param('id') id: string,

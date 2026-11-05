@@ -47,6 +47,7 @@ export const WarehousesView: React.FC = () => {
   const [mode, setMode] = useState<'list' | 'detail' | 'create' | 'edit'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [selectedWarehouseIds, setSelectedWarehouseIds] = useState<string[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -101,7 +102,84 @@ export const WarehousesView: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
+  const handleSelectAll = (checked: boolean) => {
+    setSelectedWarehouseIds(checked ? filteredWarehouses.map((w) => w.id) : []);
+  };
+
+  const handleToggleSelectWarehouse = (id: string) => {
+    setSelectedWarehouseIds((prev) =>
+      prev.includes(id) ? prev.filter((wId) => wId !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedWarehouseIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to permanently delete the ${selectedWarehouseIds.length} selected warehouses? Associated stock and storage records will be cleared. This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await ApiClient.delete('/api/v1/master-data/warehouses/bulk', {
+        ids: selectedWarehouseIds,
+      });
+      showToast({
+        title: 'Bulk Delete Successful',
+        message: `${selectedWarehouseIds.length} warehouses deleted.`,
+        type: 'success',
+      });
+      setSelectedWarehouseIds([]);
+      await fetchData();
+    } catch (err: any) {
+      showToast({
+        title: 'Bulk Delete Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to delete selected warehouses',
+        type: 'error',
+      });
+    }
+  };
+
+  const handlePurgeAllWarehouses = async () => {
+    if (!window.confirm('⚠️ Are you sure you want to PURGE ALL WAREHOUSES? This will delete all warehouse silos and clear their stock. This cannot be undone.')) {
+      return;
+    }
+    try {
+      await ApiClient.delete('/api/v1/master-data/warehouses/purge/all');
+      showToast({
+        title: 'All Warehouses Purged',
+        message: 'All warehouse masters have been removed.',
+        type: 'success',
+      });
+      setSelectedWarehouseIds([]);
+      await fetchData();
+    } catch (err: any) {
+      showToast({
+        title: 'Purge Failed',
+        message: err?.response?.data?.message || err?.message || 'Failed to purge warehouses',
+        type: 'error',
+      });
+    }
+  };
+
   const columns: ColumnDef<WarehouseDto>[] = [
+    {
+      id: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={filteredWarehouses.length > 0 && selectedWarehouseIds.length === filteredWarehouses.length}
+          onChange={(e) => handleSelectAll(e.target.checked)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+          title="Select All Warehouses"
+        />
+      ),
+      cell: ({ row }: any) => (
+        <input
+          type="checkbox"
+          checked={selectedWarehouseIds.includes(row.original.id)}
+          onChange={() => handleToggleSelectWarehouse(row.original.id)}
+          style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+        />
+      ),
+    },
     {
       id: 'code',
       header: 'Warehouse Code',
@@ -665,6 +743,11 @@ export const WarehousesView: React.FC = () => {
           icon: <IconDownload size={16} />,
           onClick: () => showToast({ title: 'Export Generated', message: 'Warehouses exported to CSV', type: 'info' }),
         },
+        {
+          label: 'Purge All Warehouses',
+          icon: <IconTrash size={16} />,
+          onClick: handlePurgeAllWarehouses,
+        },
       ]}
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
@@ -700,6 +783,43 @@ export const WarehousesView: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Bulk Action Banner */}
+      {selectedWarehouseIds.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            padding: '10px 16px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+          }}
+        >
+          <div style={{ fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>
+            ✓ {selectedWarehouseIds.length} warehouse {selectedWarehouseIds.length === 1 ? 'silo' : 'silos'} selected
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedWarehouseIds([])}
+              style={{ fontSize: '12px' }}
+            >
+              Deselect All
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDeleteSelected}
+              style={{ backgroundColor: '#dc2626', color: '#ffffff', borderColor: '#b91c1c', fontSize: '12px' }}
+            >
+              <IconTrash size={14} /> Delete Selected Warehouses ({selectedWarehouseIds.length})
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <TableSkeleton rows={5} columns={6} />
