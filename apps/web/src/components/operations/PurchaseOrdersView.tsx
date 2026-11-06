@@ -2442,7 +2442,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                document.getElementById(`field-po-item-${idx}-input`)?.focus() || document.getElementById(`field-po-item-${idx}`)?.focus();
+                                document.getElementById(`field-po-item-${idx}`)?.focus();
                               }
                             }}
                             style={{
@@ -2469,56 +2469,94 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         {/* Item Name / Product Selection */}
                         <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <SearchableCombobox
-                              id={`field-po-item-${idx}`}
-                              value={item.materialId || ''}
-                              onChange={(val) => {
-                                if (val) {
-                                  updateItem(idx, 'materialId', val);
-                                } else {
-                                  updateItem(idx, 'materialId', '');
-                                  updateItem(idx, 'itemName', '');
-                                }
-                              }}
-                              options={
-                                item.materialType === 'FINISHED_PRODUCT'
-                                  ? finishedProducts.map((p) => ({
-                                      value: p.id,
-                                      label: `[${p.productCode}] ${p.productName}${p.packSize ? ` (${p.packSize})` : ''}`,
-                                      subtext: p.packSize ? `Pack: ${p.packSize}` : undefined,
-                                      badge: p.status,
-                                    }))
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <select
+                                id={`field-po-item-${idx}`}
+                                value={item.materialId || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val) {
+                                    updateItem(idx, 'materialId', val);
+                                  } else {
+                                    updateItem(idx, 'materialId', '');
+                                    updateItem(idx, 'itemName', '');
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    document.getElementById(`field-po-qty-${idx}`)?.focus();
+                                  }
+                                }}
+                                style={{
+                                  flex: 1,
+                                  width: '100%',
+                                  height: '42px',
+                                  padding: '0 12px',
+                                  borderRadius: '8px',
+                                  fontSize: '13.5px',
+                                  fontWeight: 600,
+                                  border: '1.5px solid #cbd5e1',
+                                  backgroundColor: '#ffffff',
+                                  color: item.materialId ? '#0f172a' : '#64748b',
+                                  boxSizing: 'border-box',
+                                  cursor: 'pointer',
+                                  outline: 'none',
+                                }}
+                              >
+                                <option value="">
+                                  -- Select {item.materialType === 'FINISHED_PRODUCT' ? 'Finished Product' : item.materialType === 'PACKING_MATERIAL' ? 'Packaging Material' : 'Raw Material'} --
+                                </option>
+                                {item.materialType === 'FINISHED_PRODUCT'
+                                  ? finishedProducts.map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        [{p.productCode}] {p.productName}{p.packSize ? ` (${p.packSize})` : ''}
+                                      </option>
+                                    ))
                                   : item.materialType === 'PACKING_MATERIAL'
-                                  ? packingMaterials.map((m) => ({
-                                      value: m.id,
-                                      label: `[${m.materialCode}] ${m.materialName}`,
-                                      subtext: m.specifications || undefined,
-                                    }))
-                                  : rawMaterials.map((m) => ({
-                                      value: m.id,
-                                      label: `[${m.materialCode}] ${m.materialName}`,
-                                      subtext: m.specifications || undefined,
-                                    }))
-                              }
-                              placeholder={
-                                item.materialType === 'FINISHED_PRODUCT'
-                                  ? 'Type to search finished product...'
-                                  : item.materialType === 'PACKING_MATERIAL'
-                                  ? 'Type to search packing material...'
-                                  : 'Type to search raw material...'
-                              }
-                              addNewLabel="+ Quick Add Item"
-                              onAddNew={() => {
-                                setTargetItemIndexForMat(idx);
-                                setNewMatName(item.itemName || '');
-                                setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
-                                setNewMatRate(item.unitRate || 0);
-                                setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
-                                setNewMatPacking(item.packing || 'Bulk');
-                                setIsQuickMaterialModalOpen(true);
-                              }}
-                              nextFocusId={`field-po-qty-${idx}`}
-                            />
+                                  ? packingMaterials.map((m) => (
+                                      <option key={m.id} value={m.id}>
+                                        [{m.materialCode}] {m.materialName}{m.specifications ? ` — ${m.specifications}` : ''}
+                                      </option>
+                                    ))
+                                  : rawMaterials.map((m) => (
+                                      <option key={m.id} value={m.id}>
+                                        [{m.materialCode}] {m.materialName}{m.specifications ? ` — ${m.specifications}` : ''}
+                                      </option>
+                                    ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTargetItemIndexForMat(idx);
+                                  setNewMatName(item.itemName || '');
+                                  setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
+                                  setNewMatRate(item.unitRate || 0);
+                                  setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
+                                  setNewMatPacking(item.packing || 'Bulk');
+                                  setIsQuickMaterialModalOpen(true);
+                                }}
+                                title="Quick Add Item"
+                                style={{
+                                  height: '42px',
+                                  padding: '0 12px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  borderRadius: '8px',
+                                  border: '1.5px solid #cbd5e1',
+                                  backgroundColor: '#f8fafc',
+                                  color: '#0284c7',
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <IconPlus size={14} /> Add
+                              </button>
+                            </div>
 
                             {!item.materialId && (
                               <input
