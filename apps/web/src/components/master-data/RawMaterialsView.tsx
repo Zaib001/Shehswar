@@ -70,6 +70,12 @@ export const RawMaterialsView: React.FC = () => {
     storageRequirements: '',
     standardCost: '',
     isActive: true,
+    purchaseMode: 'BULK' as 'BULK' | 'PACKAGED',
+    containerType: 'Drum (200L)',
+    packageCount: '',
+    capacityPerPackage: '200',
+    totalPurchasedVolume: '',
+    totalPurchaseValue: '',
   });
 
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
@@ -233,6 +239,29 @@ export const RawMaterialsView: React.FC = () => {
 
     setIsSaving(true);
     try {
+      const numPackageCount = Number(formData.packageCount) || 0;
+      const numCapacity = Number(formData.capacityPerPackage) || 0;
+      const numDirectVolume = Number(formData.totalPurchasedVolume) || 0;
+      const computedVolume =
+        formData.purchaseMode === 'PACKAGED' && numPackageCount > 0 && numCapacity > 0
+          ? numPackageCount * numCapacity
+          : numDirectVolume;
+
+      const numTotalValue = Number(formData.totalPurchaseValue) || 0;
+      let computedBaseCost = Number(formData.standardCost) || 0;
+
+      // If user provided Total Value and Volume, calculate base rate accurately!
+      if (computedVolume > 0 && numTotalValue > 0) {
+        computedBaseCost = numTotalValue / computedVolume;
+      }
+
+      const finalConversionFactor =
+        formData.purchaseMode === 'PACKAGED' && numCapacity > 0
+          ? numCapacity
+          : formData.purchaseConversionFactor
+          ? Number(formData.purchaseConversionFactor)
+          : 1;
+
       const payload = {
         materialCode: finalCode,
         materialName: finalName,
@@ -240,16 +269,31 @@ export const RawMaterialsView: React.FC = () => {
         categoryId: finalCategoryId,
         baseUomId: finalUomId,
         purchaseUomId: formData.purchaseUomId || finalUomId,
-        purchaseConversionFactor: formData.purchaseConversionFactor ? Number(formData.purchaseConversionFactor) : 1,
+        purchaseConversionFactor: finalConversionFactor,
         grade: formData.grade?.trim() || undefined,
-        specifications: formData.specifications?.trim() || undefined,
+        specifications:
+          formData.specifications?.trim() ||
+          (formData.purchaseMode === 'PACKAGED' && numPackageCount > 0
+            ? `${numPackageCount} ${formData.containerType} (${numCapacity} ea)`
+            : undefined),
         storageRequirements: formData.storageRequirements?.trim() || undefined,
-        standardCost: formData.standardCost !== '' ? Number(formData.standardCost) : 0,
+        standardCost: computedBaseCost, // Accurate base unit rate e.g. PKR 2,000 / Liter, NOT 4,000,000!
+        lastPurchaseCost: computedBaseCost,
         minStock: formData.minStock !== '' ? Number(formData.minStock) : undefined,
         reorderPoint: formData.reorderPoint !== '' ? Number(formData.reorderPoint) : undefined,
         leadTimeDays: formData.leadTimeDays !== '' ? Number(formData.leadTimeDays) : undefined,
         isHazardous: formData.isHazardous,
         isActive: formData.isActive,
+        customFields: {
+          purchaseMode: formData.purchaseMode,
+          containerType: formData.containerType,
+          packageCount: numPackageCount > 0 ? numPackageCount : null,
+          capacityPerPackage: numCapacity > 0 ? numCapacity : null,
+          totalPurchasedVolume: computedVolume > 0 ? computedVolume : null,
+          totalPurchaseValue: numTotalValue > 0 ? numTotalValue : (computedBaseCost * (computedVolume || 1)),
+          costPerContainer: numPackageCount > 0 && numTotalValue > 0 ? numTotalValue / numPackageCount : null,
+          costPerBaseUnit: computedBaseCost,
+        },
       };
 
       if (mode === 'edit' && selectedMaterial) {
@@ -422,6 +466,7 @@ export const RawMaterialsView: React.FC = () => {
             icon={<IconEdit size={14} />}
             onClick={() => {
               setSelectedMaterial(row);
+              const custom = (row as any).customFields || {};
               setFormData({
                 code: row.code,
                 name: row.name,
@@ -439,6 +484,12 @@ export const RawMaterialsView: React.FC = () => {
                 storageRequirements: row.storageRequirements || '',
                 standardCost: row.standardCost !== undefined ? row.standardCost.toString() : '',
                 isActive: row.isActive,
+                purchaseMode: custom.purchaseMode || (Number(row.purchaseConversionFactor) > 1 ? 'PACKAGED' : 'BULK'),
+                containerType: custom.containerType || 'Drum (200L)',
+                packageCount: custom.packageCount !== undefined && custom.packageCount !== null ? custom.packageCount.toString() : '',
+                capacityPerPackage: custom.capacityPerPackage !== undefined && custom.capacityPerPackage !== null ? custom.capacityPerPackage.toString() : (row.purchaseConversionFactor ? row.purchaseConversionFactor.toString() : '200'),
+                totalPurchasedVolume: custom.totalPurchasedVolume !== undefined && custom.totalPurchasedVolume !== null ? custom.totalPurchasedVolume.toString() : (row.totalBulkVolume ? row.totalBulkVolume.toString() : ''),
+                totalPurchaseValue: custom.totalPurchaseValue !== undefined && custom.totalPurchaseValue !== null ? custom.totalPurchaseValue.toString() : (row.totalPurchasedValue ? row.totalPurchasedValue.toString() : ''),
               });
               setMode('edit');
             }}
@@ -459,12 +510,33 @@ export const RawMaterialsView: React.FC = () => {
     },
   ];
 
+  const selectedUom = uoms.find((u) => u.id === formData.uomId);
+  const uomSymbol = selectedUom?.symbol || selectedUom?.code || selectedUom?.name || 'Liter';
+
+  const numPackageCount = Number(formData.packageCount) || 0;
+  const numCapacity = Number(formData.capacityPerPackage) || 0;
+  const numDirectVolume = Number(formData.totalPurchasedVolume) || 0;
+  const computedVolume =
+    formData.purchaseMode === 'PACKAGED' && numPackageCount > 0 && numCapacity > 0
+      ? numPackageCount * numCapacity
+      : numDirectVolume;
+
+  const numTotalValue = Number(formData.totalPurchaseValue) || 0;
+  let liveBaseRate = Number(formData.standardCost) || 0;
+  if (computedVolume > 0 && numTotalValue > 0) {
+    liveBaseRate = Math.round((numTotalValue / computedVolume) * 100) / 100;
+  }
+  const liveCostPerContainer =
+    numPackageCount > 0 && numTotalValue > 0
+      ? Math.round((numTotalValue / numPackageCount) * 100) / 100
+      : 0;
+
   if (mode === 'create' || mode === 'edit') {
     return (
       <>
         <FormPageTemplate
           title={mode === 'create' ? 'Register Raw Material' : `Edit — ${selectedMaterial?.name}`}
-          subtitle="Keyboard-first fast entry: Type Name -> Category -> UoM -> Rate/Cost -> Grade -> Enter to Save"
+          subtitle="Fast entry: Name -> Category -> UoM -> Packaging/Bulk Quantities -> Total Price -> Enter to Save"
           breadcrumbs={[
             { label: 'Master Data', href: '#' },
             { label: 'Raw Materials', href: '#' },
@@ -536,45 +608,11 @@ export const RawMaterialsView: React.FC = () => {
                       placeholder="Type to search Unit (e.g. Kg, Liter)..."
                       addNewLabel="+ Add UoM"
                       onAddNew={() => setIsAddUomOpen(true)}
-                      nextFocusId="field-rm-cost"
-                    />
-                  ),
-                },
-                {
-                  label: 'Standard Cost / Purchase Price (PKR) *',
-                  required: true,
-                  field: (
-                    <Input
-                      id="field-rm-cost"
-                      type="number"
-                      step="any"
-                      value={formData.standardCost}
-                      onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          document.getElementById('field-rm-grade')?.focus();
-                        }
-                      }}
-                      placeholder="e.g. 400000 (Press Enter for Grade)"
-                      style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}
-                    />
-                  ),
-                },
-                {
-                  label: 'Grade / Quality',
-                  field: (
-                    <Input
-                      id="field-rm-grade"
-                      value={formData.grade}
-                      onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleSave();
-                        }
-                      }}
-                      placeholder="e.g. Technical Grade, Food (Press Enter to Save)"
+                      nextFocusId={
+                        formData.purchaseMode === 'PACKAGED'
+                          ? 'field-rm-pack-count'
+                          : 'field-rm-bulk-vol'
+                      }
                     />
                   ),
                 },
@@ -592,8 +630,377 @@ export const RawMaterialsView: React.FC = () => {
               ],
             },
             {
-              title: '2. Classification & Technical Attributes (Optional)',
+              title: '2. Procurement Mode, Bulk / Packaged Quantities & Unit Cost Derivation',
+              description: 'Specify how raw material is purchased (Bulk Liters/Kg vs Containers like Drums). Derived unit rate is automatically calculated for Product Costing.',
+              content: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Mode Selector */}
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, purchaseMode: 'BULK' })}
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        border: `2px solid ${formData.purchaseMode === 'BULK' ? '#0284c7' : '#cbd5e1'}`,
+                        background: formData.purchaseMode === 'BULK' ? '#f0f9ff' : '#ffffff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        fontWeight: 700,
+                        fontSize: '13px',
+                        color: formData.purchaseMode === 'BULK' ? '#0369a1' : '#475569',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      💧 Bulk Volume Purchase (Direct Liters / Kg)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, purchaseMode: 'PACKAGED' })}
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        border: `2px solid ${formData.purchaseMode === 'PACKAGED' ? '#0284c7' : '#cbd5e1'}`,
+                        background: formData.purchaseMode === 'PACKAGED' ? '#f0f9ff' : '#ffffff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        fontWeight: 700,
+                        fontSize: '13px',
+                        color: formData.purchaseMode === 'PACKAGED' ? '#0369a1' : '#475569',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      📦 Packaged Containers (Drums / Bags / Cans / Tanks)
+                    </button>
+                  </div>
+
+                  {formData.purchaseMode === 'PACKAGED' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Container Type
+                          </label>
+                          <select
+                            value={formData.containerType}
+                            onChange={(e) => setFormData({ ...formData, containerType: e.target.value })}
+                            style={{
+                              width: '100%',
+                              height: '40px',
+                              padding: '0 10px',
+                              borderRadius: '6px',
+                              border: '1.5px solid #cbd5e1',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              backgroundColor: '#ffffff',
+                            }}
+                          >
+                            <option value="Drum (200L)">Drum / Barrel (200 L)</option>
+                            <option value="Bag (50KG)">Bag (50 KG)</option>
+                            <option value="IBC Tank (1000L)">IBC Tank (1000 L)</option>
+                            <option value="Canister (20L)">Canister (20 L)</option>
+                            <option value="Bottle (1L)">Bottle (1 L)</option>
+                            <option value="Container">Custom Container</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Containers Purchased (Quantity) *
+                          </label>
+                          <Input
+                            id="field-rm-pack-count"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={formData.packageCount}
+                            onChange={(e) => {
+                              const cnt = e.target.value;
+                              const numCnt = Number(cnt) || 0;
+                              const numCap = Number(formData.capacityPerPackage) || 0;
+                              const vol = numCnt * numCap;
+                              const totVal = Number(formData.totalPurchaseValue) || 0;
+                              const newRate = vol > 0 && totVal > 0 ? (totVal / vol).toFixed(2) : formData.standardCost;
+                              setFormData({
+                                ...formData,
+                                packageCount: cnt,
+                                totalPurchasedVolume: vol > 0 ? vol.toString() : formData.totalPurchasedVolume,
+                                standardCost: newRate,
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById('field-rm-pack-cap')?.focus();
+                              }
+                            }}
+                            placeholder="e.g. 10 (Drums)"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Capacity per Container ({uomSymbol}) *
+                          </label>
+                          <Input
+                            id="field-rm-pack-cap"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={formData.capacityPerPackage}
+                            onChange={(e) => {
+                              const cap = e.target.value;
+                              const numCap = Number(cap) || 0;
+                              const numCnt = Number(formData.packageCount) || 0;
+                              const vol = numCnt * numCap;
+                              const totVal = Number(formData.totalPurchaseValue) || 0;
+                              const newRate = vol > 0 && totVal > 0 ? (totVal / vol).toFixed(2) : formData.standardCost;
+                              setFormData({
+                                ...formData,
+                                capacityPerPackage: cap,
+                                purchaseConversionFactor: numCap > 0 ? numCap.toString() : '1',
+                                totalPurchasedVolume: vol > 0 ? vol.toString() : formData.totalPurchasedVolume,
+                                standardCost: newRate,
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById('field-rm-total-val')?.focus();
+                              }
+                            }}
+                            placeholder="e.g. 200 (Liters)"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'flex-end' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Total Purchase Invoice Value (PKR) *
+                          </label>
+                          <Input
+                            id="field-rm-total-val"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={formData.totalPurchaseValue}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const totVal = Number(val) || 0;
+                              const vol = computedVolume > 0 ? computedVolume : (Number(formData.totalPurchasedVolume) || 0);
+                              const newRate = vol > 0 && totVal > 0 ? (totVal / vol).toFixed(2) : formData.standardCost;
+                              setFormData({
+                                ...formData,
+                                totalPurchaseValue: val,
+                                standardCost: newRate,
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById('field-rm-grade')?.focus();
+                              }
+                            }}
+                            placeholder="e.g. 4000000 (PKR)"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Derived Total Volume ({uomSymbol})
+                          </label>
+                          <div
+                            style={{
+                              height: '40px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '0 12px',
+                              borderRadius: '6px',
+                              background: '#ffffff',
+                              border: '1.5px solid #cbd5e1',
+                              fontWeight: 700,
+                              fontFamily: 'var(--font-mono)',
+                              color: '#0f172a',
+                            }}
+                          >
+                            {computedVolume.toLocaleString()} {uomSymbol}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Rate per {uomSymbol} (PKR) [Auto-Computed]
+                          </label>
+                          <Input
+                            id="field-rm-cost"
+                            type="number"
+                            step="any"
+                            value={formData.standardCost}
+                            onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
+                            placeholder="e.g. 2000"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#047857' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Total Volume / Qty Purchased ({uomSymbol}) *
+                          </label>
+                          <Input
+                            id="field-rm-bulk-vol"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={formData.totalPurchasedVolume}
+                            onChange={(e) => {
+                              const vol = e.target.value;
+                              const numVol = Number(vol) || 0;
+                              const totVal = Number(formData.totalPurchaseValue) || 0;
+                              const newRate = numVol > 0 && totVal > 0 ? (totVal / numVol).toFixed(2) : formData.standardCost;
+                              setFormData({
+                                ...formData,
+                                totalPurchasedVolume: vol,
+                                standardCost: newRate,
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById('field-rm-total-val')?.focus();
+                              }
+                            }}
+                            placeholder="e.g. 2000 (Liters)"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Total Purchase Invoice Value (PKR) *
+                          </label>
+                          <Input
+                            id="field-rm-total-val"
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={formData.totalPurchaseValue}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const totVal = Number(val) || 0;
+                              const vol = Number(formData.totalPurchasedVolume) || 0;
+                              const newRate = vol > 0 && totVal > 0 ? (totVal / vol).toFixed(2) : formData.standardCost;
+                              setFormData({
+                                ...formData,
+                                totalPurchaseValue: val,
+                                standardCost: newRate,
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById('field-rm-grade')?.focus();
+                              }
+                            }}
+                            placeholder="e.g. 4000000 (PKR)"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: '6px' }}>
+                            Base Unit Cost (PKR / {uomSymbol}) [Auto-Computed]
+                          </label>
+                          <Input
+                            id="field-rm-cost"
+                            type="number"
+                            step="any"
+                            value={formData.standardCost}
+                            onChange={(e) => setFormData({ ...formData, standardCost: e.target.value })}
+                            placeholder="e.g. 2000"
+                            style={{ height: '40px', fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#047857' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live Costing Derivation Banner */}
+                  <div
+                    style={{
+                      background: '#ecfdf5',
+                      border: '1.5px solid #a7f3d0',
+                      borderRadius: '8px',
+                      padding: '14px 18px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#065f46', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        🧮 Derived Costing Rate for Product Formulations
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#047857', marginTop: '3px' }}>
+                        Base Rate: <strong style={{ fontSize: '16px', fontFamily: 'var(--font-mono)' }}>PKR {(liveBaseRate || Number(formData.standardCost) || 0).toLocaleString()} / {uomSymbol}</strong>
+                        {liveCostPerContainer > 0 && (
+                          <span style={{ marginLeft: '10px', color: '#065f46' }}>
+                            &bull; Container Cost: <strong>PKR {liveCostPerContainer.toLocaleString()} / {formData.containerType.split(' ')[0]}</strong>
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#065f46', marginTop: '3px', opacity: 0.9 }}>
+                        ✓ In Product Costing, single bottles (e.g. 1L, 200ml) multiply by this PKR {(liveBaseRate || Number(formData.standardCost) || 0).toLocaleString()} rate (never charging the entire batch total).
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '11px', color: '#047857', textTransform: 'uppercase', fontWeight: 600 }}>Total Purchase Value</div>
+                      <div style={{ fontSize: '18px', fontWeight: 800, color: '#065f46', fontFamily: 'var(--font-mono)' }}>
+                        PKR {(numTotalValue || ((liveBaseRate || Number(formData.standardCost) || 0) * (computedVolume || 1))).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ),
+            },
+            {
+              title: '3. Technical Specs & Storage (Optional)',
               fields: [
+                {
+                  label: 'Grade / Quality',
+                  field: (
+                    <Input
+                      id="field-rm-grade"
+                      value={formData.grade}
+                      onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSave();
+                        }
+                      }}
+                      placeholder="e.g. Technical Grade, Food (Press Enter to Save)"
+                    />
+                  ),
+                },
                 {
                   label: 'Storage Requirements',
                   field: (
@@ -784,6 +1191,12 @@ export const RawMaterialsView: React.FC = () => {
             storageRequirements: '',
             standardCost: '',
             isActive: true,
+            purchaseMode: 'BULK',
+            containerType: 'Drum (200L)',
+            packageCount: '',
+            capacityPerPackage: '200',
+            totalPurchasedVolume: '',
+            totalPurchaseValue: '',
           });
           setMode('create');
         },
@@ -842,6 +1255,7 @@ export const RawMaterialsView: React.FC = () => {
           data={filtered}
           onRowDoubleClick={(row: RawMaterial) => {
             setSelectedMaterial(row);
+            const custom = (row as any).customFields || {};
             setFormData({
               code: row.code,
               name: row.name,
@@ -859,6 +1273,12 @@ export const RawMaterialsView: React.FC = () => {
               storageRequirements: row.storageRequirements || '',
               standardCost: row.standardCost !== undefined ? row.standardCost.toString() : '',
               isActive: row.isActive,
+              purchaseMode: custom.purchaseMode || (Number(row.purchaseConversionFactor) > 1 ? 'PACKAGED' : 'BULK'),
+              containerType: custom.containerType || 'Drum (200L)',
+              packageCount: custom.packageCount !== undefined && custom.packageCount !== null ? custom.packageCount.toString() : '',
+              capacityPerPackage: custom.capacityPerPackage !== undefined && custom.capacityPerPackage !== null ? custom.capacityPerPackage.toString() : (row.purchaseConversionFactor ? row.purchaseConversionFactor.toString() : '200'),
+              totalPurchasedVolume: custom.totalPurchasedVolume !== undefined && custom.totalPurchasedVolume !== null ? custom.totalPurchasedVolume.toString() : (row.totalBulkVolume ? row.totalBulkVolume.toString() : ''),
+              totalPurchaseValue: custom.totalPurchaseValue !== undefined && custom.totalPurchaseValue !== null ? custom.totalPurchaseValue.toString() : (row.totalPurchasedValue ? row.totalPurchasedValue.toString() : ''),
             });
             setMode('edit');
           }}

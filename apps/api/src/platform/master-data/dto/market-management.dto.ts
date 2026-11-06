@@ -26,6 +26,10 @@ export class CreateRegionDto {
   @IsOptional()
   managerId?: string;
 
+  @IsString()
+  @IsOptional()
+  managerName?: string;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
@@ -39,6 +43,10 @@ export class UpdateRegionDto {
   @IsUUID()
   @IsOptional()
   managerId?: string;
+
+  @IsString()
+  @IsOptional()
+  managerName?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -62,6 +70,10 @@ export class CreateZoneDto {
   @IsOptional()
   managerId?: string;
 
+  @IsString()
+  @IsOptional()
+  managerName?: string;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
@@ -75,6 +87,10 @@ export class UpdateZoneDto {
   @IsUUID()
   @IsOptional()
   managerId?: string;
+
+  @IsString()
+  @IsOptional()
+  managerName?: string;
 
   @IsBoolean()
   @IsOptional()
@@ -98,6 +114,10 @@ export class CreateTerritoryDto {
   @IsOptional()
   managerId?: string;
 
+  @IsString()
+  @IsOptional()
+  managerName?: string;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
@@ -111,6 +131,10 @@ export class UpdateTerritoryDto {
   @IsUUID()
   @IsOptional()
   managerId?: string;
+
+  @IsString()
+  @IsOptional()
+  managerName?: string;
 
   @IsBoolean()
   @IsOptional()

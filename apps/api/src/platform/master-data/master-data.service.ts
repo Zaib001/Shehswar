@@ -2001,12 +2001,20 @@ export class MasterDataService {
       const totalPurchasedQty = items.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
       const totalPurchasedValue = items.reduce((sum, it) => sum + Number(it.netAmount || it.grossAmount || 0), 0);
       const latestItem = items[0];
+      const custom = (m.customFields as any) || {};
+      const customTotalQty = custom.totalPurchasedVolume ? Number(custom.totalPurchasedVolume) : (custom.packageCount ? Number(custom.packageCount) : 0);
+      const customTotalVal = custom.totalPurchaseValue ? Number(custom.totalPurchaseValue) : 0;
+      const customBaseCost = custom.costPerBaseUnit ? Number(custom.costPerBaseUnit) : 0;
+
       const latestRate = latestItem ? Number(latestItem.rate) : Number(m.lastPurchaseCost || m.standardCost || 0);
-      const latestPacking = latestItem?.packing || m.specifications || '';
+      const latestPacking = latestItem?.packing || custom.containerType || m.specifications || '';
       const factorMatch = latestPacking ? latestPacking.match(/(\d+(\.\d+)?)\s*(ltr|l|liter|kg|kilo|gm|g|ml)/i) : null;
       const factor = Number(m.purchaseConversionFactor || 0) || (factorMatch ? Number(factorMatch[1]) : 1);
-      const costPerBaseUnit = factor > 1 && latestRate > 0 ? latestRate / factor : latestRate;
-      const totalBulkVolume = totalPurchasedQty > 0 && factor > 1 ? totalPurchasedQty * factor : totalPurchasedQty;
+      
+      const costPerBaseUnit = customBaseCost > 0 ? customBaseCost : (factor > 1 && latestRate > 0 ? latestRate / factor : latestRate);
+      const effectiveTotalPurchasedQty = totalPurchasedQty > 0 ? totalPurchasedQty : customTotalQty;
+      const effectiveTotalPurchasedValue = totalPurchasedValue > 0 ? totalPurchasedValue : (customTotalVal > 0 ? customTotalVal : (m.standardCost ? Number(m.standardCost) : 0));
+      const totalBulkVolume = effectiveTotalPurchasedQty > 0 && factor > 1 && !custom.totalPurchasedVolume ? effectiveTotalPurchasedQty * factor : (custom.totalPurchasedVolume ? Number(custom.totalPurchasedVolume) : effectiveTotalPurchasedQty);
       const stockOnHand = ((m as any).warehouseStocks || []).reduce((sum: number, s: any) => sum + Number(s.quantityOnHand || 0), 0);
       const availableQuantity = stockOnHand > 0 ? stockOnHand : totalBulkVolume > 0 ? totalBulkVolume : (Number(m.maximumStock) || 100);
 
@@ -2016,7 +2024,7 @@ export class MasterDataService {
           standardCost: null,
           lastPurchaseCost: null,
           averageCost: null,
-          totalPurchasedQty,
+          totalPurchasedQty: effectiveTotalPurchasedQty,
           totalPurchasedValue: null,
           unitRate: null,
           costPerBaseUnit: null,
@@ -2030,8 +2038,8 @@ export class MasterDataService {
 
       return {
         ...m,
-        totalPurchasedQty,
-        totalPurchasedValue: totalPurchasedValue > 0 ? totalPurchasedValue : (m.standardCost ? Number(m.standardCost) : 0),
+        totalPurchasedQty: effectiveTotalPurchasedQty,
+        totalPurchasedValue: effectiveTotalPurchasedValue,
         unitRate: latestRate,
         costPerBaseUnit: costPerBaseUnit > 0 ? costPerBaseUnit : latestRate,
         totalBulkVolume,
@@ -2155,6 +2163,7 @@ export class MasterDataService {
         hsCode: dto.hsCode || null,
         status: dto.status || (dto.isActive === false ? 'INACTIVE' : 'ACTIVE'),
         approvalStatus: dto.approvalStatus || 'APPROVED',
+        customFields: dto.customFields !== undefined ? dto.customFields : null,
       },
       include: { category: true, baseUom: true, purchaseUom: true },
     });
@@ -2200,6 +2209,7 @@ export class MasterDataService {
     if (dto.status !== undefined) data.status = dto.status;
     else if (dto.isActive !== undefined) data.status = dto.isActive ? 'ACTIVE' : 'INACTIVE';
     if (dto.approvalStatus !== undefined) data.approvalStatus = dto.approvalStatus;
+    if (dto.customFields !== undefined) data.customFields = dto.customFields;
 
     return this.prisma.rawMaterial.update({
       where: { id },
@@ -3516,6 +3526,55 @@ export class MasterDataService {
     return region;
   }
 
+  private async resolveManagerUserId(
+    companyId: string,
+    organizationId: string,
+    managerId?: string,
+    managerName?: string,
+  ): Promise<string | null> {
+    if (managerId && managerId.trim()) return managerId.trim();
+    const trimmed = (managerName || '').trim();
+    if (!trimmed) return null;
+
+    const parts = trimmed.split(/\s+/);
+    const firstName = parts[0];
+    const lastName = parts.slice(1).join(' ') || '';
+
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        organizationId,
+        OR: [
+          {
+            firstName: { equals: firstName, mode: 'insensitive' },
+            ...(lastName ? { lastName: { equals: lastName, mode: 'insensitive' } } : {}),
+          },
+          { firstName: { equals: trimmed, mode: 'insensitive' } },
+        ],
+      },
+    });
+    if (existing) return existing.id;
+
+    // Create lightweight User record so they appear in reports & assignments
+    const baseSlug = `${firstName}.${lastName || 'mgr'}`.toLowerCase().replace(/[^a-z0-9.]/g, '');
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const email = `${baseSlug}.${randomSuffix}@shehswar.local`;
+
+    const newUser = await this.prisma.user.create({
+      data: {
+        id: uuidv7(),
+        organizationId,
+        companyId,
+        firstName: firstName || trimmed || 'Manager',
+        lastName: lastName || 'Officer',
+        email,
+        passwordHash: '$2b$10$epRswT2LzF8pC7vYw8n5UOHf7Wc4r6eD5j6g7k8l9m0n1o2p3q4r5',
+        status: 'ACTIVE',
+        isActive: true,
+      },
+    });
+    return newUser.id;
+  }
+
   async createRegion(dto: CreateRegionDto, actor: { id: string; email?: string }) {
     const company = await this.prisma.company.findUnique({ where: { id: dto.companyId } });
     if (!company) throw new NotFoundException('Company not found');
@@ -3529,26 +3588,33 @@ export class MasterDataService {
       });
     }
 
+    const managerId = await this.resolveManagerUserId(
+      dto.companyId,
+      company.organizationId,
+      dto.managerId,
+      dto.managerName,
+    );
+
     const created = await this.prisma.region.create({
       data: {
         id: uuidv7(),
         companyId: dto.companyId,
         code,
         name: dto.name,
-        managerId: dto.managerId || null,
+        managerId,
         isActive: dto.isActive ?? true,
       },
       include: { company: true, businessManager: true },
     });
 
     // Auto-create market assignment if manager specified
-    if (dto.managerId) {
+    if (managerId) {
       await this.prisma.userMarketAssignment.create({
         data: {
           id: uuidv7(),
           organizationId: company.organizationId,
           companyId: dto.companyId,
-          userId: dto.managerId,
+          userId: managerId,
           regionId: created.id,
           roleScope: 'BUSINESS_MANAGER',
           isPrimary: true,
@@ -3574,25 +3640,35 @@ export class MasterDataService {
 
   async updateRegion(id: string, dto: UpdateRegionDto, actor: { id: string; email?: string }) {
     const previous = await this.findOneRegion(id);
+    let managerId = dto.managerId;
+    if (!managerId && dto.managerName) {
+      managerId = (await this.resolveManagerUserId(
+        previous.companyId,
+        previous.company.organizationId,
+        undefined,
+        dto.managerName,
+      )) || undefined;
+    }
+
     const updated = await this.prisma.region.update({
       where: { id },
       data: {
         name: dto.name,
-        managerId: dto.managerId !== undefined ? (dto.managerId || null) : undefined,
+        managerId: managerId !== undefined ? (managerId || null) : undefined,
         isActive: dto.isActive,
       },
       include: { company: true, businessManager: true, zones: true },
     });
 
     // Auto-sync market assignment if manager changed
-    if (dto.managerId !== undefined && dto.managerId !== previous.managerId) {
-      if (dto.managerId) {
+    if (managerId !== undefined && managerId !== previous.managerId) {
+      if (managerId) {
         await this.prisma.userMarketAssignment.create({
           data: {
             id: uuidv7(),
             organizationId: previous.company.organizationId,
             companyId: previous.companyId,
-            userId: dto.managerId,
+            userId: managerId,
             regionId: id,
             roleScope: 'BUSINESS_MANAGER',
             isPrimary: true,
@@ -3710,25 +3786,32 @@ export class MasterDataService {
       });
     }
 
+    const managerId = await this.resolveManagerUserId(
+      region.companyId,
+      region.company.organizationId,
+      dto.managerId,
+      dto.managerName,
+    );
+
     const created = await this.prisma.zone.create({
       data: {
         id: uuidv7(),
         regionId: dto.regionId,
         code,
         name: dto.name,
-        managerId: dto.managerId || null,
+        managerId,
         isActive: dto.isActive ?? true,
       },
       include: { region: true, areaManager: true },
     });
 
-    if (dto.managerId) {
+    if (managerId) {
       await this.prisma.userMarketAssignment.create({
         data: {
           id: uuidv7(),
           organizationId: region.company.organizationId,
           companyId: region.companyId,
-          userId: dto.managerId,
+          userId: managerId,
           regionId: region.id,
           zoneId: created.id,
           roleScope: 'AREA_MANAGER',
@@ -3755,24 +3838,34 @@ export class MasterDataService {
 
   async updateZone(id: string, dto: UpdateZoneDto, actor: { id: string; email?: string }) {
     const previous = await this.findOneZone(id);
+    let managerId = dto.managerId;
+    if (!managerId && dto.managerName) {
+      managerId = (await this.resolveManagerUserId(
+        previous.region.companyId,
+        previous.region.company.organizationId,
+        undefined,
+        dto.managerName,
+      )) || undefined;
+    }
+
     const updated = await this.prisma.zone.update({
       where: { id },
       data: {
         name: dto.name,
-        managerId: dto.managerId !== undefined ? (dto.managerId || null) : undefined,
+        managerId: managerId !== undefined ? (managerId || null) : undefined,
         isActive: dto.isActive,
       },
       include: { region: true, areaManager: true, territories: true },
     });
 
-    if (dto.managerId !== undefined && dto.managerId !== previous.managerId) {
-      if (dto.managerId) {
+    if (managerId !== undefined && managerId !== previous.managerId) {
+      if (managerId) {
         await this.prisma.userMarketAssignment.create({
           data: {
             id: uuidv7(),
             organizationId: previous.region.company.organizationId,
             companyId: previous.region.companyId,
-            userId: dto.managerId,
+            userId: managerId,
             regionId: previous.regionId,
             zoneId: id,
             roleScope: 'AREA_MANAGER',
@@ -3911,25 +4004,32 @@ export class MasterDataService {
       });
     }
 
+    const managerId = await this.resolveManagerUserId(
+      zone.region.companyId,
+      zone.region.company.organizationId,
+      dto.managerId,
+      dto.managerName,
+    );
+
     const created = await this.prisma.territory.create({
       data: {
         id: uuidv7(),
         zoneId: dto.zoneId,
         code,
         name: dto.name,
-        managerId: dto.managerId || null,
+        managerId,
         isActive: dto.isActive ?? true,
       },
       include: { zone: true, salesOfficer: true },
     });
 
-    if (dto.managerId) {
+    if (managerId) {
       await this.prisma.userMarketAssignment.create({
         data: {
           id: uuidv7(),
           organizationId: zone.region.company.organizationId,
           companyId: zone.region.companyId,
-          userId: dto.managerId,
+          userId: managerId,
           regionId: zone.regionId,
           zoneId: zone.id,
           territoryId: created.id,
@@ -3957,24 +4057,34 @@ export class MasterDataService {
 
   async updateTerritory(id: string, dto: UpdateTerritoryDto, actor: { id: string; email?: string }) {
     const previous = await this.findOneTerritory(id);
+    let managerId = dto.managerId;
+    if (!managerId && dto.managerName) {
+      managerId = (await this.resolveManagerUserId(
+        previous.zone.region.companyId,
+        previous.zone.region.company.organizationId,
+        undefined,
+        dto.managerName,
+      )) || undefined;
+    }
+
     const updated = await this.prisma.territory.update({
       where: { id },
       data: {
         name: dto.name,
-        managerId: dto.managerId !== undefined ? (dto.managerId || null) : undefined,
+        managerId: managerId !== undefined ? (managerId || null) : undefined,
         isActive: dto.isActive,
       },
       include: { zone: true, salesOfficer: true, dealers: true },
     });
 
-    if (dto.managerId !== undefined && dto.managerId !== previous.managerId) {
-      if (dto.managerId) {
+    if (managerId !== undefined && managerId !== previous.managerId) {
+      if (managerId) {
         await this.prisma.userMarketAssignment.create({
           data: {
             id: uuidv7(),
             organizationId: previous.zone.region.company.organizationId,
             companyId: previous.zone.region.companyId,
-            userId: dto.managerId,
+            userId: managerId,
             regionId: previous.zone.regionId,
             zoneId: previous.zoneId,
             territoryId: id,

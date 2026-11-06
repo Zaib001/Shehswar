@@ -61,9 +61,9 @@ export const MarketManagementView: React.FC = () => {
   const [isAssignmentModalOpen, setIsAssignmentModalOpen] = useState(false);
 
   // Form states
-  const [regionForm, setRegionForm] = useState({ id: '', code: '', name: '', managerId: '' });
-  const [zoneForm, setZoneForm] = useState({ id: '', code: '', name: '', regionId: '', managerId: '' });
-  const [territoryForm, setTerritoryForm] = useState({ id: '', code: '', name: '', zoneId: '', managerId: '' });
+  const [regionForm, setRegionForm] = useState({ id: '', code: '', name: '', managerId: '', managerName: '', managerMode: 'SELECT' as 'SELECT' | 'NAME' });
+  const [zoneForm, setZoneForm] = useState({ id: '', code: '', name: '', regionId: '', managerId: '', managerName: '', managerMode: 'SELECT' as 'SELECT' | 'NAME' });
+  const [territoryForm, setTerritoryForm] = useState({ id: '', code: '', name: '', zoneId: '', managerId: '', managerName: '', managerMode: 'SELECT' as 'SELECT' | 'NAME' });
   const [assignmentForm, setAssignmentForm] = useState({
     userId: '',
     roleScope: 'TERRITORY',
@@ -115,7 +115,12 @@ export const MarketManagementView: React.FC = () => {
       return;
     }
     try {
-      const payload = { ...regionForm, code: regionForm.code?.trim() || 'AUTO' };
+      const payload: any = {
+        name: regionForm.name.trim(),
+        code: regionForm.code?.trim() || 'AUTO',
+        managerId: regionForm.managerMode === 'SELECT' ? (regionForm.managerId || undefined) : undefined,
+        managerName: regionForm.managerMode === 'NAME' ? (regionForm.managerName?.trim() || undefined) : undefined,
+      };
       if (regionForm.id) {
         await ApiClient.put(`/api/v1/master-data/regions/${regionForm.id}`, payload);
         showToast({ title: 'Success', message: 'Region updated successfully', type: 'success' });
@@ -124,7 +129,7 @@ export const MarketManagementView: React.FC = () => {
         showToast({ title: 'Success', message: 'Region created successfully', type: 'success' });
       }
       setIsRegionModalOpen(false);
-      setRegionForm({ id: '', code: '', name: '', managerId: '' });
+      setRegionForm({ id: '', code: '', name: '', managerId: '', managerName: '', managerMode: 'SELECT' });
       loadAll();
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to save region', type: 'error' });
@@ -138,7 +143,13 @@ export const MarketManagementView: React.FC = () => {
       return;
     }
     try {
-      const payload = { ...zoneForm, code: zoneForm.code?.trim() || 'AUTO' };
+      const payload: any = {
+        name: zoneForm.name.trim(),
+        regionId: zoneForm.regionId,
+        code: zoneForm.code?.trim() || 'AUTO',
+        managerId: zoneForm.managerMode === 'SELECT' ? (zoneForm.managerId || undefined) : undefined,
+        managerName: zoneForm.managerMode === 'NAME' ? (zoneForm.managerName?.trim() || undefined) : undefined,
+      };
       if (zoneForm.id) {
         await ApiClient.put(`/api/v1/master-data/zones/${zoneForm.id}`, payload);
         showToast({ title: 'Success', message: 'Zone updated successfully', type: 'success' });
@@ -147,7 +158,7 @@ export const MarketManagementView: React.FC = () => {
         showToast({ title: 'Success', message: 'Zone created successfully', type: 'success' });
       }
       setIsZoneModalOpen(false);
-      setZoneForm({ id: '', code: '', name: '', regionId: '', managerId: '' });
+      setZoneForm({ id: '', code: '', name: '', regionId: '', managerId: '', managerName: '', managerMode: 'SELECT' });
       loadAll();
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to save zone', type: 'error' });
@@ -161,7 +172,13 @@ export const MarketManagementView: React.FC = () => {
       return;
     }
     try {
-      const payload = { ...territoryForm, code: territoryForm.code?.trim() || 'AUTO' };
+      const payload: any = {
+        name: territoryForm.name.trim(),
+        zoneId: territoryForm.zoneId,
+        code: territoryForm.code?.trim() || 'AUTO',
+        managerId: territoryForm.managerMode === 'SELECT' ? (territoryForm.managerId || undefined) : undefined,
+        managerName: territoryForm.managerMode === 'NAME' ? (territoryForm.managerName?.trim() || undefined) : undefined,
+      };
       if (territoryForm.id) {
         await ApiClient.put(`/api/v1/master-data/territories/${territoryForm.id}`, payload);
         showToast({ title: 'Success', message: 'Territory updated successfully', type: 'success' });
@@ -170,7 +187,7 @@ export const MarketManagementView: React.FC = () => {
         showToast({ title: 'Success', message: 'Territory created successfully', type: 'success' });
       }
       setIsTerritoryModalOpen(false);
-      setTerritoryForm({ id: '', code: '', name: '', zoneId: '', managerId: '' });
+      setTerritoryForm({ id: '', code: '', name: '', zoneId: '', managerId: '', managerName: '', managerMode: 'SELECT' });
       loadAll();
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to save territory', type: 'error' });
@@ -292,7 +309,7 @@ export const MarketManagementView: React.FC = () => {
               variant="primary"
               icon={<IconPlus size={16} />}
               onClick={() => {
-                setRegionForm({ id: '', code: '', name: '', managerId: '' });
+                setRegionForm({ id: '', code: '', name: '', managerId: '', managerName: '', managerMode: 'SELECT' });
                 setIsRegionModalOpen(true);
               }}
             >
@@ -304,7 +321,7 @@ export const MarketManagementView: React.FC = () => {
               variant="primary"
               icon={<IconPlus size={16} />}
               onClick={() => {
-                setZoneForm({ id: '', code: '', name: '', regionId: regions[0]?.id || '', managerId: '' });
+                setZoneForm({ id: '', code: '', name: '', regionId: regions[0]?.id || '', managerId: '', managerName: '', managerMode: 'SELECT' });
                 setIsZoneModalOpen(true);
               }}
             >
@@ -316,7 +333,7 @@ export const MarketManagementView: React.FC = () => {
               variant="primary"
               icon={<IconPlus size={16} />}
               onClick={() => {
-                setTerritoryForm({ id: '', code: '', name: '', zoneId: zones[0]?.id || '', managerId: '' });
+                setTerritoryForm({ id: '', code: '', name: '', zoneId: zones[0]?.id || '', managerId: '', managerName: '', managerMode: 'SELECT' });
                 setIsTerritoryModalOpen(true);
               }}
             >
@@ -617,7 +634,14 @@ export const MarketManagementView: React.FC = () => {
             <DataTable
               data={regions}
               onRowDoubleClick={(r: any) => {
-                setRegionForm({ id: r.id, code: r.code, name: r.name, managerId: r.managerId || '' });
+                setRegionForm({
+                  id: r.id,
+                  code: r.code,
+                  name: r.name,
+                  managerId: r.managerId || '',
+                  managerName: r.businessManager ? `${r.businessManager.firstName} ${r.businessManager.lastName}` : '',
+                  managerMode: r.managerId ? 'SELECT' : 'NAME',
+                });
                 setIsRegionModalOpen(true);
               }}
               columns={[
@@ -641,7 +665,14 @@ export const MarketManagementView: React.FC = () => {
                         size="sm"
                         icon={<IconEdit size={14} />}
                         onClick={() => {
-                          setRegionForm({ id: r.id, code: r.code, name: r.name, managerId: r.managerId || '' });
+                          setRegionForm({
+                            id: r.id,
+                            code: r.code,
+                            name: r.name,
+                            managerId: r.managerId || '',
+                            managerName: r.businessManager ? `${r.businessManager.firstName} ${r.businessManager.lastName}` : '',
+                            managerMode: r.managerId ? 'SELECT' : 'NAME',
+                          });
                           setIsRegionModalOpen(true);
                         }}
                       >
@@ -675,7 +706,15 @@ export const MarketManagementView: React.FC = () => {
             <DataTable
               data={zones}
               onRowDoubleClick={(z: any) => {
-                setZoneForm({ id: z.id, code: z.code, name: z.name, regionId: z.regionId, managerId: z.managerId || '' });
+                setZoneForm({
+                  id: z.id,
+                  code: z.code,
+                  name: z.name,
+                  regionId: z.regionId,
+                  managerId: z.managerId || '',
+                  managerName: z.areaManager ? `${z.areaManager.firstName} ${z.areaManager.lastName}` : '',
+                  managerMode: z.managerId ? 'SELECT' : 'NAME',
+                });
                 setIsZoneModalOpen(true);
               }}
               columns={[
@@ -700,7 +739,15 @@ export const MarketManagementView: React.FC = () => {
                         size="sm"
                         icon={<IconEdit size={14} />}
                         onClick={() => {
-                          setZoneForm({ id: z.id, code: z.code, name: z.name, regionId: z.regionId, managerId: z.managerId || '' });
+                          setZoneForm({
+                            id: z.id,
+                            code: z.code,
+                            name: z.name,
+                            regionId: z.regionId,
+                            managerId: z.managerId || '',
+                            managerName: z.areaManager ? `${z.areaManager.firstName} ${z.areaManager.lastName}` : '',
+                            managerMode: z.managerId ? 'SELECT' : 'NAME',
+                          });
                           setIsZoneModalOpen(true);
                         }}
                       >
@@ -734,7 +781,15 @@ export const MarketManagementView: React.FC = () => {
             <DataTable
               data={territories}
               onRowDoubleClick={(t: any) => {
-                setTerritoryForm({ id: t.id, code: t.code, name: t.name, zoneId: t.zoneId, managerId: t.managerId || '' });
+                setTerritoryForm({
+                  id: t.id,
+                  code: t.code,
+                  name: t.name,
+                  zoneId: t.zoneId,
+                  managerId: t.managerId || '',
+                  managerName: t.salesOfficer ? `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}` : '',
+                  managerMode: t.managerId ? 'SELECT' : 'NAME',
+                });
                 setIsTerritoryModalOpen(true);
               }}
               columns={[
@@ -760,7 +815,15 @@ export const MarketManagementView: React.FC = () => {
                         size="sm"
                         icon={<IconEdit size={14} />}
                         onClick={() => {
-                          setTerritoryForm({ id: t.id, code: t.code, name: t.name, zoneId: t.zoneId, managerId: t.managerId || '' });
+                          setTerritoryForm({
+                            id: t.id,
+                            code: t.code,
+                            name: t.name,
+                            zoneId: t.zoneId,
+                            managerId: t.managerId || '',
+                            managerName: t.salesOfficer ? `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}` : '',
+                            managerMode: t.managerId ? 'SELECT' : 'NAME',
+                          });
                           setIsTerritoryModalOpen(true);
                         }}
                       >
@@ -893,15 +956,63 @@ export const MarketManagementView: React.FC = () => {
             onChange={(e) => setRegionForm({ ...regionForm, name: e.target.value })}
             placeholder="e.g. West Region"
           />
-          <Select
-            label="Business Manager (BM)"
-            value={regionForm.managerId}
-            onChange={(e) => setRegionForm({ ...regionForm, managerId: e.target.value })}
-            options={[
-              { label: 'Select Business Manager...', value: '' },
-              ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
-            ]}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Business Manager (BM)
+            </label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setRegionForm({ ...regionForm, managerMode: 'SELECT' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: regionForm.managerMode === 'SELECT' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: regionForm.managerMode === 'SELECT' ? '#ecfdf5' : '#ffffff',
+                  color: regionForm.managerMode === 'SELECT' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Select Existing User
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegionForm({ ...regionForm, managerMode: 'NAME' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: regionForm.managerMode === 'NAME' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: regionForm.managerMode === 'NAME' ? '#ecfdf5' : '#ffffff',
+                  color: regionForm.managerMode === 'NAME' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✍ Enter Name Only
+              </button>
+            </div>
+
+            {regionForm.managerMode === 'SELECT' ? (
+              <Select
+                value={regionForm.managerId}
+                onChange={(e) => setRegionForm({ ...regionForm, managerId: e.target.value, managerName: '' })}
+                options={[
+                  { label: 'Select Business Manager from existing users...', value: '' },
+                  ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
+                ]}
+              />
+            ) : (
+              <Input
+                placeholder="Enter Business Manager's full name (e.g. Tariq Mehmood)"
+                value={regionForm.managerName}
+                onChange={(e) => setRegionForm({ ...regionForm, managerName: e.target.value, managerId: '' })}
+                helperText="Enter name directly without requiring a pre-existing user account."
+              />
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -940,15 +1051,64 @@ export const MarketManagementView: React.FC = () => {
             onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })}
             placeholder="e.g. Faisalabad Zone"
           />
-          <Select
-            label="Area Manager (AM)"
-            value={zoneForm.managerId}
-            onChange={(e) => setZoneForm({ ...zoneForm, managerId: e.target.value })}
-            options={[
-              { label: 'Select Area Manager...', value: '' },
-              ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
-            ]}
-          />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Area Manager (AM)
+            </label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setZoneForm({ ...zoneForm, managerMode: 'SELECT' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: zoneForm.managerMode === 'SELECT' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: zoneForm.managerMode === 'SELECT' ? '#ecfdf5' : '#ffffff',
+                  color: zoneForm.managerMode === 'SELECT' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Select Existing User
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoneForm({ ...zoneForm, managerMode: 'NAME' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: zoneForm.managerMode === 'NAME' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: zoneForm.managerMode === 'NAME' ? '#ecfdf5' : '#ffffff',
+                  color: zoneForm.managerMode === 'NAME' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✍ Enter Name Only
+              </button>
+            </div>
+
+            {zoneForm.managerMode === 'SELECT' ? (
+              <Select
+                value={zoneForm.managerId}
+                onChange={(e) => setZoneForm({ ...zoneForm, managerId: e.target.value, managerName: '' })}
+                options={[
+                  { label: 'Select Area Manager from existing users...', value: '' },
+                  ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
+                ]}
+              />
+            ) : (
+              <Input
+                placeholder="Enter Area Manager's full name (e.g. Aslam Rafiq)"
+                value={zoneForm.managerName}
+                onChange={(e) => setZoneForm({ ...zoneForm, managerName: e.target.value, managerId: '' })}
+                helperText="Enter name directly without requiring a pre-existing user account."
+              />
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -987,15 +1147,64 @@ export const MarketManagementView: React.FC = () => {
             onChange={(e) => setTerritoryForm({ ...territoryForm, name: e.target.value })}
             placeholder="e.g. Faisalabad-01"
           />
-          <Select
-            label="Primary Sales Officer (SO)"
-            value={territoryForm.managerId}
-            onChange={(e) => setTerritoryForm({ ...territoryForm, managerId: e.target.value })}
-            options={[
-              { label: 'Select Sales Officer...', value: '' },
-              ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
-            ]}
-          />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Primary Sales Officer (SO)
+            </label>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+              <button
+                type="button"
+                onClick={() => setTerritoryForm({ ...territoryForm, managerMode: 'SELECT' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: territoryForm.managerMode === 'SELECT' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: territoryForm.managerMode === 'SELECT' ? '#ecfdf5' : '#ffffff',
+                  color: territoryForm.managerMode === 'SELECT' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Select Existing User
+              </button>
+              <button
+                type="button"
+                onClick={() => setTerritoryForm({ ...territoryForm, managerMode: 'NAME' })}
+                style={{
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: territoryForm.managerMode === 'NAME' ? '2px solid #059669' : '1px solid #cbd5e1',
+                  backgroundColor: territoryForm.managerMode === 'NAME' ? '#ecfdf5' : '#ffffff',
+                  color: territoryForm.managerMode === 'NAME' ? '#065f46' : '#64748b',
+                  cursor: 'pointer',
+                }}
+              >
+                ✍ Enter Name Only
+              </button>
+            </div>
+
+            {territoryForm.managerMode === 'SELECT' ? (
+              <Select
+                value={territoryForm.managerId}
+                onChange={(e) => setTerritoryForm({ ...territoryForm, managerId: e.target.value, managerName: '' })}
+                options={[
+                  { label: 'Select Sales Officer from existing users...', value: '' },
+                  ...users.map((u) => ({ label: `${u.firstName} ${u.lastName} (${u.email})`, value: u.id })),
+                ]}
+              />
+            ) : (
+              <Input
+                placeholder="Enter Sales Officer's full name (e.g. Imran Ali)"
+                value={territoryForm.managerName}
+                onChange={(e) => setTerritoryForm({ ...territoryForm, managerName: e.target.value, managerId: '' })}
+                helperText="Enter name directly without requiring a pre-existing user account."
+              />
+            )}
+          </div>
         </div>
       </Modal>
 

@@ -53,6 +53,8 @@ interface RawMaterialItem {
   unitRate?: number;
   lastPurchaseCost?: number;
   standardCost?: number;
+  totalPurchasedValue?: number;
+  bulkPacking?: string;
   baseUom?: { name: string; symbol?: string; code?: string };
   purchaseUom?: { name: string; symbol?: string; code?: string };
 }
@@ -63,6 +65,8 @@ interface PackingMaterialItem {
   materialName: string;
   lastPurchaseCost?: number;
   standardCost?: number;
+  totalPurchasedValue?: number;
+  bulkPacking?: string;
   baseUom?: { name: string; symbol?: string; code?: string };
   category?: { code: string; name: string };
 }
@@ -306,10 +310,11 @@ export const ProductCostingView: React.FC = () => {
   // Actual Unit Cost (PKR per base unit, e.g. per Liter or per KG)
   const defaultRawMaterialCost = useMemo(() => {
     if (!selectedRawMaterial) return 0;
+    // Prefer costPerBaseUnit (per Liter or per KG) first!
     const cost = Number(
+      selectedRawMaterial.costPerBaseUnit ??
       selectedRawMaterial.standardCost ??
       selectedRawMaterial.lastPurchaseCost ??
-      selectedRawMaterial.costPerBaseUnit ??
       selectedRawMaterial.unitRate ??
       0
     );
@@ -318,10 +323,20 @@ export const ProductCostingView: React.FC = () => {
 
   useEffect(() => {
     if (selectedRawMaterial) {
-      const val = defaultRawMaterialCost > 0 ? defaultRawMaterialCost : 0;
-      setCustomRawMaterialCost(val);
+      if (costMode === 'BATCH_TOTAL') {
+        const batchVal = Number(
+          selectedRawMaterial.totalPurchasedValue ||
+          ((selectedRawMaterial as any).customFields?.totalPurchaseValue) ||
+          selectedRawMaterial.standardCost ||
+          0
+        );
+        setCustomRawMaterialCost(batchVal > 0 ? batchVal : defaultRawMaterialCost);
+      } else {
+        const val = defaultRawMaterialCost > 0 ? defaultRawMaterialCost : 0;
+        setCustomRawMaterialCost(val);
+      }
     }
-  }, [selectedRawMaterialId, selectedRawMaterial, defaultRawMaterialCost]);
+  }, [selectedRawMaterialId, selectedRawMaterial, defaultRawMaterialCost, costMode]);
 
   const rawMaterialUnitCost = useMemo(() => {
     if (customRawMaterialCost !== '' && Number(customRawMaterialCost) >= 0) {
@@ -839,6 +854,29 @@ export const ProductCostingView: React.FC = () => {
 
                 {selectedRawMaterial && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Procurement & Packaging Insight */}
+                    <div style={{ background: '#f0f9ff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #bae6fd', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#0369a1' }}>
+                          📦 Procurement Master Data:
+                        </span>
+                        <span style={{ fontSize: '12.5px', color: '#0c4a6e' }}>
+                          {selectedRawMaterial.bulkPacking || (selectedRawMaterial as any).customFields?.containerType ? `${(selectedRawMaterial as any).customFields?.packageCount ? `${(selectedRawMaterial as any).customFields.packageCount} × ` : ''}${(selectedRawMaterial as any).customFields?.containerType || selectedRawMaterial.bulkPacking} · ` : ''}
+                          Total Volume: <strong>{Number(selectedRawMaterial.totalBulkVolume || (selectedRawMaterial as any).customFields?.totalPurchasedVolume || availableQuantity || 0).toLocaleString()} {rawMaterialUnitName}</strong>
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ fontSize: '12px', color: '#0369a1' }}>
+                          Base Rate: <strong style={{ color: '#047857', fontFamily: 'var(--font-mono)' }}>PKR {Number(defaultRawMaterialCost).toLocaleString()}/{rawMaterialUnitName}</strong>
+                        </span>
+                        {Number(selectedRawMaterial.totalPurchasedValue || (selectedRawMaterial as any).customFields?.totalPurchaseValue || 0) > 0 && (
+                          <span style={{ fontSize: '12px', color: '#475569' }}>
+                            Total Paid: <strong style={{ fontFamily: 'var(--font-mono)' }}>PKR {Number(selectedRawMaterial.totalPurchasedValue || (selectedRawMaterial as any).customFields?.totalPurchaseValue).toLocaleString()}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Valuation / Pricing Mode Selector */}
                     <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>

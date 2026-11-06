@@ -2328,23 +2328,39 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <CardTitle style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
+                <CardTitle style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#0f172a' }}>
                   2. Line Items &amp; Material Classification
                 </CardTitle>
                 <span
                   style={{
                     fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#64748b',
-                    backgroundColor: '#f1f5f9',
-                    padding: '2px 8px',
+                    fontWeight: 700,
+                    color: '#0284c7',
+                    backgroundColor: '#e0f2fe',
+                    padding: '3px 10px',
                     borderRadius: '12px',
                   }}
                 >
                   {formItems.length} {formItems.length === 1 ? 'item' : 'items'}
                 </span>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: '#f8fafc',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    fontWeight: 500,
+                  }}
+                >
+                  ⌨ Enter on Rate = Add New Row
+                </span>
                 <Button
                   size="sm"
                   variant="secondary"
@@ -2364,38 +2380,38 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               </div>
             </CardHeader>
             <CardContent style={{ padding: '0' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', minWidth: '1360px', borderCollapse: 'collapse', fontSize: '13.5px' }}>
                   <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border-default)', background: '#f8fafc', textAlign: 'left' }}>
-                      <th style={{ padding: '12px 14px', width: '44px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc', textAlign: 'left' }}>
+                      <th style={{ padding: '14px 12px', width: '48px', textAlign: 'center', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         #
                       </th>
-                      <th style={{ padding: '12px 14px', width: '150px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '185px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Material Type *
                       </th>
-                      <th style={{ padding: '12px 14px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                        Item Description *
+                      <th style={{ padding: '14px 12px', width: '380px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Item / Material Selection *
                       </th>
-                      <th style={{ padding: '12px 14px', width: '160px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '185px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Destination WH
                       </th>
-                      <th style={{ padding: '12px 14px', width: '120px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '140px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Packing Spec
                       </th>
-                      <th style={{ padding: '12px 14px', width: '80px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '105px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Unit
                       </th>
-                      <th style={{ padding: '12px 14px', width: '90px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                        Qty
+                      <th style={{ padding: '14px 12px', width: '130px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Quantity
                       </th>
-                      <th style={{ padding: '12px 14px', width: '120px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '150px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Rate (PKR)
                       </th>
-                      <th style={{ padding: '12px 14px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '160px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Total (PKR)
                       </th>
-                      <th style={{ padding: '12px 14px', width: '90px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '14px 12px', width: '105px', textAlign: 'center', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Actions
                       </th>
                     </tr>
@@ -2405,17 +2421,20 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       <tr
                         key={idx}
                         style={{
-                          borderBottom: '1px solid var(--border-subtle)',
-                          backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fcfdfd',
+                          borderBottom: '1px solid #e2e8f0',
+                          backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
+                          transition: 'background-color 0.15s ease',
                         }}
                       >
                         {/* Index */}
-                        <td style={{ padding: '8px 14px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, fontSize: '12px', verticalAlign: 'middle' }}>
-                          {idx + 1}
+                        <td style={{ padding: '12px 10px', textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px', verticalAlign: 'middle' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#f1f5f9', color: '#334155' }}>
+                            {idx + 1}
+                          </span>
                         </td>
 
                         {/* Material Type */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <select
                             id={`field-po-mat-type-${idx}`}
                             value={item.materialType || 'RAW_MATERIAL'}
@@ -2423,21 +2442,22 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                document.getElementById(`field-po-item-${idx}`)?.focus();
+                                document.getElementById(`field-po-item-${idx}-input`)?.focus() || document.getElementById(`field-po-item-${idx}`)?.focus();
                               }
                             }}
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 8px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '13.5px',
                               fontWeight: 600,
-                              border: '1px solid #cbd5e1',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
                               cursor: 'pointer',
+                              outline: 'none',
                             }}
                           >
                             <option value="RAW_MATERIAL">Raw Material</option>
@@ -2447,8 +2467,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         </td>
 
                         {/* Item Name / Product Selection */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle', minWidth: '260px' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <SearchableCombobox
                               id={`field-po-item-${idx}`}
                               value={item.materialId || ''}
@@ -2500,44 +2520,47 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               nextFocusId={`field-po-qty-${idx}`}
                             />
 
-                            <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                            {!item.materialId && (
                               <input
                                 value={item.itemName || ''}
                                 onChange={(e) => updateItem(idx, 'itemName', e.target.value)}
-                                placeholder={item.materialId ? 'Product description / specs' : 'Or type non-catalog product name...'}
+                                placeholder="Or enter custom / non-catalog material description..."
                                 style={{
-                                  flex: 1,
-                                  height: '28px',
-                                  padding: '0 8px',
-                                  borderRadius: '5px',
-                                  fontSize: '11px',
-                                  border: '1px solid #e2e8f0',
-                                  backgroundColor: item.materialId ? '#f8fafc' : '#ffffff',
+                                  width: '100%',
+                                  height: '34px',
+                                  padding: '0 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor: '#ffffff',
                                   color: '#0f172a',
                                   boxSizing: 'border-box',
+                                  outline: 'none',
                                 }}
                               />
-                            </div>
+                            )}
                           </div>
                         </td>
 
                         {/* Destination WH */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <select
+                            id={`field-po-wh-${idx}`}
                             value={item.warehouseId || formWarehouseId}
                             onChange={(e) => updateItem(idx, 'warehouseId', e.target.value)}
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 8px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '13px',
                               fontWeight: 600,
-                              border: '1px solid #cbd5e1',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
                               cursor: 'pointer',
+                              outline: 'none',
                             }}
                           >
                             {warehouses.map((w) => (
@@ -2549,53 +2572,60 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         </td>
 
                         {/* Packing */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
+                            id={`field-po-packing-${idx}`}
                             value={item.packing || ''}
                             onChange={(e) => updateItem(idx, 'packing', e.target.value)}
-                            placeholder="Bulk / Drum / Box"
+                            placeholder="e.g. 200L Drum, Bulk"
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 10px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              border: '1px solid #cbd5e1',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '13px',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
+                              outline: 'none',
                             }}
                           />
                         </td>
 
                         {/* Unit */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
+                            id={`field-po-unit-${idx}`}
                             value={item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG')}
-                            onChange={(e) => updateItem(idx, 'unit', e.target.value)}
-                            placeholder="KG / PCS"
+                            onChange={(e) => updateItem(idx, 'unit', e.target.value.toUpperCase())}
+                            placeholder="KG / L"
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 8px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              border: '1px solid #cbd5e1',
+                              height: '42px',
+                              padding: '0 10px',
+                              borderRadius: '8px',
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              textAlign: 'center',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
+                              textTransform: 'uppercase',
+                              outline: 'none',
                             }}
                           />
                         </td>
 
                         {/* Quantity */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
                             id={`field-po-qty-${idx}`}
                             type="number"
                             min="0"
                             step="any"
-                            value={item.quantity}
+                            value={item.quantity === 0 ? '' : item.quantity}
                             onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -2603,30 +2633,33 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                 document.getElementById(`field-po-rate-${idx}`)?.focus();
                               }
                             }}
+                            placeholder="0.00"
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 10px',
-                              borderRadius: '6px',
-                              fontSize: '13px',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '14px',
+                              fontWeight: 700,
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
-                              border: '1px solid #cbd5e1',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
+                              outline: 'none',
                             }}
                           />
                         </td>
 
                         {/* Rate */}
-                        <td style={{ padding: '8px 14px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
                             id={`field-po-rate-${idx}`}
                             type="number"
                             min="0"
                             step="any"
-                            value={item.unitRate}
+                            value={item.unitRate === 0 ? '' : item.unitRate}
                             onChange={(e) => updateItem(idx, 'unitRate', parseFloat(e.target.value) || 0)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -2635,78 +2668,93 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                   addItemRow();
                                   setTimeout(() => {
                                     document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
-                                  }, 50);
+                                  }, 60);
                                 } else {
                                   document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
                                 }
                               }
                             }}
+                            placeholder="0.00"
                             style={{
                               width: '100%',
-                              height: '36px',
-                              padding: '0 10px',
-                              borderRadius: '6px',
-                              fontSize: '13px',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '14px',
+                              fontWeight: 700,
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
-                              border: '1px solid #cbd5e1',
+                              border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
                               boxSizing: 'border-box',
+                              outline: 'none',
                             }}
                           />
                         </td>
 
                         {/* Total */}
-                        <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0f172a', verticalAlign: 'middle', fontSize: '13px' }}>
-                          PKR {Number(item.lineTotal || 0).toLocaleString()}
+                        <td style={{ padding: '12px 10px', textAlign: 'right', verticalAlign: 'middle' }}>
+                          <div
+                            style={{
+                              display: 'inline-block',
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: '#f1f5f9',
+                              color: '#0f172a',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 800,
+                              fontSize: '14px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            PKR {Number(item.lineTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
                         </td>
 
                         {/* Actions */}
-                        <td style={{ padding: '8px 14px', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'center' }}>
+                        <td style={{ padding: '12px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                             <button
                               type="button"
                               onClick={() => openSplitModal('form', idx)}
                               title="Split item across warehouses (e.g. WH A: 50, WH B: 100, WH C: 50)"
                               style={{
-                                padding: '4px 8px',
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                borderRadius: '4px',
-                                border: '1px solid #3b82f6',
+                                height: '34px',
+                                padding: '0 10px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                borderRadius: '6px',
+                                border: '1.5px solid #93c5fd',
                                 background: '#eff6ff',
                                 color: '#1d4ed8',
                                 cursor: 'pointer',
                                 whiteSpace: 'nowrap',
+                                transition: 'all 0.15s ease',
                               }}
                             >
                               Split
                             </button>
                             <button
+                              type="button"
                               onClick={() => removeItemRow(idx)}
                               disabled={formItems.length === 1}
                               style={{
-                                background: 'none',
-                                border: 'none',
-                                color: formItems.length === 1 ? '#cbd5e1' : '#94a3b8',
+                                height: '34px',
+                                width: '34px',
+                                background: formItems.length === 1 ? '#f8fafc' : '#fef2f2',
+                                border: `1.5px solid ${formItems.length === 1 ? '#e2e8f0' : '#fecaca'}`,
+                                color: formItems.length === 1 ? '#cbd5e1' : '#dc2626',
                                 cursor: formItems.length === 1 ? 'not-allowed' : 'pointer',
-                                padding: '6px',
-                                borderRadius: '4px',
+                                borderRadius: '6px',
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                transition: 'color 0.15s ease',
+                                transition: 'all 0.15s ease',
                               }}
-                              onMouseEnter={(e) => {
-                                if (formItems.length > 1) e.currentTarget.style.color = '#ef4444';
-                              }}
-                              onMouseLeave={(e) => {
-                                if (formItems.length > 1) e.currentTarget.style.color = '#94a3b8';
-                              }}
-                              title="Remove row"
+                              title={formItems.length === 1 ? 'At least one line item is required' : 'Remove row'}
                             >
-                              <IconTrash size={15} />
+                              <IconTrash size={16} />
                             </button>
                           </div>
                         </td>
@@ -2723,28 +2771,30 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
-                  gap: '16px',
-                  padding: '14px 20px',
+                  gap: '20px',
+                  padding: '16px 24px',
                   backgroundColor: '#f8fafc',
-                  borderTop: '1px solid #e2e8f0',
+                  borderTop: '2px solid #e2e8f0',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '13px', color: '#475569' }}>
-                  <span>
-                    Raw Materials: <strong style={{ color: '#0f172a' }}>PKR {rawMaterialTotal.toLocaleString()}</strong> ({rawMaterialItems.length})
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13.5px', color: '#475569' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0284c7' }} />
+                    Raw Materials: <strong style={{ color: '#0f172a', fontFamily: 'var(--font-mono)' }}>PKR {rawMaterialTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> ({rawMaterialItems.length})
                   </span>
                   <span style={{ color: '#cbd5e1' }}>&bull;</span>
-                  <span>
-                    Packaging: <strong style={{ color: '#0f172a' }}>PKR {packingTotal.toLocaleString()}</strong> ({packingItems.length})
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#8b5cf6' }} />
+                    Packaging: <strong style={{ color: '#0f172a', fontFamily: 'var(--font-mono)' }}>PKR {packingTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> ({packingItems.length})
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.04em' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span style={{ fontSize: '13px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
                     Total Order Value:
                   </span>
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: '#0284c7', fontFamily: 'var(--font-mono)' }}>
-                    PKR {totalCalc.toLocaleString()}
+                  <span style={{ fontSize: '20px', fontWeight: 800, color: '#0284c7', fontFamily: 'var(--font-mono)', backgroundColor: '#e0f2fe', padding: '6px 14px', borderRadius: '8px' }}>
+                    PKR {totalCalc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
