@@ -22,6 +22,17 @@ import { AuthUser, SecurityContext } from '@shehswar/types';
 export class CostingController {
   constructor(private readonly costingService: CostingService) {}
 
+  @Get('next-code')
+  async getNextCostingCode(
+    @Query('companyId') companyId?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+  ) {
+    const targetCompanyId = companyId || ctx?.companyId || user?.companyId || '';
+    const code = await this.costingService.previewNextCostingCode(targetCompanyId);
+    return { success: true, code, nextCode: code, serialNumber: code };
+  }
+
   @Post('calculate')
   async calculateBatchCost(@Body() input: BatchCostCalculationInput) {
     return this.costingService.calculateCostBatch(input);

@@ -364,15 +364,26 @@ export class CodeGenerationService {
       COSTING: { prefix: 'CST', pad: 6 },
     };
     const config = prefixMap[params.entityType];
-    const seq = await this.prisma.documentSequence.findUnique({
-      where: {
-        companyId_documentType_fiscalYear: {
-          companyId: params.companyId,
-          documentType: `CODE_${config.prefix}`,
-          fiscalYear: 0,
+    let seq = null;
+    if (params.companyId) {
+      seq = await this.prisma.documentSequence.findUnique({
+        where: {
+          companyId_documentType_fiscalYear: {
+            companyId: params.companyId,
+            documentType: `CODE_${config.prefix}`,
+            fiscalYear: 0,
+          },
         },
-      },
-    });
+      });
+    }
+    if (!seq) {
+      seq = await this.prisma.documentSequence.findFirst({
+        where: {
+          documentType: `CODE_${config.prefix}`,
+        },
+        orderBy: { currentNumber: 'desc' },
+      });
+    }
     const next = (Number(seq?.currentNumber ?? 0)) + 1;
     return `${config.prefix}-${String(next).padStart(config.pad, '0')}`;
   }

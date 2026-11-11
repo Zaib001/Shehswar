@@ -199,15 +199,39 @@ export function ProductCostingView() {
   // 1. DATA INITIALIZATION & REAL PO QUERY
   // ==========================================
 
+  // Auto-generate next sequential Costing Serial Number (CST-XXXXXX)
+  const fetchNextSerialNumber = useCallback(async (): Promise<string> => {
+    try {
+      const activeComp = typeof window !== 'undefined' ? localStorage.getItem('shehswar_active_company') : null;
+      const validCompanyQuery = activeComp && activeComp !== 'ALL' && activeComp.length > 10 ? `?companyId=${encodeURIComponent(activeComp)}` : '';
+      
+      let code: string | null = null;
+      try {
+        const res = await ApiClient.get<any>(`/api/v1/costing/next-code${validCompanyQuery}`);
+        code = res.data?.code || res.data?.nextCode || res.data?.serialNumber || (res as any)?.code || (res as any)?.nextCode;
+      } catch {
+        const fallbackRes = await ApiClient.get<any>(`/api/v1/master-data/next-code?entityType=COSTING${validCompanyQuery ? '&' + validCompanyQuery.slice(1) : ''}`);
+        code = fallbackRes.data?.nextCode || fallbackRes.data?.code || (fallbackRes as any)?.nextCode || (fallbackRes as any)?.code;
+      }
+
+      if (code && typeof code === 'string') {
+        setSerialNumber(code);
+        return code;
+      }
+    } catch (e) {
+      console.error('Failed to get sequential costing code', e);
+    }
+    return 'CST-000001';
+  }, []);
+
   const loadInitialData = useCallback(async () => {
     setIsLoadingMasterData(true);
     setIsLoadingPurchases(true);
     try {
-      const [whRes, venRes, fpRes, nextCodeRes, purchasedRes] = await Promise.all([
+      const [whRes, venRes, fpRes, purchasedRes] = await Promise.all([
         ApiClient.get<any>('/api/v1/master-data/warehouses?all=true').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => ({ data: { code: 'CST-000001' } })),
         ApiClient.get<any>('/api/v1/costing/purchased-materials').catch(() => ({ data: { purchases: [] } })),
       ]);
 
@@ -238,9 +262,8 @@ export function ProductCostingView() {
       setFinishedProducts(fpList);
       setPurchasedMaterials(poItemsList);
 
-      if (nextCodeRes?.data?.code) {
-        setSerialNumber(nextCodeRes.data.code);
-      }
+      // Auto-load next sequential Serial No.
+      await fetchNextSerialNumber();
 
       // Default Warehouse
       if (whList.length > 0) {
@@ -537,9 +560,8 @@ export function ProductCostingView() {
         type: 'success',
       });
 
-      // Refresh next serial code
-      const nextRes = await ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => null);
-      if (nextRes?.data?.code) setSerialNumber(nextRes.data.code);
+      // Refresh next serial code automatically
+      await fetchNextSerialNumber();
     } catch (err: any) {
       console.error('Save failed:', err);
       showToast({
@@ -771,41 +793,54 @@ export function ProductCostingView() {
             >
               {/* 1. Serial No */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
-                  Serial No.
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>
+                    Serial No.
+                  </label>
                   <span
                     style={{
-                      padding: '8px 12px',
-                      fontSize: '13px',
+                      fontSize: '10px',
                       fontWeight: 700,
-                      backgroundColor: '#f1f5f9',
-                      border: '1px solid #cbd5e1',
-                      borderRight: 'none',
-                      borderRadius: '8px 0 0 8px',
-                      color: '#475569',
+                      color: '#0d9488',
+                      backgroundColor: '#ccfbf1',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      letterSpacing: '0.5px',
                     }}
                   >
-                    A
+                    AUTO
                   </span>
+                </div>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <input
                     type="text"
                     value={serialNumber}
                     onChange={(e) => setSerialNumber(e.target.value)}
+                    placeholder="CST-000001"
                     style={{
-                      width: '100%',
+                      flex: 1,
                       height: '38px',
                       padding: '0 12px',
                       fontSize: '13px',
                       fontWeight: 700,
+                      fontFamily: 'monospace',
                       color: '#0f766e',
                       backgroundColor: '#f0fdfa',
                       border: '1px solid #cbd5e1',
-                      borderRadius: '0 8px 8px 0',
+                      borderRadius: '8px',
                       outline: 'none',
                     }}
                   />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => fetchNextSerialNumber()}
+                    icon={<IconRefresh size={13} />}
+                    style={{ height: '38px', padding: '0 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Refresh / Auto-generate Serial Number"
+                  >
+                    Auto
+                  </Button>
                 </div>
               </div>
 

@@ -185,7 +185,7 @@ export class MasterDataController {
       companyId: targetCompanyId,
       entityType: entityType || 'FINISHED_PRODUCT',
     });
-    return { entityType, nextCode };
+    return { entityType, nextCode, code: nextCode };
   }
 
   // 1. ORGANIZATIONS

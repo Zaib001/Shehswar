@@ -1224,6 +1224,16 @@ export class CostingService {
   }
 
   /**
+   * Previews next sequential Costing Voucher Code (CST-XXXXXX)
+   */
+  async previewNextCostingCode(companyId?: string): Promise<string> {
+    return this.codeGen.previewNextCode({
+      companyId: companyId || '',
+      entityType: 'COSTING',
+    });
+  }
+
+  /**
    * Retrieves overall costing calculation history with date filtering and snapshot metadata
    */
   async getAllCostingHistory(options?: {
