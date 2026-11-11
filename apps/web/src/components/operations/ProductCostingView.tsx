@@ -497,16 +497,20 @@ export function ProductCostingView() {
 
       const primaryRm = rmLines[0];
 
+      const activeComp = typeof window !== 'undefined' ? localStorage.getItem('shehswar_active_company') : null;
+      const validActiveCompanyId = activeComp && activeComp !== 'ALL' && activeComp.length > 10 ? activeComp : undefined;
+
       const payload = {
+        companyId: validActiveCompanyId,
         serialNumber,
         costingDate,
-        warehouseId: selectedWarehouseId,
+        warehouseId: selectedWarehouseId || null,
         warehouseName: selectedWh?.name || 'Warehouse',
-        contractorVendorId: selectedContractorId,
+        contractorVendorId: selectedContractorId || null,
         contractorVendorName: selectedVen?.name || 'Contractor',
-        finishedProductId: selectedFinishedProductId || undefined,
-        finishedProductName: selectedFp?.productName,
-        finishedProductCode: selectedFp?.productCode,
+        finishedProductId: selectedFinishedProductId ? selectedFinishedProductId : null,
+        finishedProductName: selectedFp?.productName || null,
+        finishedProductCode: selectedFp?.productCode || null,
         packSize: parsedPackSize,
         packSizeUnit: packSize.includes('Liter') ? 'Liter' : packSize.includes('KG') ? 'KG' : 'Unit',
         estimatedQuantity,

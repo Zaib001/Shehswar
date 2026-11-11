@@ -20,6 +20,11 @@ import { CodeGenerationService } from '../../platform/code-generation/code-gener
 import { AuthUser } from '@shehswar/types';
 import { v7 as uuidv7 } from 'uuid';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(id?: any): boolean {
+  return typeof id === 'string' && UUID_REGEX.test(id.trim());
+}
+
 export type CostingMethod = 'LATEST_PURCHASE' | 'WEIGHTED_AVERAGE' | 'STANDARD';
 
 export interface CostingTableLineDto {
@@ -1018,13 +1023,30 @@ export class CostingService {
    * Completely immutable: records exact purchase rate, date, and vendor metadata selected by the user.
    */
   async saveCostingRecord(dto: SaveCostingRecordInput, user: AuthUser) {
-    const companyId = user.companyId;
-    const organizationId = user.organizationId;
+    let companyId: string = (user.companyId || dto.companyId || '').trim();
+    let organizationId: string = (user.organizationId || '').trim();
+
+    if (!isValidUuid(companyId) || companyId === 'ALL') {
+      const defaultComp = await this.prisma.company.findFirst({
+        select: { id: true, organizationId: true },
+      });
+      if (defaultComp) {
+        companyId = defaultComp.id;
+        organizationId = organizationId || defaultComp.organizationId;
+      }
+    }
+
+    if (!isValidUuid(organizationId)) {
+      const defaultOrg = await this.prisma.organization.findFirst({
+        select: { id: true },
+      });
+      organizationId = defaultOrg?.id || organizationId || '';
+    }
 
     return this.prisma.$transaction(async (tx) => {
       let rawMaterial = null;
       const primaryRmId = dto.rawMaterialId || dto.rawMaterials?.[0]?.rawMaterialId;
-      if (primaryRmId) {
+      if (isValidUuid(primaryRmId)) {
         rawMaterial = await tx.rawMaterial.findUnique({
           where: { id: primaryRmId },
           include: { baseUom: true },
@@ -1032,11 +1054,15 @@ export class CostingService {
       }
 
       let finishedProduct = null;
-      if (dto.finishedProductId) {
+      let validFinishedProductId: string | null = null;
+      if (isValidUuid(dto.finishedProductId)) {
         finishedProduct = await tx.finishedProduct.findUnique({
           where: { id: dto.finishedProductId },
           select: { id: true, productCode: true, productName: true },
         });
+        if (finishedProduct) {
+          validFinishedProductId = finishedProduct.id;
+        }
       }
 
       const costingCode = await this.codeGen.generateCode({
@@ -1073,7 +1099,7 @@ export class CostingService {
         warehouseName: dto.warehouseName || null,
         contractorVendorId: dto.contractorVendorId || null,
         contractorVendorName: dto.contractorVendorName || null,
-        finishedProductId: dto.finishedProductId || null,
+        finishedProductId: validFinishedProductId,
         productCode: finishedProduct?.productCode || dto.finishedProductCode || null,
         productName: finishedProduct?.productName || dto.finishedProductName || null,
         sourcePoId: dto.sourcePoId || null,
@@ -1105,20 +1131,49 @@ export class CostingService {
       };
 
       let nextVersion = 1;
-      if (dto.finishedProductId) {
+      if (validFinishedProductId) {
         const latestCosting = await tx.productCosting.findFirst({
-          where: { companyId, finishedProductId: dto.finishedProductId },
+          where: { companyId, finishedProductId: validFinishedProductId },
           orderBy: { version: 'desc' },
         });
         nextVersion = (latestCosting?.version ?? 0) + 1;
       }
+
+      // Validate relational integrity for rawMaterialLines against raw_materials table
+      const rmCandidateIds = rawMaterialsList
+        .map((rm) => rm.rawMaterialId)
+        .filter((id) => isValidUuid(id));
+      let validRmIdSet = new Set<string>();
+      if (rmCandidateIds.length > 0) {
+        const existingRms = await tx.rawMaterial.findMany({
+          where: { id: { in: rmCandidateIds } },
+          select: { id: true },
+        });
+        validRmIdSet = new Set(existingRms.map((r) => r.id));
+      }
+
+      // Validate relational integrity for packagingLines against packing_materials table
+      const pmCandidateIds = (dto.packagingMaterials || [])
+        .map((pm) => pm.packingMaterialId)
+        .filter((id) => isValidUuid(id));
+      let validPmIdSet = new Set<string>();
+      if (pmCandidateIds.length > 0) {
+        const existingPms = await tx.packingMaterial.findMany({
+          where: { id: { in: pmCandidateIds } },
+          select: { id: true },
+        });
+        validPmIdSet = new Set(existingPms.map((p) => p.id));
+      }
+
+      const validRmLines = rawMaterialsList.filter((rm) => validRmIdSet.has(rm.rawMaterialId));
+      const validPmLines = (dto.packagingMaterials || []).filter((pm) => validPmIdSet.has(pm.packingMaterialId));
 
       const costingRecord = await tx.productCosting.create({
         data: {
           id: uuidv7(),
           organizationId,
           companyId,
-          finishedProductId: dto.finishedProductId || null,
+          finishedProductId: validFinishedProductId,
           version: nextVersion,
           batchOutputQuantity: dto.actualQuantity || dto.finishedQuantity,
           packSize: dto.packSize,
@@ -1130,31 +1185,27 @@ export class CostingService {
           costPerUnit: dto.costPerUnit,
           notes: JSON.stringify(snapshotData),
           status: 'ACTIVE',
-          createdById: user.id || null,
+          createdById: user.id && isValidUuid(user.id) ? user.id : null,
           createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
-            create: rawMaterialsList
-              .filter((rm) => !!rm.rawMaterialId)
-              .map((rm) => ({
-                id: uuidv7(),
-                rawMaterialId: rm.rawMaterialId,
-                quantity: rm.quantity,
-                unitCost: rm.unitCost,
-                totalCost: rm.totalCost,
-                uomName: rm.uomName || 'KG',
-              })),
+            create: validRmLines.map((rm) => ({
+              id: uuidv7(),
+              rawMaterialId: rm.rawMaterialId,
+              quantity: rm.quantity,
+              unitCost: rm.unitCost,
+              totalCost: rm.totalCost,
+              uomName: rm.uomName || 'KG',
+            })),
           },
           packagingLines: {
-            create: (dto.packagingMaterials || [])
-              .filter((pm) => !!pm.packingMaterialId)
-              .map((pm) => ({
-                id: uuidv7(),
-                packingMaterialId: pm.packingMaterialId,
-                quantity: pm.quantity,
-                unitCost: pm.unitCost,
-                totalCost: pm.totalCost,
-                uomName: pm.uomName || 'Nos',
-              })),
+            create: validPmLines.map((pm) => ({
+              id: uuidv7(),
+              packingMaterialId: pm.packingMaterialId,
+              quantity: pm.quantity,
+              unitCost: pm.unitCost,
+              totalCost: pm.totalCost,
+              uomName: pm.uomName || 'Nos',
+            })),
           },
         },
         include: {
