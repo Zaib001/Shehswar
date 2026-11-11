@@ -98,23 +98,10 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
   const [isFocused, setIsFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState(value || '');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [openUpward, setOpenUpward] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      if (spaceBelow < 230 && rect.top > spaceBelow) {
-        setOpenUpward(true);
-      } else {
-        setOpenUpward(false);
-      }
-    }
-  }, [isOpen]);
 
   // Sync searchQuery when external value changes and input is not focused
   useEffect(() => {
@@ -269,20 +256,17 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
           ref={listRef}
           style={{
             position: 'absolute',
-            ...(openUpward
-              ? { bottom: 'calc(100% + 4px)', top: 'auto' }
-              : { top: 'calc(100% + 4px)', bottom: 'auto' }),
+            top: 'calc(100% + 4px)',
             left: 0,
-            minWidth: '340px',
+            width: '100%',
+            minWidth: '360px',
             maxWidth: '520px',
-            maxHeight: '220px',
+            maxHeight: '240px',
             overflowY: 'auto',
             backgroundColor: '#ffffff',
             border: '1.5px solid #059669',
             borderRadius: '8px',
-            boxShadow: openUpward
-              ? '0 -12px 28px -5px rgba(0, 0, 0, 0.2), 0 -8px 10px -6px rgba(0, 0, 0, 0.1)'
-              : '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            boxShadow: '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
             zIndex: 99999,
           }}
         >
@@ -3287,6 +3271,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   backgroundColor: '#f8fafc',
                   borderTop: '1px solid #e2e8f0',
                   borderRadius: '0 0 12px 12px',
+                  position: 'relative',
+                  zIndex: 1,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '12.5px', color: '#475569', flexWrap: 'wrap' }}>
