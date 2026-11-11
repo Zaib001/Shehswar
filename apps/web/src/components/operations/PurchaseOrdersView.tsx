@@ -512,8 +512,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   // Auto-generate next sequential PO Number
   const fetchNextPoNumber = useCallback(async (): Promise<string> => {
     try {
-      const res = await ApiClient.get<{ nextNumber: string }>('/api/v1/operations/purchase-orders/next-number');
-      const num = res.data?.nextNumber;
+      const res = await ApiClient.get<any>('/api/v1/operations/purchase-orders/next-number');
+      const num = res.data?.poNumber || res.data?.nextNumber || res.data?.data?.poNumber;
       if (num && typeof num === 'string') {
         setFormPoNumber(num);
         return num;
@@ -521,10 +521,17 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     } catch (e) {
       console.error('Failed to get sequential PO number', e);
     }
-    const fallback = `PO-${new Date().getFullYear()}-000001`;
-    setFormPoNumber(fallback);
-    return fallback;
-  }, []);
+    const year = new Date().getFullYear();
+    const existingNums = new Set((orders || []).map((o) => o.poNumber));
+    let nextIdx = (orders?.length || 0) + 1;
+    let candidate = `PO-${year}-${String(nextIdx).padStart(6, '0')}`;
+    while (existingNums.has(candidate)) {
+      nextIdx++;
+      candidate = `PO-${year}-${String(nextIdx).padStart(6, '0')}`;
+    }
+    setFormPoNumber(candidate);
+    return candidate;
+  }, [orders]);
 
   // Quick create and immediately select vendor
   const handleQuickCreateVendor = async (e?: React.SyntheticEvent) => {
@@ -1234,9 +1241,21 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       return;
     }
 
+    const validItems = formItems.filter((it) => (it.itemName && it.itemName.trim()) || it.materialId);
+    if (validItems.length === 0) {
+      showToast({ title: 'Validation', message: 'Please enter at least one product line item', type: 'warning' });
+      return;
+    }
+
+    // Auto-generate or increment if already existing in DB
+    let effectivePoNumber = formPoNumber?.trim();
+    if (!effectivePoNumber || effectivePoNumber === 'AUTO' || orders.some((o) => o.poNumber === effectivePoNumber)) {
+      effectivePoNumber = await fetchNextPoNumber();
+    }
+
     try {
       await ApiClient.post('/api/v1/operations/purchase-orders', {
-        poNumber: formPoNumber,
+        poNumber: effectivePoNumber,
         vendorId: formVendorId,
         warehouseId: formWarehouseId || undefined,
         deliveryLocation: extractedExtraFields.address || undefined,
@@ -1244,28 +1263,30 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         expectedDeliveryDate: formExpectedDate || undefined,
         notes: formNotes,
         extraFields: extractedExtraFields,
-        items: formItems.map((it) => ({
-          ...it,
-          packing: `${it.numberOfPacks || 1} × ${it.packSize || `${it.packCapacity || 1} ${it.unit || 'KG'}`} (${it.quantity || 1} ${it.unit || 'KG'})`.trim(),
-          packSize: it.packSize,
-          numberOfPacks: it.numberOfPacks,
-          totalPurchaseAmount: it.totalPurchaseAmount || it.lineTotal,
-          costPerPack: it.costPerPack,
+        items: validItems.map((it) => ({
+          itemName: it.itemName || 'Material Item',
+          materialId: it.materialId || undefined,
           materialType: it.materialType || 'RAW_MATERIAL',
+          packSize: it.packSize || undefined,
+          numberOfPacks: Number(it.numberOfPacks) || 1,
+          packing: `${it.numberOfPacks || 1} × ${it.packSize || `${it.packCapacity || 1} ${it.unit || 'KG'}`} (${it.quantity || 1} ${it.unit || 'KG'})`.trim(),
+          unit: it.unit || 'KG',
+          quantity: Number(it.quantity) || 1,
+          unitRate: Number(it.unitRate) || 0,
+          totalPurchaseAmount: Number(it.totalPurchaseAmount) || Number(it.lineTotal) || 0,
+          costPerPack: Number(it.costPerPack) || 0,
+          lineTotal: Number(it.lineTotal) || Number(it.totalPurchaseAmount) || 0,
           rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
           packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
           finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
           warehouseId: formWarehouseId || undefined,
-          quantity: it.quantity,
-          unitRate: it.unitRate,
-          lineTotal: it.lineTotal || it.totalPurchaseAmount,
         })),
         status: 'CONFIRMED',
       });
 
-      showToast({ title: 'Success', message: 'Purchase Order saved structurally in database!', type: 'success' });
+      showToast({ title: 'Success', message: `Purchase Order ${effectivePoNumber} saved structurally in database!`, type: 'success' });
       setMode('list');
-      loadData();
+      await loadData();
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to save purchase order', type: 'error' });
     }
@@ -1411,9 +1432,16 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     try {
       // 1. If PO does not exist yet (direct from upload review), ensure PO is saved
       const existingPo = orders.find((o) => o.poNumber === verifyPoNumber);
+      let targetPoNumber = verifyPoNumber;
       if (!existingPo) {
+        let poNumberToSave = verifyPoNumber;
+        if (!poNumberToSave || poNumberToSave === 'AUTO' || orders.some((o) => o.poNumber === poNumberToSave)) {
+          poNumberToSave = await fetchNextPoNumber();
+        }
+        targetPoNumber = poNumberToSave;
+        const validVerifyItems = verifyItems.filter((it) => (it.itemName && it.itemName.trim()) || it.materialId);
         await ApiClient.post('/api/v1/operations/purchase-orders', {
-          poNumber: verifyPoNumber,
+          poNumber: poNumberToSave,
           vendorId: verifyVendorId,
           warehouseId: verifyWarehouseId,
           deliveryLocation: extractedExtraFields.address || undefined,
@@ -1421,9 +1449,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           expectedDeliveryDate: formExpectedDate || undefined,
           notes: formNotes,
           extraFields: extractedExtraFields,
-          items: verifyItems,
+          items: validVerifyItems.length > 0 ? validVerifyItems : verifyItems,
           status: 'CONVERTED_TO_PURCHASE',
-        }).catch(() => null);
+        });
       }
 
       // 2. Create Purchase with immediate auto-posting and automatic master registration
@@ -1431,9 +1459,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         vendorId: verifyVendorId,
         warehouseId: verifyWarehouseId,
         date: new Date().toISOString().split('T')[0],
-        vendorInvoiceNo: `INV-${verifyPoNumber.replace(/^PO-/, '')}`,
-        reference: verifyPoNumber,
-        notes: `Direct Purchase from PO ${verifyPoNumber}`,
+        vendorInvoiceNo: `INV-${targetPoNumber.replace(/^PO-/, '')}`,
+        reference: targetPoNumber,
+        notes: `Direct Purchase from PO ${targetPoNumber}`,
         autoPost: true,
         items: verifyItems.map((it) => ({
           materialType: it.materialType || 'RAW_MATERIAL',
@@ -2487,10 +2515,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           subtitle="Review extracted fields, adjust quantities or rates if necessary, then save structured PO into database."
           breadcrumbs={[{ label: 'Purchase Orders', onClick: () => setMode('list') }, { label: mode === 'ocr_review' ? 'OCR Review' : 'New PO' }]}
           onCancel={() => setMode('list')}
-          onSubmit={openVerifyModalFromCurrentForm}
-          submitLabel="Verify & Create Purchase"
-          onSaveDraft={handleSavePo}
-          draftLabel="Save PO Only"
+          onSubmit={handleSavePo}
+          submitLabel="Save Purchase Order"
+          onSaveDraft={openVerifyModalFromCurrentForm}
+          draftLabel="Verify & Create Purchase"
           stickyFooter={false}
         >
           {/* Compact Document Context Banner */}
