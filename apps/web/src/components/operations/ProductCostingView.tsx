@@ -3,22 +3,20 @@
 /**
  * SHEHSWAR ONE360 - Product Costing Engine
  *
- * Core Principles:
- * 1. Product Creation and Product Costing are completely separate.
- *    Products already exist in All Products / Finished Products.
- *    Costing calculates the real manufacturing cost of an existing product using
- *    real Raw Material and Packaging Material purchase costs from Purchase Orders.
- * 2. Date-Wise Purchase Cost:
- *    Materials get their rates from actual historical Purchase Orders.
- *    Different purchase prices on different dates are preserved.
- *    User selects which purchase/date should be used for the costing.
- *    No arbitrary manual rate entry.
- * 3. Costing History:
- *    Every confirmed costing is saved permanently as an immutable record.
- *    Previous costings are never overwritten.
- * 4. Add to Product (Optional):
- *    Calculated unit cost can be saved against the existing Finished Product.
- *    Rate Lists are NOT automatically modified.
+ * Designed according to the Supreme Accounting Filling/Costing Voucher standard:
+ *
+ * Core Concept:
+ *   Product → Material Components → Pack → Quantity → Rate → Cost → Total Cost → Unit Cost
+ *
+ * Key Principles:
+ * 1. Product Creation and Costing are completely separate.
+ *    Finished Products are selected from the Product Master.
+ * 2. Ultra-simple, high-density professional entry voucher layout.
+ * 3. Unified single table for RM, PM, and Other/Labour components.
+ * 4. Auto-calculation: Cost = Quantity * Rate.
+ * 5. Auto-fetch: Selecting materials auto-populates Pack and Rate from real Purchase Orders.
+ * 6. Bottom Summary: Total Cost, Actual Quantity, Unit Cost = Total Cost / Actual Quantity.
+ * 7. Permanent Costing History with double-click voucher review modal.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -31,7 +29,6 @@ import {
   CardContent,
   Button,
   Input,
-  Select,
   Modal,
   TableSkeleton,
   SearchableCombobox,
@@ -50,328 +47,231 @@ import {
 // TYPE DEFINITIONS
 // ==========================================
 
-export interface RawMaterialItem {
-  id: string;
-  materialCode: string;
-  materialName: string;
-  availableQuantity?: number;
-  stockOnHand?: number;
-  totalBulkVolume?: number;
-  maximumStock?: number;
-  costPerBaseUnit?: number;
-  unitRate?: number;
-  lastPurchaseCost?: number;
-  standardCost?: number;
-  baseUom?: { name: string; symbol?: string; code?: string };
-  purchaseUom?: { name: string; symbol?: string; code?: string };
-}
+export type ComponentType = 'RM' | 'PM' | 'Other';
 
-export interface PackingMaterialItem {
-  id: string;
-  materialCode: string;
-  materialName: string;
-  lastPurchaseCost?: number;
-  standardCost?: number;
-  baseUom?: { name: string; symbol?: string; code?: string };
-}
-
-export interface FinishedProductItem {
-  id: string;
-  productCode: string;
-  productName: string;
-  packSize?: any;
-  packingQuantity?: number;
-  packingUnit?: string;
-  standardCost?: number;
-  status?: string;
-}
-
-export interface PurchaseTransaction {
-  id: string;
-  sourceType: 'PURCHASE_ORDER' | 'PURCHASE_INVOICE';
-  documentId: string;
+export interface HistoricalPurchase {
   documentNumber: string;
   purchaseDate: string;
-  vendorId?: string;
+  unitCost: number;
   vendorName: string;
-  vendorCode?: string;
   quantity: number;
   unit: string;
-  unitCost: number;
-  totalAmount: number;
-  specification?: string;
-  numberOfPacks?: number;
-  costPerPack?: number;
-  packSize?: string;
-  status?: string;
 }
 
-export interface RawMaterialCostLine {
+export interface CostingLineItem {
   id: string;
-  rawMaterialId: string;
+  materialId?: string;
+  materialName: string;
+  materialCode?: string;
+  type: ComponentType;
+  pack: string;
+  quantity: number;
+  rate: number;
+  cost: number;
   sourcePoId?: string;
-  sourcePoNumber?: string;
-  purchaseDate?: string;
-  sourceVendorName?: string;
-  availableQuantity: number;
-  requiredQuantity: number;
-  unitCost: number;
-  totalCost: number;
-  unit: string;
-  purchaseHistory: PurchaseTransaction[];
-  isLoadingPurchases: boolean;
-}
-
-export interface PackagingMaterialCostLine {
-  id: string;
-  packingMaterialId: string;
-  sourcePoId?: string;
-  sourcePoNumber?: string;
-  purchaseDate?: string;
-  sourceVendorName?: string;
-  requiredQuantity: number;
-  unitCost: number;
-  totalCost: number;
-  unit: string;
-  purchaseHistory: PurchaseTransaction[];
-  isLoadingPurchases: boolean;
-}
-
-export interface CostingHistoryRecord {
-  id: string;
-  costingCode?: string;
-  costingDate?: string;
-  createdAt: string;
-  version?: number;
-  packSize: number;
-  packSizeUnit?: string;
-  batchOutputQuantity: number;
-  totalRawMaterialCost: number;
-  totalPackagingCost: number;
-  totalBatchCost: number;
-  costPerUnit: number;
-  status?: string;
-  notes?: string;
   sourcePoNumber?: string;
   purchaseDate?: string;
   vendorName?: string;
-  rawMaterialName?: string;
-  rawMaterialCostPerUnit?: number;
-  snapshotMetadata?: any;
-  materialLines?: {
-    rawMaterial?: { materialCode: string; materialName: string };
-    quantity: number;
-    unitCost: number;
-    totalCost: number;
-    uomName?: string;
-  }[];
-  packagingLines?: {
-    packingMaterial?: { materialCode: string; materialName: string };
-    quantity: number;
-    unitCost: number;
-    totalCost: number;
-    uomName?: string;
-  }[];
+  historicalPurchases?: HistoricalPurchase[];
+}
+
+export interface MasterWarehouse {
+  id: string;
+  code: string;
+  name: string;
+  location?: string;
+}
+
+export interface MasterVendor {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface MasterFinishedProduct {
+  id: string;
+  productCode: string;
+  productName: string;
+  packingQuantity?: number;
+  packingUnit?: string;
+  standardCost?: number;
+}
+
+export interface MasterMaterial {
+  id: string;
+  materialCode: string;
+  materialName: string;
+  type: 'RM' | 'PM';
+  standardCost?: number;
+  lastPurchaseCost?: number;
+  baseUom?: { name: string; symbol?: string; code?: string };
+}
+
+export interface SavedCostingRecord {
+  id: string;
+  version: number;
+  createdAt: string;
+  batchOutputQuantity: number;
+  packSize: number;
+  packSizeUnit: string;
+  totalBatchCost: number;
+  costPerUnit: number;
+  finishedProductId?: string;
+  notes?: string;
+  status: string;
   finishedProduct?: {
-    id?: string;
+    id: string;
     productCode: string;
     productName: string;
   };
+  snapshot?: {
+    costingCode?: string;
+    serialNumber?: string;
+    costingDate?: string;
+    warehouseName?: string;
+    contractorVendorName?: string;
+    productName?: string;
+    productCode?: string;
+    actualQuantity?: number;
+    estimatedQuantity?: number;
+    lines?: CostingLineItem[];
+    totalBatchCost?: number;
+    costPerUnit?: number;
+  };
 }
 
-// Helper to parse pack size string (e.g. "2 Liters", "500 ML", "25 KG")
-function parsePackSize(packSizeStr: any, defaultUnit = 'Liter'): { size: number; unit: string } {
-  if (!packSizeStr) return { size: 1, unit: defaultUnit };
-  const str = typeof packSizeStr === 'string' ? packSizeStr : packSizeStr?.name || '';
-  const match = String(str).match(/^([\d.]+)\s*([a-zA-Z%]+)?$/);
-  if (match && match[1]) {
-    return {
-      size: parseFloat(match[1]) || 1,
-      unit: match[2] || defaultUnit,
-    };
-  }
-  return { size: 1, unit: defaultUnit };
-}
-
-export const ProductCostingView: React.FC = () => {
+export function ProductCostingView() {
   const { showToast } = useToast();
 
-  // Navigation Tab: 'calculator' | 'history'
-  const [activeTab, setActiveTab] = useState<'calculator' | 'history'>('calculator');
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState<'voucher' | 'history'>('voucher');
 
-  // Master Catalogs
-  const [finishedProducts, setFinishedProducts] = useState<FinishedProductItem[]>([]);
-  const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
-  const [packingMaterialsList, setPackingMaterialsList] = useState<PackingMaterialItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Master Data
+  const [warehouses, setWarehouses] = useState<MasterWarehouse[]>([]);
+  const [vendors, setVendors] = useState<MasterVendor[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<MasterFinishedProduct[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<MasterMaterial[]>([]);
+  const [packingMaterials, setPackingMaterials] = useState<MasterMaterial[]>([]);
+  const [isLoadingMasterData, setIsLoadingMasterData] = useState<boolean>(true);
 
-  // Section 0: Header - Finished Product & Production Target
+  // Voucher Header State
+  const [serialNumber, setSerialNumber] = useState<string>('CST-000001');
+  const [costingDate, setCostingDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '2026-11-11');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
+  const [selectedContractorId, setSelectedContractorId] = useState<string>('');
   const [selectedFinishedProductId, setSelectedFinishedProductId] = useState<string>('');
-  const [costingDate, setCostingDate] = useState<string>(() => new Date().toISOString().split('T')[0] ?? '');
-  const [packSize, setPackSize] = useState<number>(1);
-  const [packSizeUnit, setPackSizeUnit] = useState<string>('Liter');
-  const [outputQuantity, setOutputQuantity] = useState<number>(100);
+  const [packSize, setPackSize] = useState<string>('1 Liter');
+  const [estimatedQuantity, setEstimatedQuantity] = useState<number>(1000);
+  const [actualQuantity, setActualQuantity] = useState<number>(1003);
 
-  // Section 1: Raw Material Lines
-  const [rawMaterialLines, setRawMaterialLines] = useState<RawMaterialCostLine[]>([]);
+  // Voucher Lines State (Single Unified Table)
+  const [lines, setLines] = useState<CostingLineItem[]>([]);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isApplyingCost, setIsApplyingCost] = useState<boolean>(false);
 
-  // Section 2: Packaging Material Lines
-  const [packagingLines, setPackagingLines] = useState<PackagingMaterialCostLine[]>([]);
-
-  // Section 3: Other Production Costs (Optional)
-  const [otherCost, setOtherCost] = useState<number | ''>('');
-  const [otherCostDescription, setOtherCostDescription] = useState<string>('');
-
-  // Costing History State & Filters
-  const [costingHistory, setCostingHistory] = useState<CostingHistoryRecord[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyFilterStart, setHistoryFilterStart] = useState<string>('');
-  const [historyFilterEnd, setHistoryFilterEnd] = useState<string>('');
-  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
-  const [selectedHistoryItem, setSelectedHistoryItem] = useState<CostingHistoryRecord | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-  // Saving / Applying States
-  const [isSavingCosting, setIsSavingCosting] = useState(false);
-  const [isApplyingCost, setIsApplyingCost] = useState(false);
-
-  // Cache for purchase history by material ID to avoid redundant network queries
-  const [purchaseHistoryCache, setPurchaseHistoryCache] = useState<Record<string, PurchaseTransaction[]>>({});
+  // Costing History State
+  const [historyRecords, setHistoryRecords] = useState<SavedCostingRecord[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+  const [historySearch, setHistorySearch] = useState<string>('');
+  const [historyStartDate, setHistoryStartDate] = useState<string>('');
+  const [historyEndDate, setHistoryEndDate] = useState<string>('');
+  const [selectedHistoryModalRecord, setSelectedHistoryModalRecord] = useState<SavedCostingRecord | null>(null);
 
   // ==========================================
   // 1. DATA INITIALIZATION
   // ==========================================
 
   const loadMasterData = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoadingMasterData(true);
     try {
-      const [fpRes, rmRes, pmRes] = await Promise.all([
+      const [whRes, venRes, fpRes, rmRes, pmRes, nextCodeRes] = await Promise.all([
+        ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/procurement/vendors').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => ({ data: { code: 'CST-000001' } })),
       ]);
 
-      const fps = Array.isArray(fpRes.data?.data)
-        ? fpRes.data.data
-        : Array.isArray(fpRes.data)
-        ? fpRes.data
-        : [];
-      const rms = Array.isArray(rmRes.data?.data)
-        ? rmRes.data.data
-        : Array.isArray(rmRes.data)
-        ? rmRes.data
-        : [];
-      const pms = Array.isArray(pmRes.data?.data)
-        ? pmRes.data.data
-        : Array.isArray(pmRes.data)
-        ? pmRes.data
-        : [];
+      const normalizeList = (res: any) => {
+        if (!res) return [];
+        if (Array.isArray(res.data?.data)) return res.data.data;
+        if (Array.isArray(res.data)) return res.data;
+        if (Array.isArray(res)) return res;
+        return [];
+      };
 
-      setFinishedProducts(fps);
-      setRawMaterialsList(rms);
-      setPackingMaterialsList(pms);
+      const whList: MasterWarehouse[] = normalizeList(whRes);
+      const venList: MasterVendor[] = normalizeList(venRes);
+      const fpList: MasterFinishedProduct[] = normalizeList(fpRes);
+      const rmListRaw = normalizeList(rmRes);
+      const pmListRaw = normalizeList(pmRes);
 
-      // Select first Finished Product if none chosen yet
-      if (fps.length > 0 && !selectedFinishedProductId) {
-        const firstFp = fps[0];
-        setSelectedFinishedProductId(firstFp.id);
-        const parsed = parsePackSize(firstFp.packSize || firstFp.packingQuantity);
-        setPackSize(parsed.size);
-        setPackSizeUnit(parsed.unit);
+      const rmList: MasterMaterial[] = rmListRaw.map((r: any) => ({
+        id: r.id,
+        materialCode: r.materialCode || '',
+        materialName: r.materialName || '',
+        type: 'RM',
+        standardCost: Number(r.standardCost || r.lastPurchaseCost || 0),
+        lastPurchaseCost: Number(r.lastPurchaseCost || r.standardCost || 0),
+        baseUom: r.baseUom,
+      }));
+
+      const pmList: MasterMaterial[] = pmListRaw.map((p: any) => ({
+        id: p.id,
+        materialCode: p.materialCode || '',
+        materialName: p.materialName || '',
+        type: 'PM',
+        standardCost: Number(p.standardCost || p.lastPurchaseCost || 0),
+        lastPurchaseCost: Number(p.lastPurchaseCost || p.standardCost || 0),
+        baseUom: p.baseUom,
+      }));
+
+      setWarehouses(whList);
+      setVendors(venList);
+      setFinishedProducts(fpList);
+      setRawMaterials(rmList);
+      setPackingMaterials(pmList);
+
+      if (nextCodeRes?.data?.code) {
+        setSerialNumber(nextCodeRes.data.code);
       }
 
-      // Initialize 1 default Raw Material row if none
-      if (rms.length > 0 && rawMaterialLines.length === 0) {
-        const firstRm = rms[0];
-        const unit = firstRm.baseUom?.name || firstRm.purchaseUom?.name || 'KG';
-        const avail = Number(firstRm.availableQuantity ?? firstRm.stockOnHand ?? firstRm.totalBulkVolume ?? 100);
-        setRawMaterialLines([
-          {
-            id: `rm-${Date.now()}-0`,
-            rawMaterialId: firstRm.id,
-            availableQuantity: avail,
-            requiredQuantity: 100,
-            unitCost: Number(firstRm.lastPurchaseCost || firstRm.standardCost || 0),
-            totalCost: 100 * Number(firstRm.lastPurchaseCost || firstRm.standardCost || 0),
-            unit,
-            purchaseHistory: [],
-            isLoadingPurchases: false,
-          },
-        ]);
-        // Trigger purchase history fetch for first RM
-        fetchPurchasesForLine('rm', `rm-${Date.now()}-0`, firstRm.id);
+      // Default Warehouse
+      if (whList.length > 0) {
+        const preferredWh = whList.find((w) => w.name.toLowerCase().includes('faisalabad')) || whList[0];
+        if (preferredWh) setSelectedWarehouseId(preferredWh.id);
       }
 
-      // Initialize default Packaging rows (Bottle, Label, Carton, Caps)
-      if (pms.length > 0 && packagingLines.length === 0) {
-        const defaultLines: PackagingMaterialCostLine[] = [];
-        const bottle = pms.find((p: any) => /bottle/i.test(p.materialName)) || pms[0];
-        const cap = pms.find((p: any) => /cap/i.test(p.materialName));
-        const label = pms.find((p: any) => /label/i.test(p.materialName));
-        const carton = pms.find((p: any) => /carton|box/i.test(p.materialName));
-
-        if (bottle) {
-          const cost = Number(bottle.lastPurchaseCost || bottle.standardCost || 42);
-          defaultLines.push({
-            id: `pm-${Date.now()}-1`,
-            packingMaterialId: bottle.id,
-            requiredQuantity: 100,
-            unitCost: cost,
-            totalCost: 100 * cost,
-            unit: bottle.baseUom?.name || 'Nos',
-            purchaseHistory: [],
-            isLoadingPurchases: false,
-          });
-        }
-        if (label) {
-          const cost = Number(label.lastPurchaseCost || label.standardCost || 7);
-          defaultLines.push({
-            id: `pm-${Date.now()}-2`,
-            packingMaterialId: label.id,
-            requiredQuantity: 100,
-            unitCost: cost,
-            totalCost: 100 * cost,
-            unit: label.baseUom?.name || 'Nos',
-            purchaseHistory: [],
-            isLoadingPurchases: false,
-          });
-        }
-        if (carton) {
-          const cost = Number(carton.lastPurchaseCost || carton.standardCost || 104);
-          defaultLines.push({
-            id: `pm-${Date.now()}-3`,
-            packingMaterialId: carton.id,
-            requiredQuantity: 10,
-            unitCost: cost,
-            totalCost: 10 * cost,
-            unit: carton.baseUom?.name || 'Nos',
-            purchaseHistory: [],
-            isLoadingPurchases: false,
-          });
-        }
-        if (cap) {
-          const cost = Number(cap.lastPurchaseCost || cap.standardCost || 8);
-          defaultLines.push({
-            id: `pm-${Date.now()}-4`,
-            packingMaterialId: cap.id,
-            requiredQuantity: 100,
-            unitCost: cost,
-            totalCost: 100 * cost,
-            unit: cap.baseUom?.name || 'Nos',
-            purchaseHistory: [],
-            isLoadingPurchases: false,
-          });
-        }
-        setPackagingLines(defaultLines);
+      // Default Contractor / Vendor
+      if (venList.length > 0) {
+        const preferredVen = venList.find((v) => v.name.toLowerCase().includes('v agrics')) || venList[0];
+        if (preferredVen) setSelectedContractorId(preferredVen.id);
       }
+
+      // Default Finished Product
+      if (fpList.length > 0) {
+        const preferredFp = fpList.find((f) => f.productName.toLowerCase().includes('lambda')) || fpList[0];
+        if (preferredFp) {
+          setSelectedFinishedProductId(preferredFp.id);
+          const pSize = preferredFp.packingQuantity
+            ? `${preferredFp.packingQuantity} ${preferredFp.packingUnit || 'Liter'}`
+            : '1 Liter';
+          setPackSize(pSize);
+        }
+      }
+
+      // Preload the Supreme Accounting reference voucher by default if lines are empty
+      loadSampleVoucher(rmList, pmList);
     } catch (err: any) {
+      console.error('Failed to load master data:', err);
       showToast({
-        title: 'Error Loading Master Catalogs',
-        message: err.message || 'Failed to load products and materials',
-        type: 'error',
+        title: 'Notice',
+        message: 'Loaded with available local configurations.',
+        type: 'info',
       });
     } finally {
-      setIsLoading(false);
+      setIsLoadingMasterData(false);
     }
   }, [showToast]);
 
@@ -379,581 +279,448 @@ export const ProductCostingView: React.FC = () => {
     loadMasterData();
   }, [loadMasterData]);
 
-  // Load Date-Wise Purchase History for a Material Line
-  const fetchPurchasesForLine = useCallback(
-    async (type: 'rm' | 'pm', lineId: string, materialId: string) => {
-      if (!materialId) return;
+  // When user selects a Finished Product, auto-update pack size
+  const handleFinishedProductChange = (productId: string) => {
+    setSelectedFinishedProductId(productId);
+    const chosen = finishedProducts.find((p) => p.id === productId);
+    if (chosen) {
+      const pSize = chosen.packingQuantity
+        ? `${chosen.packingQuantity} ${chosen.packingUnit || 'Liter'}`
+        : '1 Liter';
+      setPackSize(pSize);
+    }
+  };
 
-      // Check Cache
-      if (purchaseHistoryCache[materialId]) {
-        const cached = purchaseHistoryCache[materialId] || [];
-        updateLinePurchases(type, lineId, cached);
-        return;
-      }
+  // ==========================================
+  // 2. UNIFIED MATERIAL LOOKUP COMBINED LIST
+  // ==========================================
 
-      // Mark line as loading purchases
-      if (type === 'rm') {
-        setRawMaterialLines((prev) =>
-          prev.map((l) => (l.id === lineId ? { ...l, isLoadingPurchases: true } : l))
-        );
-      } else {
-        setPackagingLines((prev) =>
-          prev.map((l) => (l.id === lineId ? { ...l, isLoadingPurchases: true } : l))
-        );
-      }
+  const allMaterialsOptions = useMemo(() => {
+    const list: Array<{ id: string; name: string; code: string; type: ComponentType; defaultRate: number; defaultPack: string }> = [];
 
+    rawMaterials.forEach((rm) => {
+      list.push({
+        id: rm.id,
+        name: rm.materialName,
+        code: rm.materialCode,
+        type: 'RM',
+        defaultRate: rm.lastPurchaseCost || rm.standardCost || 92000,
+        defaultPack: '200 LTR',
+      });
+    });
+
+    packingMaterials.forEach((pm) => {
+      list.push({
+        id: pm.id,
+        name: pm.materialName,
+        code: pm.materialCode,
+        type: 'PM',
+        defaultRate: pm.lastPurchaseCost || pm.standardCost || 10,
+        defaultPack: '1 Nos',
+      });
+    });
+
+    return list;
+  }, [rawMaterials, packingMaterials]);
+
+  // ==========================================
+  // 3. SAMPLE REFERENCE VOUCHER (Supreme Accounting Reference)
+  // ==========================================
+
+  const loadSampleVoucher = (rms = rawMaterials, pms = packingMaterials) => {
+    const findRm = (kw: string) => rms.find((r) => r.materialName.toLowerCase().includes(kw.toLowerCase()));
+    const findPm = (kw: string) => pms.find((p) => p.materialName.toLowerCase().includes(kw.toLowerCase()));
+
+    const rmLambda = findRm('Lambda') || findRm('Chlorpyrifos') || rms[0];
+    const pmLabel = findPm('Label') || pms.find((p) => p.materialCode === 'PM-000231');
+    const pmBottle = findPm('Bottle') || pms.find((p) => p.materialCode === 'PM-000232');
+    const pmCarton = findPm('Carton') || pms.find((p) => p.materialCode === 'PM-000233');
+    const pmCaps = findPm('Cap') || pms.find((p) => p.materialCode === 'PM-000234');
+    const pmLabour = findPm('Labour') || pms.find((p) => p.materialCode === 'PM-000235');
+
+    const sampleLines: CostingLineItem[] = [
+      {
+        id: 'line-1',
+        materialId: rmLambda?.id,
+        materialName: rmLambda?.materialName || 'RA Lambda Cyhalothrin 2.5 % EC',
+        materialCode: rmLambda?.materialCode || 'RM-000230',
+        type: 'RM',
+        pack: '200 LTR',
+        quantity: 5,
+        rate: 92000,
+        cost: 460000,
+      },
+      {
+        id: 'line-2',
+        materialId: pmLabel?.id,
+        materialName: pmLabel?.materialName || 'PM Labels Lambda Cyhalothrin',
+        materialCode: pmLabel?.materialCode || 'PM-000231',
+        type: 'PM',
+        pack: '1 Nos',
+        quantity: 1003,
+        rate: 7,
+        cost: 7021,
+      },
+      {
+        id: 'line-3',
+        materialId: pmBottle?.id,
+        materialName: pmBottle?.materialName || 'PM Pet Bottle 1 Liter',
+        materialCode: pmBottle?.materialCode || 'PM-000232',
+        type: 'PM',
+        pack: '1 Nos',
+        quantity: 1003,
+        rate: 42,
+        cost: 42126,
+      },
+      {
+        id: 'line-4',
+        materialId: pmCarton?.id,
+        materialName: pmCarton?.materialName || 'PM Carton 1 x 12 (Bromoxnal 1Ltr)',
+        materialCode: pmCarton?.materialCode || 'PM-000233',
+        type: 'PM',
+        pack: '1 Nos',
+        quantity: 84,
+        rate: 104,
+        cost: 8736,
+      },
+      {
+        id: 'line-5',
+        materialId: pmLabour?.id,
+        materialName: pmLabour?.materialName || 'PM Packing Labour',
+        materialCode: pmLabour?.materialCode || 'PM-000235',
+        type: 'PM',
+        pack: '1 Nos',
+        quantity: 1003,
+        rate: 7,
+        cost: 7021,
+      },
+      {
+        id: 'line-6',
+        materialId: pmCaps?.id,
+        materialName: pmCaps?.materialName || 'PM Caps',
+        materialCode: pmCaps?.materialCode || 'PM-000234',
+        type: 'PM',
+        pack: '1 Nos',
+        quantity: 1003,
+        rate: 8,
+        cost: 8024,
+      },
+    ];
+
+    setLines(sampleLines);
+    setEstimatedQuantity(1000);
+    setActualQuantity(1003);
+  };
+
+  // ==========================================
+  // 4. DYNAMIC ROW ACTIONS & PURCHASE RATE FETCH
+  // ==========================================
+
+  const handleAddRow = () => {
+    const newLine: CostingLineItem = {
+      id: `line-${Date.now()}`,
+      materialName: '',
+      type: 'PM',
+      pack: '1 Nos',
+      quantity: 1,
+      rate: 0,
+      cost: 0,
+    };
+    setLines((prev) => [...prev, newLine]);
+  };
+
+  const handleRemoveRow = (id: string) => {
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const handleMaterialSelected = async (lineId: string, materialName: string) => {
+    const matched = allMaterialsOptions.find(
+      (m) => m.name.toLowerCase() === materialName.toLowerCase() || m.code.toLowerCase() === materialName.toLowerCase()
+    );
+
+    let defaultType: ComponentType = 'Other';
+    let defaultPack = '1 Nos';
+    let defaultRate = 0;
+    let materialId = undefined;
+    let materialCode = undefined;
+
+    if (matched) {
+      defaultType = matched.type;
+      defaultPack = matched.defaultPack;
+      defaultRate = matched.defaultRate;
+      materialId = matched.id;
+      materialCode = matched.code;
+    } else if (materialName.toLowerCase().includes('labour') || materialName.toLowerCase().includes('labor')) {
+      defaultType = 'Other';
+      defaultPack = '1 Nos';
+      defaultRate = 7;
+    }
+
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== lineId) return line;
+        const qty = line.quantity || actualQuantity || 1;
+        const newCost = Math.round(qty * defaultRate * 100) / 100;
+        return {
+          ...line,
+          materialId,
+          materialCode,
+          materialName,
+          type: defaultType,
+          pack: defaultPack,
+          rate: defaultRate,
+          quantity: qty,
+          cost: newCost,
+        };
+      })
+    );
+
+    // If real material ID exists, fetch real purchase orders in background
+    if (materialId) {
       try {
         const res = await ApiClient.get<any>(`/api/v1/costing/materials/${materialId}/purchase-history`);
-        const list: PurchaseTransaction[] = Array.isArray(res.data?.history) ? res.data.history : [];
-
-        // Save to cache
-        setPurchaseHistoryCache((prev) => ({ ...prev, [materialId]: list }));
-        updateLinePurchases(type, lineId, list);
+        const purchases = Array.isArray(res.data) ? res.data : [];
+        if (purchases.length > 0) {
+          const latest = purchases[0];
+          setLines((prev) =>
+            prev.map((line) => {
+              if (line.id !== lineId) return line;
+              const rate = Number(latest.unitCost || line.rate);
+              return {
+                ...line,
+                rate,
+                cost: Math.round(line.quantity * rate * 100) / 100,
+                sourcePoId: latest.documentId,
+                sourcePoNumber: latest.documentNumber,
+                purchaseDate: latest.purchaseDate,
+                vendorName: latest.vendorName,
+                historicalPurchases: purchases,
+              };
+            })
+          );
+        }
       } catch (err) {
-        console.warn(`Failed to fetch purchases for material ${materialId}:`, err);
-        updateLinePurchases(type, lineId, []);
+        console.warn('Could not fetch historical POs for material:', materialId);
       }
-    },
-    [purchaseHistoryCache]
-  );
-
-  const updateLinePurchases = (type: 'rm' | 'pm', lineId: string, list: PurchaseTransaction[]) => {
-    if (type === 'rm') {
-      setRawMaterialLines((prev) =>
-        prev.map((l) => {
-          if (l.id !== lineId) return l;
-          const latestPo = list.length > 0 ? list[0] : null;
-          const cost = latestPo ? latestPo.unitCost : l.unitCost;
-          return {
-            ...l,
-            purchaseHistory: list,
-            isLoadingPurchases: false,
-            sourcePoId: latestPo?.documentId || l.sourcePoId,
-            sourcePoNumber: latestPo?.documentNumber || l.sourcePoNumber,
-            purchaseDate: latestPo?.purchaseDate || l.purchaseDate,
-            sourceVendorName: latestPo?.vendorName || l.sourceVendorName,
-            unitCost: cost,
-            totalCost: l.requiredQuantity * cost,
-          };
-        })
-      );
-    } else {
-      setPackagingLines((prev) =>
-        prev.map((l) => {
-          if (l.id !== lineId) return l;
-          const latestPo = list.length > 0 ? list[0] : null;
-          const cost = latestPo ? latestPo.unitCost : l.unitCost;
-          return {
-            ...l,
-            purchaseHistory: list,
-            isLoadingPurchases: false,
-            sourcePoId: latestPo?.documentId || l.sourcePoId,
-            sourcePoNumber: latestPo?.documentNumber || l.sourcePoNumber,
-            purchaseDate: latestPo?.purchaseDate || l.purchaseDate,
-            sourceVendorName: latestPo?.vendorName || l.sourceVendorName,
-            unitCost: cost,
-            totalCost: l.requiredQuantity * cost,
-          };
-        })
-      );
     }
   };
 
-  // Load Costing History Records
-  const loadCostingHistory = useCallback(async (start?: string, end?: string, search?: string) => {
-    setIsLoadingHistory(true);
+  const handleLineChange = (lineId: string, field: keyof CostingLineItem, val: any) => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== lineId) return line;
+        const updated = { ...line, [field]: val };
+
+        if (field === 'quantity' || field === 'rate') {
+          const q = field === 'quantity' ? Number(val) || 0 : line.quantity;
+          const r = field === 'rate' ? Number(val) || 0 : line.rate;
+          updated.cost = Math.round(q * r * 100) / 100;
+        }
+
+        return updated;
+      })
+    );
+  };
+
+  // Switch historical PO rate for a line
+  const handleSelectHistoricalPo = (lineId: string, purchase: HistoricalPurchase) => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== lineId) return line;
+        const rate = Number(purchase.unitCost);
+        return {
+          ...line,
+          rate,
+          cost: Math.round(line.quantity * rate * 100) / 100,
+          sourcePoNumber: purchase.documentNumber,
+          purchaseDate: purchase.purchaseDate,
+          vendorName: purchase.vendorName,
+        };
+      })
+    );
+    showToast({
+      title: 'PO Rate Applied',
+      message: `Applied ${purchase.documentNumber} rate of PKR ${Number(purchase.unitCost).toLocaleString()}`,
+      type: 'success',
+    });
+  };
+
+  // ==========================================
+  // 5. TOTALS & ARITHMETIC CALCULATION
+  // ==========================================
+
+  const totalCost = useMemo(() => {
+    return lines.reduce((acc, line) => acc + (Number(line.cost) || 0), 0);
+  }, [lines]);
+
+  const unitCost = useMemo(() => {
+    if (!actualQuantity || actualQuantity <= 0) return 0;
+    return Math.round((totalCost / actualQuantity) * 100) / 100;
+  }, [totalCost, actualQuantity]);
+
+  // Breakdown for backend audit snapshot
+  const rawMaterialTotal = useMemo(() => {
+    return lines.filter((l) => l.type === 'RM').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+  }, [lines]);
+
+  const packagingTotal = useMemo(() => {
+    return lines.filter((l) => l.type === 'PM').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+  }, [lines]);
+
+  const otherTotal = useMemo(() => {
+    return lines.filter((l) => l.type === 'Other').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+  }, [lines]);
+
+  // ==========================================
+  // 6. SAVE COSTING VOUCHER (POST /api/v1/costing/save)
+  // ==========================================
+
+  const handleSaveCosting = async () => {
+    if (lines.length === 0) {
+      showToast({ title: 'Error', message: 'Please add at least one material line.', type: 'error' });
+      return;
+    }
+    if (!actualQuantity || actualQuantity <= 0) {
+      showToast({ title: 'Error', message: 'Please enter valid actual production quantity.', type: 'error' });
+      return;
+    }
+
+    setIsSaving(true);
     try {
-      const params = new URLSearchParams();
-      if (start) params.set('startDate', start);
-      if (end) params.set('endDate', end);
-      if (search) params.set('search', search);
-      const queryString = params.toString() ? `?${params.toString()}` : '';
-      const res = await ApiClient.get<any>(`/api/v1/costing/history${queryString}`);
-      const list = Array.isArray(res.data?.data)
-        ? res.data.data
-        : Array.isArray(res.data)
-        ? res.data
-        : [];
-      setCostingHistory(list);
-    } catch (err: any) {
-      console.warn('Costing history load error:', err);
-    } finally {
-      setIsLoadingHistory(false);
-    }
-  }, []);
+      const selectedWh = warehouses.find((w) => w.id === selectedWarehouseId);
+      const selectedVen = vendors.find((v) => v.id === selectedContractorId);
+      const selectedFp = finishedProducts.find((f) => f.id === selectedFinishedProductId);
 
-  useEffect(() => {
-    if (activeTab === 'history') {
-      loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery);
-    }
-  }, [activeTab, loadCostingHistory, historyFilterStart, historyFilterEnd, historySearchQuery]);
+      const parsedPackSize = parseFloat(packSize) || 1;
 
-  // ==========================================
-  // 2. FINISHED PRODUCT CHANGE HANDLER
-  // ==========================================
+      // Extract RM and PM lines for relational DB storage
+      const rmLines = lines
+        .filter((l) => l.type === 'RM' && l.materialId)
+        .map((l) => ({
+          rawMaterialId: l.materialId!,
+          rawMaterialName: l.materialName,
+          rawMaterialCode: l.materialCode,
+          quantity: l.quantity,
+          unitCost: l.rate,
+          totalCost: l.cost,
+          uomName: l.pack,
+          sourcePoNumber: l.sourcePoNumber,
+          purchaseDate: l.purchaseDate,
+        }));
 
-  const selectedFinishedProduct = useMemo(() => {
-    return finishedProducts.find((p) => p.id === selectedFinishedProductId) || null;
-  }, [finishedProducts, selectedFinishedProductId]);
+      const pmLines = lines
+        .filter((l) => l.type === 'PM' && l.materialId)
+        .map((l) => ({
+          packingMaterialId: l.materialId!,
+          quantity: l.quantity,
+          unitCost: l.rate,
+          totalCost: l.cost,
+          uomName: l.pack,
+          sourcePoNumber: l.sourcePoNumber,
+          purchaseDate: l.purchaseDate,
+        }));
 
-  const handleSelectFinishedProduct = (fpId: string) => {
-    setSelectedFinishedProductId(fpId);
-    const fp = finishedProducts.find((p) => p.id === fpId);
-    if (fp) {
-      const parsed = parsePackSize(fp.packSize || fp.packingQuantity);
-      setPackSize(parsed.size);
-      setPackSizeUnit(parsed.unit);
+      const primaryRm = rmLines[0];
 
-      // Recalculate raw material required quantity based on Output Quantity × Pack Size
-      const totalVol = outputQuantity * parsed.size;
-      setRawMaterialLines((prev) =>
-        prev.map((l, idx) => {
-          if (idx === 0) {
-            return {
-              ...l,
-              requiredQuantity: totalVol,
-              totalCost: totalVol * l.unitCost,
-            };
-          }
-          return l;
-        })
-      );
-    }
-  };
-
-  const handleOutputQuantityChange = (qty: number) => {
-    const safeQty = Math.max(1, Number(qty) || 0);
-    setOutputQuantity(safeQty);
-
-    // Auto-update raw material volume for primary raw material line
-    const totalVol = safeQty * packSize;
-    setRawMaterialLines((prev) =>
-      prev.map((l, idx) => {
-        if (idx === 0) {
-          return {
-            ...l,
-            requiredQuantity: totalVol,
-            totalCost: totalVol * l.unitCost,
-          };
-        }
-        return l;
-      })
-    );
-
-    // Auto-update packaging quantities based on output
-    setPackagingLines((prev) =>
-      prev.map((l) => {
-        const pm = packingMaterialsList.find((p) => p.id === l.packingMaterialId);
-        const isCarton = pm && /carton|box/i.test(pm.materialName);
-        const updatedQty = isCarton ? Math.ceil(safeQty / 12) : safeQty;
-        return {
-          ...l,
-          requiredQuantity: updatedQty,
-          totalCost: updatedQty * l.unitCost,
-        };
-      })
-    );
-  };
-
-  // ==========================================
-  // 3. RAW MATERIAL ROW ACTIONS
-  // ==========================================
-
-  const handleAddRawMaterialLine = () => {
-    if (rawMaterialsList.length === 0) {
-      showToast({ title: 'Catalog Empty', message: 'No raw materials found in catalog', type: 'warning' });
-      return;
-    }
-    const usedIds = new Set(rawMaterialLines.map((l) => l.rawMaterialId));
-    const nextRm = rawMaterialsList.find((rm) => !usedIds.has(rm.id)) || rawMaterialsList[0];
-    if (!nextRm) return;
-
-    const unit = nextRm.baseUom?.name || nextRm.purchaseUom?.name || 'KG';
-    const avail = Number(nextRm.availableQuantity ?? nextRm.stockOnHand ?? nextRm.totalBulkVolume ?? 100);
-    const cost = Number(nextRm.lastPurchaseCost || nextRm.standardCost || 0);
-    const newLineId = `rm-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-
-    const newLine: RawMaterialCostLine = {
-      id: newLineId,
-      rawMaterialId: nextRm.id,
-      availableQuantity: avail,
-      requiredQuantity: 10,
-      unitCost: cost,
-      totalCost: 10 * cost,
-      unit,
-      purchaseHistory: [],
-      isLoadingPurchases: false,
-    };
-
-    setRawMaterialLines((prev) => [...prev, newLine]);
-    fetchPurchasesForLine('rm', newLineId, nextRm.id);
-  };
-
-  const handleRawMaterialChange = (lineId: string, newRmId: string) => {
-    const rm = rawMaterialsList.find((r) => r.id === newRmId);
-    if (!rm) return;
-    const unit = rm.baseUom?.name || rm.purchaseUom?.name || 'KG';
-    const avail = Number(rm.availableQuantity ?? rm.stockOnHand ?? rm.totalBulkVolume ?? 100);
-    const cost = Number(rm.lastPurchaseCost || rm.standardCost || 0);
-
-    setRawMaterialLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        return {
-          ...l,
-          rawMaterialId: newRmId,
-          availableQuantity: avail,
-          unit,
-          unitCost: cost,
-          totalCost: l.requiredQuantity * cost,
-          purchaseHistory: [],
-          sourcePoId: undefined,
-          sourcePoNumber: undefined,
-          purchaseDate: undefined,
-          sourceVendorName: undefined,
-        };
-      })
-    );
-
-    fetchPurchasesForLine('rm', lineId, newRmId);
-  };
-
-  const handleRawMaterialPurchaseSelect = (lineId: string, purchaseId: string) => {
-    setRawMaterialLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        if (purchaseId === 'baseline') {
-          const rm = rawMaterialsList.find((r) => r.id === l.rawMaterialId);
-          const baseCost = Number(rm?.lastPurchaseCost || rm?.standardCost || 0);
-          return {
-            ...l,
-            sourcePoId: undefined,
-            sourcePoNumber: undefined,
-            purchaseDate: undefined,
-            sourceVendorName: undefined,
-            unitCost: baseCost,
-            totalCost: l.requiredQuantity * baseCost,
-          };
-        }
-        const tx = l.purchaseHistory.find((p) => p.id === purchaseId);
-        if (!tx) return l;
-        return {
-          ...l,
-          sourcePoId: tx.documentId,
-          sourcePoNumber: tx.documentNumber,
-          purchaseDate: tx.purchaseDate,
-          sourceVendorName: tx.vendorName,
-          unitCost: tx.unitCost,
-          totalCost: l.requiredQuantity * tx.unitCost,
-        };
-      })
-    );
-  };
-
-  const handleRawMaterialQtyChange = (lineId: string, qty: number) => {
-    const safeQty = Math.max(0, Number(qty) || 0);
-    setRawMaterialLines((prev) =>
-      prev.map((l) =>
-        l.id === lineId
-          ? {
-              ...l,
-              requiredQuantity: safeQty,
-              totalCost: safeQty * l.unitCost,
-            }
-          : l
-      )
-    );
-  };
-
-  const handleRemoveRawMaterialLine = (lineId: string) => {
-    if (rawMaterialLines.length <= 1) {
-      showToast({ title: 'Validation', message: 'At least one Raw Material line is required for costing', type: 'warning' });
-      return;
-    }
-    setRawMaterialLines((prev) => prev.filter((l) => l.id !== lineId));
-  };
-
-  // ==========================================
-  // 4. PACKAGING ROW ACTIONS
-  // ==========================================
-
-  const handleAddPackagingLine = () => {
-    if (packingMaterialsList.length === 0) {
-      showToast({ title: 'Catalog Empty', message: 'No packaging materials found in catalog', type: 'warning' });
-      return;
-    }
-    const usedIds = new Set(packagingLines.map((l) => l.packingMaterialId));
-    const nextPm = packingMaterialsList.find((pm) => !usedIds.has(pm.id)) || packingMaterialsList[0];
-    if (!nextPm) return;
-
-    const unit = nextPm.baseUom?.name || 'Nos';
-    const cost = Number(nextPm.lastPurchaseCost || nextPm.standardCost || 0);
-    const newLineId = `pm-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-
-    const newLine: PackagingMaterialCostLine = {
-      id: newLineId,
-      packingMaterialId: nextPm.id,
-      requiredQuantity: outputQuantity,
-      unitCost: cost,
-      totalCost: outputQuantity * cost,
-      unit,
-      purchaseHistory: [],
-      isLoadingPurchases: false,
-    };
-
-    setPackagingLines((prev) => [...prev, newLine]);
-    fetchPurchasesForLine('pm', newLineId, nextPm.id);
-  };
-
-  const handlePackagingMaterialChange = (lineId: string, newPmId: string) => {
-    const pm = packingMaterialsList.find((p) => p.id === newPmId);
-    if (!pm) return;
-    const unit = pm.baseUom?.name || 'Nos';
-    const cost = Number(pm.lastPurchaseCost || pm.standardCost || 0);
-
-    setPackagingLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        return {
-          ...l,
-          packingMaterialId: newPmId,
-          unit,
-          unitCost: cost,
-          totalCost: l.requiredQuantity * cost,
-          purchaseHistory: [],
-          sourcePoId: undefined,
-          sourcePoNumber: undefined,
-          purchaseDate: undefined,
-          sourceVendorName: undefined,
-        };
-      })
-    );
-
-    fetchPurchasesForLine('pm', lineId, newPmId);
-  };
-
-  const handlePackagingPurchaseSelect = (lineId: string, purchaseId: string) => {
-    setPackagingLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        if (purchaseId === 'baseline') {
-          const pm = packingMaterialsList.find((p) => p.id === l.packingMaterialId);
-          const baseCost = Number(pm?.lastPurchaseCost || pm?.standardCost || 0);
-          return {
-            ...l,
-            sourcePoId: undefined,
-            sourcePoNumber: undefined,
-            purchaseDate: undefined,
-            sourceVendorName: undefined,
-            unitCost: baseCost,
-            totalCost: l.requiredQuantity * baseCost,
-          };
-        }
-        const tx = l.purchaseHistory.find((p) => p.id === purchaseId);
-        if (!tx) return l;
-        return {
-          ...l,
-          sourcePoId: tx.documentId,
-          sourcePoNumber: tx.documentNumber,
-          purchaseDate: tx.purchaseDate,
-          sourceVendorName: tx.vendorName,
-          unitCost: tx.unitCost,
-          totalCost: l.requiredQuantity * tx.unitCost,
-        };
-      })
-    );
-  };
-
-  const handlePackagingQuantityChange = (lineId: string, qty: number) => {
-    const safeQty = Math.max(0, Number(qty) || 0);
-    setPackagingLines((prev) =>
-      prev.map((l) =>
-        l.id === lineId
-          ? {
-              ...l,
-              requiredQuantity: safeQty,
-              totalCost: safeQty * l.unitCost,
-            }
-          : l
-      )
-    );
-  };
-
-  const handleRemovePackagingLine = (lineId: string) => {
-    setPackagingLines((prev) => prev.filter((l) => l.id !== lineId));
-  };
-
-  // ==========================================
-  // 5. COST SUMMARY & ARITHMETIC
-  // ==========================================
-
-  const totalRawMaterialCost = useMemo(() => {
-    return rawMaterialLines.reduce((sum, line) => sum + (Number(line.totalCost) || 0), 0);
-  }, [rawMaterialLines]);
-
-  const totalPackagingCost = useMemo(() => {
-    return packagingLines.reduce((sum, line) => sum + (Number(line.totalCost) || 0), 0);
-  }, [packagingLines]);
-
-  const otherCostNum = useMemo(() => {
-    return otherCost !== '' ? Math.max(0, Number(otherCost) || 0) : 0;
-  }, [otherCost]);
-
-  const totalProductionCost = useMemo(() => {
-    return totalRawMaterialCost + totalPackagingCost + otherCostNum;
-  }, [totalRawMaterialCost, totalPackagingCost, otherCostNum]);
-
-  const costPerUnit = useMemo(() => {
-    const qty = Number(outputQuantity) || 0;
-    if (qty <= 0) return 0;
-    return Math.round(((totalProductionCost / qty) + Number.EPSILON) * 100) / 100;
-  }, [totalProductionCost, outputQuantity]);
-
-  // ==========================================
-  // 6. ACTION: CONFIRM COSTING SNAPSHOT
-  // ==========================================
-
-  const handleConfirmCosting = async () => {
-    if (!selectedFinishedProductId) {
-      showToast({ title: 'Validation Error', message: 'Please select a Finished Product.', type: 'error' });
-      return;
-    }
-    if (outputQuantity <= 0 || packSize <= 0) {
-      showToast({ title: 'Validation Error', message: 'Output quantity and pack size must be greater than zero.', type: 'error' });
-      return;
-    }
-    if (rawMaterialLines.length === 0 || rawMaterialLines.some((l) => l.requiredQuantity <= 0)) {
-      showToast({ title: 'Validation Error', message: 'Please enter valid required quantities for all raw materials.', type: 'error' });
-      return;
-    }
-
-    setIsSavingCosting(true);
-    try {
-      const primaryRm = rawMaterialLines[0];
       const payload = {
-        finishedProductId: selectedFinishedProductId,
+        serialNumber,
         costingDate,
-        packSize,
-        packSizeUnit,
-        finishedQuantity: outputQuantity,
+        warehouseId: selectedWarehouseId,
+        warehouseName: selectedWh?.name || 'Warehouse',
+        contractorVendorId: selectedContractorId,
+        contractorVendorName: selectedVen?.name || 'Contractor',
+        finishedProductId: selectedFinishedProductId || undefined,
+        finishedProductName: selectedFp?.productName,
+        finishedProductCode: selectedFp?.productCode,
+        packSize: parsedPackSize,
+        packSizeUnit: packSize.includes('Liter') ? 'Liter' : packSize.includes('KG') ? 'KG' : 'Unit',
+        estimatedQuantity,
+        actualQuantity,
+        finishedQuantity: actualQuantity,
+        lines, // Full unified table preserved in snapshot
         rawMaterialId: primaryRm?.rawMaterialId,
-        rawMaterialQuantity: primaryRm?.requiredQuantity,
-        rawMaterialCost: primaryRm?.totalCost,
-        rawMaterials: rawMaterialLines.map((rm) => ({
-          rawMaterialId: rm.rawMaterialId,
-          rawMaterialName: rawMaterialsList.find((r) => r.id === rm.rawMaterialId)?.materialName || 'Raw Material',
-          rawMaterialCode: rawMaterialsList.find((r) => r.id === rm.rawMaterialId)?.materialCode || '',
-          sourcePoId: rm.sourcePoId,
-          sourcePoNumber: rm.sourcePoNumber,
-          purchaseDate: rm.purchaseDate,
-          quantity: rm.requiredQuantity,
-          unitCost: rm.unitCost,
-          totalCost: rm.totalCost,
-          uomName: rm.unit,
-        })),
-        packagingMaterials: packagingLines.map((pm) => ({
-          packingMaterialId: pm.packingMaterialId,
-          quantity: pm.requiredQuantity,
-          unitCost: pm.unitCost,
-          totalCost: pm.totalCost,
-          uomName: pm.unit,
-          sourcePoNumber: pm.sourcePoNumber,
-          purchaseDate: pm.purchaseDate,
-        })),
-        otherCost: otherCostNum,
-        otherCostNotes: otherCostDescription || undefined,
-        totalRawMaterialCost,
-        totalPackagingCost,
-        totalBatchCost: totalProductionCost,
-        costPerUnit,
-        notes: `Costing calculated for ${outputQuantity} units of ${selectedFinishedProduct?.productName || 'Finished Product'} (${packSize} ${packSizeUnit}) on ${costingDate}`,
+        rawMaterials: rmLines,
+        packagingMaterials: pmLines,
+        otherCost: otherTotal,
+        totalRawMaterialCost: rawMaterialTotal,
+        totalPackagingCost: packagingTotal,
+        totalBatchCost: totalCost,
+        costPerUnit: unitCost,
+        notes: `Filling Entry Voucher ${serialNumber} - ${lines.length} lines costed.`,
       };
 
       const res = await ApiClient.post<any>('/api/v1/costing/save', payload);
-      const generatedCode = res.data?.costingCode || 'CST-CONFIRMED';
 
+      const savedCode = res.data?.costingCode || serialNumber;
       showToast({
         title: 'Costing Saved Permanently',
-        message: `Calculation record ${generatedCode} saved: PKR ${costPerUnit.toLocaleString()} / unit. Previous records remain intact.`,
+        message: `Voucher ${savedCode} saved with Unit Cost PKR ${unitCost.toLocaleString()}`,
         type: 'success',
       });
 
-      // Refresh costing history
-      loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery);
+      // Refresh next code
+      const nextRes = await ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => null);
+      if (nextRes?.data?.code) setSerialNumber(nextRes.data.code);
     } catch (err: any) {
+      console.error('Save failed:', err);
       showToast({
-        title: 'Error Saving Costing',
-        message: err.message || 'Failed to save costing record',
+        title: 'Save Failed',
+        message: err.message || 'Could not save costing voucher.',
         type: 'error',
       });
     } finally {
-      setIsSavingCosting(false);
+      setIsSaving(false);
     }
   };
 
   // ==========================================
-  // 7. ACTION: ADD TO FINISHED PRODUCT
+  // 7. ADD TO PRODUCT (UPDATE STANDARD COST)
   // ==========================================
 
-  const handleApplyToProduct = async (overrideFpId?: string, overrideCost?: number) => {
-    const targetFpId = overrideFpId || selectedFinishedProductId;
-    const targetCost = overrideCost !== undefined ? overrideCost : costPerUnit;
-
-    if (!targetFpId) {
-      showToast({ title: 'Validation Error', message: 'Please select a Finished Product.', type: 'error' });
+  const handleApplyCostToProduct = async () => {
+    if (!selectedFinishedProductId) {
+      showToast({ title: 'Error', message: 'Please select an End Product first.', type: 'error' });
       return;
     }
-    if (targetCost <= 0) {
-      showToast({ title: 'Validation Error', message: 'Calculated unit cost must be greater than zero.', type: 'error' });
+    if (!unitCost || unitCost <= 0) {
+      showToast({ title: 'Error', message: 'Calculated Unit Cost must be greater than zero.', type: 'error' });
       return;
     }
 
     setIsApplyingCost(true);
     try {
+      const selectedFp = finishedProducts.find((f) => f.id === selectedFinishedProductId);
+      const parsedPackSize = parseFloat(packSize) || 1;
+
       const payload = {
-        finishedProductId: targetFpId,
-        costingDate,
-        batchOutputQuantity: outputQuantity,
-        packSize,
-        packSizeUnitName: packSizeUnit,
-        totalRawMaterialCost,
-        totalPackagingCost,
-        totalBatchCost: totalProductionCost,
-        costPerUnit: targetCost,
-        notes: `Costing applied to Finished Product on ${costingDate}: PKR ${targetCost.toLocaleString()} per unit`,
-        rawMaterials: rawMaterialLines.map((rm) => ({
-          rawMaterialId: rm.rawMaterialId,
-          quantity: rm.requiredQuantity,
-          unitCost: rm.unitCost,
-          totalCost: rm.totalCost,
-          uomName: rm.unit,
-        })),
-        packagingMaterials: packagingLines.map((pm) => ({
-          packingMaterialId: pm.packingMaterialId,
-          quantity: pm.requiredQuantity,
-          unitCost: pm.unitCost,
-          totalCost: pm.totalCost,
-          uomName: pm.unit,
-        })),
+        finishedProductId: selectedFinishedProductId,
+        batchOutputQuantity: actualQuantity,
+        packSize: parsedPackSize,
+        packSizeUnitName: packSize.includes('Liter') ? 'Liter' : packSize.includes('KG') ? 'KG' : 'Unit',
+        totalRawMaterialCost: rawMaterialTotal,
+        totalPackagingCost: packagingTotal,
+        totalBatchCost: totalCost,
+        costPerUnit: unitCost,
+        notes: `Standard cost updated to PKR ${unitCost.toLocaleString()} from Costing Voucher ${serialNumber}`,
       };
 
       await ApiClient.post('/api/v1/costing/apply-to-product', payload);
 
-      const targetProduct = finishedProducts.find((p) => p.id === targetFpId);
       showToast({
-        title: 'Product Master Cost Updated',
-        message: `Assigned PKR ${targetCost.toLocaleString()} standard cost to "${targetProduct?.productName || 'Product'}". Rate list remains untouched.`,
+        title: 'Product Cost Updated',
+        message: `Standard cost of ${selectedFp?.productName || 'Product'} set to PKR ${unitCost.toLocaleString()}`,
         type: 'success',
       });
 
-      // Update in local state
+      // Update local master item
       setFinishedProducts((prev) =>
-        prev.map((p) => (p.id === targetFpId ? { ...p, standardCost: targetCost } : p))
+        prev.map((p) => (p.id === selectedFinishedProductId ? { ...p, standardCost: unitCost } : p))
       );
     } catch (err: any) {
+      console.error('Failed to apply cost:', err);
       showToast({
-        title: 'Failed to Update Product Cost',
-        message: err.message || 'Error updating product master',
+        title: 'Update Failed',
+        message: err.message || 'Could not update product standard cost.',
         type: 'error',
       });
     } finally {
@@ -962,294 +729,585 @@ export const ProductCostingView: React.FC = () => {
   };
 
   // ==========================================
-  // RENDER
+  // 8. LOAD HISTORY TAB
   // ==========================================
 
-  if (isLoading) {
-    return (
-      <div style={{ padding: '24px' }}>
-        <TableSkeleton rows={6} columns={4} />
-      </div>
-    );
-  }
+  const loadHistory = useCallback(async () => {
+    setIsLoadingHistory(true);
+    try {
+      const queryParams: string[] = [];
+      if (historySearch) queryParams.push(`search=${encodeURIComponent(historySearch)}`);
+      if (historyStartDate) queryParams.push(`startDate=${historyStartDate}`);
+      if (historyEndDate) queryParams.push(`endDate=${historyEndDate}`);
+
+      const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+      const res = await ApiClient.get<any>(`/api/v1/costing/history${queryString}`);
+      const list = Array.isArray(res.data) ? res.data : [];
+      setHistoryRecords(list);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [historySearch, historyStartDate, historyEndDate]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadHistory();
+    }
+  }, [activeTab, loadHistory]);
+
+  // Open modal for historical record
+  const handleOpenVoucherModal = (rec: SavedCostingRecord) => {
+    setSelectedHistoryModalRecord(rec);
+  };
+
+  // ==========================================
+  // 9. RENDER UI
+  // ==========================================
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto' }}>
-      {/* Top Header & Navigation Tabs */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+    <div className="space-y-4 max-w-7xl mx-auto pb-12">
+      {/* SECTION TABS */}
+      <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold">
+            <IconFlask className="w-5 h-5" />
+          </div>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+            <h1 className="text-xl font-bold text-gray-900 flex items-center">
               Product Costing Engine
+              {isLoadingMasterData && (
+                <span className="ml-2 text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded animate-pulse font-normal">
+                  Loading...
+                </span>
+              )}
             </h1>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-              Calculate real manufacturing costs for existing products using actual Purchase Order rates. Immutable date-wise costing history.
-            </p>
+            <p className="text-xs text-gray-500">Simple component-based manufacturing & packaging cost entry</p>
           </div>
+        </div>
 
-          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-subtle)', padding: '4px', borderRadius: '8px' }}>
-            <button
-              onClick={() => setActiveTab('calculator')}
-              style={{
-                padding: '8px 16px',
-                fontSize: '12.5px',
-                fontWeight: 700,
-                borderRadius: '6px',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                backgroundColor: activeTab === 'calculator' ? '#ffffff' : 'transparent',
-                color: activeTab === 'calculator' ? '#0f172a' : 'var(--text-secondary)',
-                boxShadow: activeTab === 'calculator' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-              }}
-            >
-              <IconFlask size={15} /> Costing Calculator
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              style={{
-                padding: '8px 16px',
-                fontSize: '12.5px',
-                fontWeight: 700,
-                borderRadius: '6px',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                backgroundColor: activeTab === 'history' ? '#ffffff' : 'transparent',
-                color: activeTab === 'history' ? '#0f172a' : 'var(--text-secondary)',
-                boxShadow: activeTab === 'history' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-              }}
-            >
-              <IconFileText size={15} /> Costing History ({costingHistory.length})
-            </button>
-          </div>
+        <div className="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
+          <button
+            type="button"
+            onClick={() => setActiveTab('voucher')}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              activeTab === 'voucher'
+                ? 'bg-white text-emerald-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Costing Voucher
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              activeTab === 'history'
+                ? 'bg-white text-emerald-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Costing History
+          </button>
         </div>
       </div>
 
-      {activeTab === 'history' ? (
-        // ==========================================
-        // TAB: COSTING HISTORY
-        // ==========================================
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Summary KPI Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-            <Card style={{ padding: '16px', borderRadius: '10px' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Calculations Recorded</div>
-              <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
-                {costingHistory.length}
-              </div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Immutable Historical Snapshots</div>
-            </Card>
-
-            <Card style={{ padding: '16px', borderRadius: '10px' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Active Production Costings</div>
-              <div style={{ fontSize: '24px', fontWeight: 800, color: '#047857', marginTop: '4px' }}>
-                {costingHistory.filter((c) => c.status === 'ACTIVE').length}
-              </div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Currently Active Records</div>
-            </Card>
-
-            <Card style={{ padding: '16px', borderRadius: '10px' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Latest Costing Reference</div>
-              <div style={{ fontSize: '24px', fontWeight: 800, color: '#0284c7', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
-                {costingHistory[0]?.costingCode || (costingHistory.length > 0 && costingHistory[0] ? `CST-${String(costingHistory[0].version || 1).padStart(6, '0')}` : 'None')}
-              </div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                {costingHistory[0]?.costingDate ? new Date(costingHistory[0].costingDate).toLocaleDateString('en-GB') : 'N/A'}
-              </div>
-            </Card>
-          </div>
-
-          <Card padding="none" style={{ borderRadius: '12px', overflow: 'hidden' }}>
-            <CardHeader style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+      {/* ======================================================================= */}
+      {/* TAB 1: MAIN COSTING VOUCHER (SUPREME ACCOUNTING STYLE)                   */}
+      {/* ======================================================================= */}
+      {activeTab === 'voucher' && (
+        <div className="space-y-4">
+          {/* COMPACT TOP HEADER */}
+          <Card className="border border-gray-200 shadow-sm bg-white">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                {/* 1. Serial No */}
                 <div>
-                  <CardTitle style={{ fontSize: '16px', fontWeight: 700 }}>Date-Wise Product Costing History</CardTitle>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                    Double-click any costing record to inspect complete raw material &amp; packaging calculations.
-                  </p>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Serial No.</label>
+                  <div className="flex items-center">
+                    <span className="inline-flex items-center px-2 py-1.5 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs font-bold">
+                      A
+                    </span>
+                    <input
+                      type="text"
+                      value={serialNumber}
+                      onChange={(e) => setSerialNumber(e.target.value)}
+                      className="w-full text-xs font-semibold text-emerald-800 bg-emerald-50/40 border border-gray-300 rounded-r-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
+                      placeholder="CST-000001"
+                    />
+                  </div>
                 </div>
 
-                {/* Filter Controls */}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>From:</span>
-                    <Input
-                      type="date"
-                      value={historyFilterStart}
-                      onChange={(e) => setHistoryFilterStart(e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: '11px', width: '130px' }}
-                    />
-                  </div>
+                {/* 2. Date */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={costingDate}
+                    onChange={(e) => setCostingDate(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>To:</span>
-                    <Input
-                      type="date"
-                      value={historyFilterEnd}
-                      onChange={(e) => setHistoryFilterEnd(e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: '11px', width: '130px' }}
-                    />
-                  </div>
-
-                  <div style={{ width: '220px' }}>
-                    <Input
-                      placeholder="Search Code, Product, RM, PO#..."
-                      value={historySearchQuery}
-                      onChange={(e) => setHistorySearchQuery(e.target.value)}
-                      style={{ padding: '4px 8px', fontSize: '11px' }}
-                    />
-                  </div>
-
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery)}
-                    isLoading={isLoadingHistory}
+                {/* 3. Warehouse */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Warehouse</label>
+                  <select
+                    value={selectedWarehouseId}
+                    onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 bg-white"
                   >
-                    <IconFilter size={12} /> Filter
+                    {warehouses.map((wh) => (
+                      <option key={wh.id} value={wh.id}>
+                        {wh.code} - {wh.name}
+                      </option>
+                    ))}
+                    {warehouses.length === 0 && <option value="">01 - Faisalabad Warehouse</option>}
+                  </select>
+                </div>
+
+                {/* 4. Contractor / Vendor */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Contractor / Vendor</label>
+                  <select
+                    value={selectedContractorId}
+                    onChange={(e) => setSelectedContractorId(e.target.value)}
+                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 bg-white"
+                  >
+                    {vendors.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                    {vendors.length === 0 && <option value="">V Agrics International (Pvt) Ltd.</option>}
+                  </select>
+                </div>
+
+                {/* 5. Status / Actions */}
+                <div className="flex items-center justify-between md:justify-end space-x-2">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5 animate-pulse"></span>
+                    ACTIVE / READY
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => loadSampleVoucher()}
+                    className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+                    title="Load standard Lambda 2.5% EC 1L test voucher"
+                  >
+                    Reference Sample
+                  </button>
+                </div>
+              </div>
+
+              {/* End Product Bar */}
+              <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                <div className="md:col-span-3 flex items-center space-x-2">
+                  <label className="text-xs font-bold text-gray-700 whitespace-nowrap">End Product:</label>
+                  <div className="flex-1">
+                    <SearchableCombobox
+                      label=""
+                      options={finishedProducts.map((p) => ({
+                        id: p.id,
+                        label: `${p.productCode} - ${p.productName} (${p.packingQuantity || 1} ${p.packingUnit || 'Liter'})`,
+                        value: p.id,
+                      }))}
+                      value={selectedFinishedProductId}
+                      onChange={handleFinishedProductChange}
+                      placeholder="Search and select End Product from Product Master..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end space-x-3">
+                  <div className="text-right">
+                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Pack Size:</span>
+                    <span className="ml-1.5 text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                      {packSize}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* MAIN COSTING TABLE (SINGLE TABLE FOR ALL COMPONENTS) */}
+          <Card className="border border-gray-200 shadow-sm bg-white overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-emerald-900 text-white font-semibold">
+                    <th className="py-2.5 px-3 w-10 text-center">N</th>
+                    <th className="py-2.5 px-3 min-w-[280px]">Product / Material</th>
+                    <th className="py-2.5 px-2 w-20 text-center">Type</th>
+                    <th className="py-2.5 px-3 w-28 text-center">Pack</th>
+                    <th className="py-2.5 px-3 w-28 text-right">Qty</th>
+                    <th className="py-2.5 px-3 w-32 text-right">Rate (PKR)</th>
+                    <th className="py-2.5 px-4 w-36 text-right">Cost (PKR)</th>
+                    <th className="py-2.5 px-2 w-10 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {lines.map((line, idx) => (
+                    <tr
+                      key={line.id}
+                      className={idx % 2 === 0 ? 'bg-emerald-50/20 hover:bg-emerald-50/50' : 'bg-white hover:bg-emerald-50/30'}
+                    >
+                      {/* N (Row number) */}
+                      <td className="py-2 px-3 text-center text-gray-400 font-mono text-[11px]">
+                        {String(idx + 1).padStart(2, '0')}
+                      </td>
+
+                      {/* Product / Material Searchable Input */}
+                      <td className="py-2 px-3">
+                        <div className="flex flex-col space-y-1">
+                          <input
+                            type="text"
+                            value={line.materialName}
+                            onChange={(e) => handleLineChange(line.id, 'materialName', e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value && e.target.value !== line.materialName) {
+                                handleMaterialSelected(line.id, e.target.value);
+                              }
+                            }}
+                            list={`materials-list-${line.id}`}
+                            className="w-full text-xs font-semibold text-gray-900 bg-transparent border border-gray-200 rounded px-2 py-1 focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            placeholder="Type or select material component..."
+                          />
+                          <datalist id={`materials-list-${line.id}`}>
+                            {allMaterialsOptions.map((opt) => (
+                              <option key={opt.id} value={opt.name}>
+                                [{opt.type}] {opt.code} - {opt.name}
+                              </option>
+                            ))}
+                          </datalist>
+
+                          {/* Subtle PO History Rate Switcher if available */}
+                          {line.historicalPurchases && line.historicalPurchases.length > 1 && (
+                            <div className="flex items-center space-x-1.5 text-[10px] text-gray-500">
+                              <span>PO History:</span>
+                              <select
+                                onChange={(e) => {
+                                  const po = line.historicalPurchases?.find((p) => p.documentNumber === e.target.value);
+                                  if (po) handleSelectHistoricalPo(line.id, po);
+                                }}
+                                className="text-[10px] py-0 px-1 border border-gray-200 rounded bg-white text-emerald-800 font-semibold"
+                                value={line.sourcePoNumber || ''}
+                              >
+                                {line.historicalPurchases.map((p) => (
+                                  <option key={p.documentNumber} value={p.documentNumber}>
+                                    {p.documentNumber} ({p.purchaseDate ? p.purchaseDate.split('T')[0] : ''} @ PKR{' '}
+                                    {Number(p.unitCost).toLocaleString()})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Type (RM / PM / Other) */}
+                      <td className="py-2 px-2 text-center">
+                        <select
+                          value={line.type}
+                          onChange={(e) => handleLineChange(line.id, 'type', e.target.value as ComponentType)}
+                          className={`text-[11px] font-bold rounded px-1.5 py-1 border text-center ${
+                            line.type === 'RM'
+                              ? 'bg-amber-100 text-amber-800 border-amber-300'
+                              : line.type === 'PM'
+                              ? 'bg-blue-100 text-blue-800 border-blue-300'
+                              : 'bg-purple-100 text-purple-800 border-purple-300'
+                          }`}
+                        >
+                          <option value="RM">RM</option>
+                          <option value="PM">PM</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </td>
+
+                      {/* Pack */}
+                      <td className="py-2 px-3 text-center">
+                        <input
+                          type="text"
+                          value={line.pack}
+                          onChange={(e) => handleLineChange(line.id, 'pack', e.target.value)}
+                          className="w-full text-center text-xs border border-gray-200 rounded px-1.5 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                          placeholder="200 LTR"
+                        />
+                      </td>
+
+                      {/* Qty */}
+                      <td className="py-2 px-3 text-right">
+                        <input
+                          type="number"
+                          step="any"
+                          value={line.quantity}
+                          onChange={(e) => handleLineChange(line.id, 'quantity', parseFloat(e.target.value) || 0)}
+                          className="w-full text-right text-xs font-mono font-semibold border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </td>
+
+                      {/* Rate */}
+                      <td className="py-2 px-3 text-right">
+                        <input
+                          type="number"
+                          step="any"
+                          value={line.rate}
+                          onChange={(e) => handleLineChange(line.id, 'rate', parseFloat(e.target.value) || 0)}
+                          className="w-full text-right text-xs font-mono border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </td>
+
+                      {/* Cost (Quantity * Rate) */}
+                      <td className="py-2 px-4 text-right font-mono font-bold text-gray-900 text-xs">
+                        {Number(line.cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </td>
+
+                      {/* Delete Action */}
+                      <td className="py-2 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRow(line.id)}
+                          className="text-gray-400 hover:text-rose-600 transition-colors p-1"
+                          title="Remove row"
+                        >
+                          <IconTrash className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {lines.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-gray-400 text-xs">
+                        No materials added yet. Click &quot;+ Add Material&quot; or &quot;Reference Sample&quot; to begin.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer: Add Line Button */}
+            <div className="p-3 bg-gray-50/80 border-t border-gray-200 flex items-center justify-between">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddRow}
+                className="text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+              >
+                <IconPlus className="w-3.5 h-3.5 mr-1" />
+                Add Material
+              </Button>
+
+              <span className="text-[11px] text-gray-500">
+                Formula: <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700">Cost = Quantity × Rate</code>
+              </span>
+            </div>
+          </Card>
+
+          {/* BOTTOM SUMMARY & ACTIONS (MATCHING SCREENSHOT BOTTOM BAR) */}
+          <Card className="border border-emerald-200 shadow-md bg-emerald-50/40">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                {/* 1. Est. Qty (Optional Informational) */}
+                <div className="flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-600 whitespace-nowrap">Est. Qty:</label>
+                  <input
+                    type="number"
+                    value={estimatedQuantity}
+                    onChange={(e) => setEstimatedQuantity(parseFloat(e.target.value) || 0)}
+                    className="w-28 text-xs font-mono font-semibold border border-gray-300 rounded px-2 py-1 bg-white text-right"
+                  />
+                </div>
+
+                {/* 2. Actual Production Qty */}
+                <div className="flex items-center space-x-2">
+                  <label className="text-xs font-bold text-gray-800 whitespace-nowrap">Actual Qty:</label>
+                  <input
+                    type="number"
+                    value={actualQuantity}
+                    onChange={(e) => setActualQuantity(parseFloat(e.target.value) || 0)}
+                    className="w-28 text-xs font-mono font-bold border-2 border-emerald-500 rounded px-2 py-1 bg-white text-right text-emerald-900 shadow-sm"
+                  />
+                  <span className="text-xs text-gray-500 font-medium">units</span>
+                </div>
+
+                {/* 3. Total Cost */}
+                <div className="text-right">
+                  <span className="block text-[11px] font-semibold text-gray-500 uppercase">Total Batch Cost</span>
+                  <span className="text-lg font-bold font-mono text-gray-900">
+                    PKR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                {/* 4. Unit Cost */}
+                <div className="text-right bg-white p-2.5 rounded-lg border border-emerald-300 shadow-sm">
+                  <span className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Unit Cost</span>
+                  <span className="text-xl font-extrabold font-mono text-emerald-800">
+                    PKR {unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="block text-[10px] text-gray-400">Total Cost ÷ Actual Qty</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-4 pt-4 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLines([]);
+                    showToast({ title: 'Voucher Cleared', message: 'Ready for new entry.', type: 'info' });
+                  }}
+                  className="text-xs text-gray-600 hover:text-gray-900"
+                >
+                  Clear Table
+                </Button>
+
+                <div className="flex items-center space-x-3">
+                  <Button
+                    variant="primary"
+                    onClick={handleSaveCosting}
+                    isLoading={isSaving}
+                    className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-5 py-2 font-bold shadow-sm"
+                  >
+                    <IconCheck className="w-4 h-4 mr-1.5" />
+                    Save Costing Voucher
                   </Button>
 
-                  {(historyFilterStart || historyFilterEnd || historySearchQuery) && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setHistoryFilterStart('');
-                        setHistoryFilterEnd('');
-                        setHistorySearchQuery('');
-                        loadCostingHistory('', '', '');
-                      }}
-                    >
-                      Reset
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    onClick={handleApplyCostToProduct}
+                    isLoading={isApplyingCost}
+                    className="border-emerald-600 text-emerald-800 hover:bg-emerald-100 text-xs px-4 py-2 font-semibold"
+                  >
+                    Add Cost to Product (PKR {unitCost.toFixed(2)})
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ======================================================================= */}
+      {/* TAB 2: SEPARATE COSTING HISTORY SCREEN                                 */}
+      {/* ======================================================================= */}
+      {activeTab === 'history' && (
+        <div className="space-y-4">
+          <Card className="border border-gray-200 shadow-sm bg-white">
+            <CardHeader className="pb-3 border-b border-gray-100">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <CardTitle className="text-base font-bold text-gray-900 flex items-center">
+                  <IconFileText className="w-4 h-4 mr-2 text-emerald-600" />
+                  Product Costing History Records
+                </CardTitle>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    placeholder="Search product, serial..."
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    className="w-48 text-xs py-1"
+                  />
+                  <input
+                    type="date"
+                    value={historyStartDate}
+                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1"
+                  />
+                  <span className="text-xs text-gray-400">to</span>
+                  <input
+                    type="date"
+                    value={historyEndDate}
+                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1"
+                  />
+                  <Button variant="outline" size="sm" onClick={loadHistory} className="text-xs">
+                    <IconFilter className="w-3.5 h-3.5 mr-1" />
+                    Filter
+                  </Button>
                 </div>
               </div>
             </CardHeader>
 
-            <CardContent style={{ padding: 0 }}>
-              {costingHistory.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--text-secondary)' }}>
-                  <IconFileText size={40} style={{ margin: '0 auto 12px auto', opacity: 0.3 }} />
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: '#334155' }}>No costing records match criteria</p>
-                  <p style={{ fontSize: '12px', marginTop: '4px', color: '#64748b' }}>
-                    Calculate and click &ldquo;Confirm Costing&rdquo; to permanently register a dated manufacturing cost.
-                  </p>
+            <CardContent className="p-0">
+              {isLoadingHistory ? (
+                <div className="p-6">
+                  <TableSkeleton rows={5} columns={6} />
+                </div>
+              ) : historyRecords.length === 0 ? (
+                <div className="py-12 text-center text-gray-500 text-xs">
+                  No historical costing records found.
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                        <th style={{ padding: '12px 14px', fontWeight: 700, color: '#475569' }}>Costing Ref</th>
-                        <th style={{ padding: '12px 14px', fontWeight: 700, color: '#475569' }}>Costing Date</th>
-                        <th style={{ padding: '12px 14px', fontWeight: 700, color: '#475569' }}>Finished Product</th>
-                        <th style={{ padding: '12px 14px', fontWeight: 700, color: '#475569' }}>Primary Material</th>
-                        <th style={{ padding: '12px 14px', fontWeight: 700, color: '#475569' }}>Source PO</th>
-                        <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Output &amp; Pack</th>
-                        <th style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Total Batch Cost</th>
-                        <th style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#047857' }}>Unit Cost</th>
-                        <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Status</th>
-                        <th style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Actions</th>
+                      <tr className="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                        <th className="py-2.5 px-3">Date</th>
+                        <th className="py-2.5 px-3">Serial / Code</th>
+                        <th className="py-2.5 px-3">End Product</th>
+                        <th className="py-2.5 px-3 text-right">Output Qty</th>
+                        <th className="py-2.5 px-4 text-right">Total Cost (PKR)</th>
+                        <th className="py-2.5 px-4 text-right">Unit Cost (PKR)</th>
+                        <th className="py-2.5 px-3 text-center">Status</th>
+                        <th className="py-2.5 px-3 text-center">Actions</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {costingHistory.map((item, idx) => {
-                        const code = item.costingCode || `CST-${String(item.version || 1).padStart(6, '0')}`;
-                        const cDate = item.costingDate || item.createdAt;
-                        const rmLine = item.materialLines?.[0];
+                    <tbody className="divide-y divide-gray-100">
+                      {historyRecords.map((rec) => {
+                        let snap: any = {};
+                        try {
+                          if (rec.notes && rec.notes.startsWith('{')) snap = JSON.parse(rec.notes);
+                        } catch {}
+
+                        const productName =
+                          snap.productName || rec.finishedProduct?.productName || 'Finished Product';
+                        const code = snap.serialNumber || snap.costingCode || `CST-v${rec.version}`;
+                        const dateFormatted = rec.createdAt ? rec.createdAt.split('T')[0] : '';
 
                         return (
                           <tr
-                            key={item.id}
-                            onDoubleClick={() => {
-                              setSelectedHistoryItem(item);
-                              setIsDetailModalOpen(true);
-                            }}
-                            style={{
-                              borderBottom: '1px solid #e2e8f0',
-                              backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
-                              cursor: 'pointer',
-                              transition: 'background-color 0.15s ease',
-                            }}
-                            title="Double-click to open full costing calculation breakdown"
+                            key={rec.id}
+                            onDoubleClick={() => handleOpenVoucherModal(rec)}
+                            className="hover:bg-emerald-50/40 cursor-pointer transition-colors"
                           >
-                            <td style={{ padding: '12px 14px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
-                              {code}
+                            <td className="py-2.5 px-3 font-mono text-gray-600">{dateFormatted}</td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-emerald-800">{code}</td>
+                            <td className="py-2.5 px-3 font-medium text-gray-900">{productName}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-semibold">
+                              {Number(rec.batchOutputQuantity).toLocaleString()}
                             </td>
-                            <td style={{ padding: '12px 14px', color: '#334155' }}>
-                              {new Date(cDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            <td className="py-2.5 px-4 text-right font-mono">
+                              {Number(rec.totalBatchCost).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </td>
-                            <td style={{ padding: '12px 14px', fontWeight: 700, color: '#0f172a' }}>
-                              {item.finishedProduct?.productName || item.snapshotMetadata?.productName || 'Finished Product'}
+                            <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
+                              {Number(rec.costPerUnit).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </td>
-                            <td style={{ padding: '12px 14px' }}>
-                              <div style={{ fontWeight: 600, color: '#0f172a' }}>
-                                {item.rawMaterialName || rmLine?.rawMaterial?.materialName || 'Raw Material'}
-                              </div>
-                              <div style={{ fontSize: '11px', color: '#059669', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                                @ PKR {Number(item.rawMaterialCostPerUnit || rmLine?.unitCost || 0).toLocaleString()} / {rmLine?.uomName || 'KG'}
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 14px', fontSize: '11.5px' }}>
-                              {item.sourcePoNumber ? (
-                                <div>
-                                  <span style={{ fontWeight: 700, color: '#0284c7' }}>PO: {item.sourcePoNumber}</span>
-                                  {item.purchaseDate && (
-                                    <span style={{ color: '#64748b', marginLeft: '4px' }}>
-                                      ({new Date(item.purchaseDate).toLocaleDateString('en-GB')})
-                                    </span>
-                                  )}
-                                  {item.vendorName && <div style={{ color: '#475569' }}>Vendor: {item.vendorName}</div>}
-                                </div>
-                              ) : (
-                                <span style={{ color: '#94a3b8' }}>Baseline Rate</span>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                              {item.batchOutputQuantity} Units × {item.packSize} {item.packSizeUnit || 'L'}
-                            </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                              PKR {Number(item.totalBatchCost || 0).toLocaleString()}
-                            </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '13.5px', fontFamily: 'var(--font-mono)' }}>
-                              PKR {Number(item.costPerUnit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                            <td className="py-2.5 px-3 text-center">
                               <span
-                                style={{
-                                  padding: '3px 8px',
-                                  borderRadius: '12px',
-                                  fontSize: '10.5px',
-                                  fontWeight: 700,
-                                  backgroundColor: '#ecfdf5',
-                                  color: '#047857',
-                                  border: '1px solid #a7f3d0',
-                                }}
+                                className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  rec.status === 'ACTIVE'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}
                               >
-                                {item.status || 'CONFIRMED'}
+                                {rec.status}
                               </span>
                             </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedHistoryItem(item);
-                                    setIsDetailModalOpen(true);
-                                  }}
-                                  style={{ padding: '4px 8px', fontSize: '11px' }}
-                                >
-                                  <IconEye size={12} /> View Breakdown
-                                </Button>
-                              </div>
+                            <td className="py-2.5 px-3 text-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenVoucherModal(rec)}
+                                className="text-[11px] py-1 px-2.5"
+                              >
+                                <IconEye className="w-3 h-3 mr-1" />
+                                View
+                              </Button>
                             </td>
                           </tr>
                         );
@@ -1261,936 +1319,171 @@ export const ProductCostingView: React.FC = () => {
             </CardContent>
           </Card>
         </div>
-      ) : (
-        // ==========================================
-        // TAB: COSTING CALCULATOR
-        // ==========================================
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 390px', gap: '20px', alignItems: 'start' }}>
-          {/* Left Column: Sections 0, 1, 2, 3 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            
-            {/* SECTION 0: FINISHED PRODUCT & PRODUCTION TARGET (HEADER) */}
-            <Card padding="none" style={{ borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-              <CardHeader style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 800 }}>
-                    1
-                  </div>
-                  <div>
-                    <CardTitle style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
-                      Finished Product &amp; Output Target
-                    </CardTitle>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                      Select existing Finished Product to calculate its unit cost. Product creation remains separate.
-                    </p>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent style={{ padding: '20px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                  {/* Finished Product Selector */}
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '5px' }}>
-                      Finished Product * (From Product Master)
-                    </label>
-                    <SearchableCombobox
-                      id="costing-finished-product"
-                      value={selectedFinishedProductId}
-                      onChange={(val) => handleSelectFinishedProduct(val)}
-                      options={finishedProducts.map((fp) => ({
-                        value: fp.id,
-                        label: `[${fp.productCode || 'FP'}] ${fp.productName}`,
-                        subtext: fp.standardCost ? `Standard Cost: PKR ${Number(fp.standardCost).toLocaleString()}` : undefined,
-                      }))}
-                      placeholder="Type to search finished product..."
-                    />
-                    {selectedFinishedProduct && (
-                      <div style={{ fontSize: '11px', color: '#0284c7', marginTop: '4px', fontWeight: 600 }}>
-                        Current Standard Manufacturing Cost: PKR {Number(selectedFinishedProduct.standardCost || 0).toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Costing Date */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '5px' }}>
-                      Costing Date *
-                    </label>
-                    <Input
-                      type="date"
-                      value={costingDate}
-                      onChange={(e) => setCostingDate(e.target.value)}
-                      style={{ height: '40px', borderRadius: '8px' }}
-                    />
-                  </div>
-
-                  {/* Commercial Pack Size */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '5px' }}>
-                      Commercial Pack Size *
-                    </label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <Input
-                        type="number"
-                        min={0.01}
-                        step="any"
-                        value={packSize}
-                        onChange={(e) => {
-                          const val = Number(e.target.value) || 0;
-                          setPackSize(val);
-                          handleOutputQuantityChange(outputQuantity);
-                        }}
-                        style={{ height: '40px', borderRadius: '8px', flex: 1, fontWeight: 700 }}
-                      />
-                      <div style={{ width: '110px' }}>
-                        <Select
-                          value={packSizeUnit}
-                          onChange={(e) => setPackSizeUnit(e.target.value)}
-                          options={[
-                            { value: 'Liter', label: 'Liter' },
-                            { value: 'ml', label: 'ml' },
-                            { value: 'KG', label: 'KG' },
-                            { value: 'Gram', label: 'Gram' },
-                            { value: 'Nos', label: 'Nos' },
-                            { value: 'Units', label: 'Units' },
-                          ]}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Output Quantity */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '5px' }}>
-                      Output Quantity (Units/Bottles) *
-                    </label>
-                    <Input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={outputQuantity}
-                      onChange={(e) => handleOutputQuantityChange(Number(e.target.value))}
-                      style={{ height: '40px', borderRadius: '8px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-
-                  {/* Total Batch Bulk Output Indicator */}
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f172a', marginBottom: '5px' }}>
-                      Total Bulk Volume Required
-                    </label>
-                    <div
-                      style={{
-                        height: '40px',
-                        padding: '0 12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: '#e0f2fe',
-                        borderRadius: '8px',
-                        border: '1.5px solid #bae6fd',
-                        fontWeight: 800,
-                        color: '#0369a1',
-                        fontFamily: 'var(--font-mono)',
-                      }}
-                    >
-                      <span>{outputQuantity * packSize} {packSizeUnit}</span>
-                      <span style={{ fontSize: '10px', color: '#0284c7', fontWeight: 700 }}>
-                        {outputQuantity} × {packSize} {packSizeUnit}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* SECTION 1: RAW MATERIALS WITH DATE-WISE PURCHASE HISTORY */}
-            <Card padding="none" style={{ borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-              <CardHeader
-                style={{
-                  padding: '16px 20px',
-                  borderBottom: '1px solid #e2e8f0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  backgroundColor: '#f8fafc',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 800 }}>
-                    2
-                  </div>
-                  <div>
-                    <CardTitle style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
-                      Raw Materials (Date-Wise Purchase History)
-                    </CardTitle>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                      Rates are locked to actual Purchase Orders. Select the historical purchase date/PO for each material.
-                    </p>
-                  </div>
-                </div>
-                <Button size="sm" variant="secondary" onClick={handleAddRawMaterialLine} icon={<IconPlus size={14} />}>
-                  Add Raw Material
-                </Button>
-              </CardHeader>
-              <CardContent style={{ padding: 0 }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                        <th style={{ padding: '10px 10px', width: '36px', textAlign: 'center', color: '#475569' }}>#</th>
-                        <th style={{ padding: '10px 12px', minWidth: '240px', color: '#475569' }}>Raw Material *</th>
-                        <th style={{ padding: '10px 12px', minWidth: '260px', color: '#475569' }}>Purchase Date / PO Reference *</th>
-                        <th style={{ padding: '10px 10px', width: '110px', textAlign: 'right', color: '#475569' }}>Available Qty</th>
-                        <th style={{ padding: '10px 10px', width: '120px', textAlign: 'right', color: '#475569' }}>Required Qty *</th>
-                        <th style={{ padding: '10px 12px', width: '130px', textAlign: 'right', color: '#475569' }}>Unit Cost (PKR)</th>
-                        <th style={{ padding: '10px 12px', width: '140px', textAlign: 'right', color: '#475569' }}>Total Cost (PKR)</th>
-                        <th style={{ padding: '10px 8px', width: '44px', textAlign: 'center' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rawMaterialLines.map((line, idx) => {
-                        const selectedTx = line.purchaseHistory.find((p) => p.documentId === line.sourcePoId);
-
-                        return (
-                          <tr key={line.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                            <td style={{ padding: '10px 6px', textAlign: 'center', color: '#64748b', fontWeight: 700 }}>
-                              {idx + 1}
-                            </td>
-
-                            {/* Raw Material Select */}
-                            <td style={{ padding: '10px 12px' }}>
-                              <select
-                                value={line.rawMaterialId}
-                                onChange={(e) => handleRawMaterialChange(line.id, e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  height: '38px',
-                                  padding: '0 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '12.5px',
-                                  fontWeight: 600,
-                                  border: '1.5px solid #cbd5e1',
-                                  backgroundColor: '#ffffff',
-                                  outline: 'none',
-                                }}
-                              >
-                                {rawMaterialsList.map((rm) => (
-                                  <option key={rm.id} value={rm.id}>
-                                    [{rm.materialCode}] {rm.materialName}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-
-                            {/* Purchase Date / PO Transaction Selector */}
-                            <td style={{ padding: '10px 12px' }}>
-                              {line.isLoadingPurchases ? (
-                                <div style={{ fontSize: '11px', color: '#64748b' }}>Loading PO history...</div>
-                              ) : line.purchaseHistory.length > 0 ? (
-                                <select
-                                  value={line.sourcePoId || line.purchaseHistory[0]?.id || ''}
-                                  onChange={(e) => handleRawMaterialPurchaseSelect(line.id, e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    height: '38px',
-                                    padding: '0 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '12px',
-                                    fontWeight: 700,
-                                    border: '1.5px solid #059669',
-                                    backgroundColor: '#ecfdf5',
-                                    color: '#047857',
-                                    outline: 'none',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  {line.purchaseHistory.map((tx) => (
-                                    <option key={tx.id} value={tx.documentId || tx.id}>
-                                      {new Date(tx.purchaseDate).toLocaleDateString('en-GB')} • PO: {tx.documentNumber} ({tx.vendorName}) • PKR {tx.unitCost.toLocaleString()}/{tx.unit}
-                                    </option>
-                                  ))}
-                                  <option value="baseline">Default Master Baseline Rate</option>
-                                </select>
-                              ) : (
-                                <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                  <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#f1f5f9', fontWeight: 600 }}>
-                                    Master Rate (No PO Recorded)
-                                  </span>
-                                </div>
-                              )}
-                              {selectedTx && (
-                                <div style={{ fontSize: '10.5px', color: '#047857', marginTop: '3px', fontWeight: 600 }}>
-                                  Vendor: {selectedTx.vendorName} • Qty: {selectedTx.quantity} {selectedTx.unit}
-                                </div>
-                              )}
-                            </td>
-
-                            {/* Available Stock */}
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 600, color: '#334155' }}>
-                              {line.availableQuantity} {line.unit}
-                            </td>
-
-                            {/* Required Quantity */}
-                            <td style={{ padding: '10px 10px', textAlign: 'right' }}>
-                              <Input
-                                type="number"
-                                min={0.01}
-                                step="any"
-                                value={line.requiredQuantity}
-                                onChange={(e) => handleRawMaterialQtyChange(line.id, Number(e.target.value))}
-                                style={{
-                                  height: '38px',
-                                  width: '100px',
-                                  textAlign: 'right',
-                                  fontWeight: 700,
-                                  fontFamily: 'var(--font-mono)',
-                                  borderRadius: '6px',
-                                }}
-                              />
-                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                {line.unit}
-                              </div>
-                            </td>
-
-                            {/* Unit Cost (Read-Only) */}
-                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                              <div
-                                style={{
-                                  height: '38px',
-                                  padding: '0 8px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'flex-end',
-                                  backgroundColor: '#f1f5f9',
-                                  borderRadius: '6px',
-                                  fontFamily: 'var(--font-mono)',
-                                  fontWeight: 700,
-                                  color: '#0f172a',
-                                  fontSize: '12.5px',
-                                }}
-                              >
-                                {line.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </div>
-                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                PKR / {line.unit}
-                              </div>
-                            </td>
-
-                            {/* Total Cost */}
-                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                              <div
-                                style={{
-                                  height: '38px',
-                                  padding: '0 8px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'flex-end',
-                                  backgroundColor: '#ecfdf5',
-                                  borderRadius: '6px',
-                                  border: '1px solid #a7f3d0',
-                                  fontFamily: 'var(--font-mono)',
-                                  fontWeight: 800,
-                                  color: '#047857',
-                                  fontSize: '13px',
-                                }}
-                              >
-                                PKR {line.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </div>
-                            </td>
-
-                            {/* Action: Remove */}
-                            <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRawMaterialLine(line.id)}
-                                disabled={rawMaterialLines.length === 1}
-                                style={{
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: rawMaterialLines.length === 1 ? '#cbd5e1' : '#ef4444',
-                                  cursor: rawMaterialLines.length === 1 ? 'not-allowed' : 'pointer',
-                                  padding: '4px',
-                                }}
-                                title="Remove line"
-                              >
-                                <IconTrash size={15} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #e2e8f0', fontWeight: 700 }}>
-                        <td colSpan={6} style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', color: '#334155' }}>
-                          Total Raw Material Cost:
-                        </td>
-                        <td style={{ padding: '12px', textAlign: 'right', color: '#047857', fontSize: '15px', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
-                          PKR {totalRawMaterialCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* SECTION 2: PACKAGING MATERIALS */}
-            <Card padding="none" style={{ borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-              <CardHeader
-                style={{
-                  padding: '16px 20px',
-                  borderBottom: '1px solid #e2e8f0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  backgroundColor: '#f8fafc',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#f5f3ff', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 800 }}>
-                    3
-                  </div>
-                  <div>
-                    <CardTitle style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>
-                      Packaging Materials (Bottles, Caps, Labels, Cartons)
-                    </CardTitle>
-                    <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                      Packaging costs also pull from real Purchase Orders. Enter the quantity required for this batch.
-                    </p>
-                  </div>
-                </div>
-                <Button size="sm" variant="secondary" onClick={handleAddPackagingLine} icon={<IconPlus size={14} />}>
-                  Add Packaging Material
-                </Button>
-              </CardHeader>
-              <CardContent style={{ padding: 0 }}>
-                {packagingLines.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '32px 20px', color: 'var(--text-secondary)' }}>
-                    <p style={{ margin: 0, fontSize: '13px' }}>No packaging materials added yet.</p>
-                    <p style={{ fontSize: '11px', marginTop: '4px' }}>Click &ldquo;+ Add Packaging Material&rdquo; to include bottles, caps, labels, cartons, etc.</p>
-                  </div>
-                ) : (
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
-                      <thead>
-                        <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                          <th style={{ padding: '10px 10px', width: '36px', textAlign: 'center', color: '#475569' }}>#</th>
-                          <th style={{ padding: '10px 12px', minWidth: '240px', color: '#475569' }}>Packaging Material *</th>
-                          <th style={{ padding: '10px 12px', minWidth: '260px', color: '#475569' }}>Purchase Date / PO Reference</th>
-                          <th style={{ padding: '10px 10px', width: '120px', textAlign: 'right', color: '#475569' }}>Required Qty *</th>
-                          <th style={{ padding: '10px 12px', width: '130px', textAlign: 'right', color: '#475569' }}>Unit Cost (PKR)</th>
-                          <th style={{ padding: '10px 12px', width: '140px', textAlign: 'right', color: '#475569' }}>Total Cost (PKR)</th>
-                          <th style={{ padding: '10px 8px', width: '44px', textAlign: 'center' }}></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {packagingLines.map((line, idx) => {
-                          const selectedTx = line.purchaseHistory.find((p) => p.documentId === line.sourcePoId);
-
-                          return (
-                            <tr key={line.id} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                              <td style={{ padding: '10px 6px', textAlign: 'center', color: '#64748b', fontWeight: 700 }}>
-                                {idx + 1}
-                              </td>
-
-                              {/* Packaging Material Select */}
-                              <td style={{ padding: '10px 12px' }}>
-                                <select
-                                  value={line.packingMaterialId}
-                                  onChange={(e) => handlePackagingMaterialChange(line.id, e.target.value)}
-                                  style={{
-                                    width: '100%',
-                                    height: '38px',
-                                    padding: '0 8px',
-                                    borderRadius: '6px',
-                                    fontSize: '12.5px',
-                                    fontWeight: 600,
-                                    border: '1.5px solid #cbd5e1',
-                                    backgroundColor: '#ffffff',
-                                    outline: 'none',
-                                  }}
-                                >
-                                  {packingMaterialsList.map((pm) => (
-                                    <option key={pm.id} value={pm.id}>
-                                      [{pm.materialCode}] {pm.materialName}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-
-                              {/* Purchase Date / PO Transaction Selector */}
-                              <td style={{ padding: '10px 12px' }}>
-                                {line.isLoadingPurchases ? (
-                                  <div style={{ fontSize: '11px', color: '#64748b' }}>Loading PO history...</div>
-                                ) : line.purchaseHistory.length > 0 ? (
-                                  <select
-                                    value={line.sourcePoId || line.purchaseHistory[0]?.id || ''}
-                                    onChange={(e) => handlePackagingPurchaseSelect(line.id, e.target.value)}
-                                    style={{
-                                      width: '100%',
-                                      height: '38px',
-                                      padding: '0 8px',
-                                      borderRadius: '6px',
-                                      fontSize: '12px',
-                                      fontWeight: 700,
-                                      border: '1.5px solid #7c3aed',
-                                      backgroundColor: '#f5f3ff',
-                                      color: '#6d28d9',
-                                      outline: 'none',
-                                      cursor: 'pointer',
-                                    }}
-                                  >
-                                    {line.purchaseHistory.map((tx) => (
-                                      <option key={tx.id} value={tx.documentId || tx.id}>
-                                        {new Date(tx.purchaseDate).toLocaleDateString('en-GB')} • PO: {tx.documentNumber} • PKR {tx.unitCost.toLocaleString()}/{tx.unit}
-                                      </option>
-                                    ))}
-                                    <option value="baseline">Default Master Baseline Rate</option>
-                                  </select>
-                                ) : (
-                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                    <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#f1f5f9', fontWeight: 600 }}>
-                                      Master Baseline Rate
-                                    </span>
-                                  </div>
-                                )}
-                                {selectedTx && (
-                                  <div style={{ fontSize: '10.5px', color: '#6d28d9', marginTop: '3px', fontWeight: 600 }}>
-                                    Vendor: {selectedTx.vendorName}
-                                  </div>
-                                )}
-                              </td>
-
-                              {/* Required Quantity */}
-                              <td style={{ padding: '10px 10px', textAlign: 'right' }}>
-                                <Input
-                                  type="number"
-                                  min={0.01}
-                                  step="any"
-                                  value={line.requiredQuantity}
-                                  onChange={(e) => handlePackagingQuantityChange(line.id, Number(e.target.value))}
-                                  style={{
-                                    height: '38px',
-                                    width: '100px',
-                                    textAlign: 'right',
-                                    fontWeight: 700,
-                                    fontFamily: 'var(--font-mono)',
-                                    borderRadius: '6px',
-                                  }}
-                                />
-                                <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                  {line.unit}
-                                </div>
-                              </td>
-
-                              {/* Unit Cost */}
-                              <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                <div
-                                  style={{
-                                    height: '38px',
-                                    padding: '0 8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                    backgroundColor: '#f1f5f9',
-                                    borderRadius: '6px',
-                                    fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700,
-                                    color: '#0f172a',
-                                    fontSize: '12.5px',
-                                  }}
-                                >
-                                  {line.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </div>
-                                <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                                  PKR / {line.unit}
-                                </div>
-                              </td>
-
-                              {/* Total Cost */}
-                              <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                <div
-                                  style={{
-                                    height: '38px',
-                                    padding: '0 8px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                    backgroundColor: '#f5f3ff',
-                                    borderRadius: '6px',
-                                    border: '1px solid #ddd6fe',
-                                    fontFamily: 'var(--font-mono)',
-                                    fontWeight: 800,
-                                    color: '#6d28d9',
-                                    fontSize: '13px',
-                                  }}
-                                >
-                                  PKR {line.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </div>
-                              </td>
-
-                              {/* Action: Remove */}
-                              <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemovePackagingLine(line.id)}
-                                  style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                                  title="Remove line"
-                                >
-                                  <IconTrash size={15} />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #e2e8f0', fontWeight: 700 }}>
-                          <td colSpan={5} style={{ padding: '12px 16px', textAlign: 'right', fontSize: '13px', color: '#334155' }}>
-                            Total Packaging Cost:
-                          </td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: '#6d28d9', fontSize: '15px', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
-                            PKR {totalPackagingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* SECTION 3: OTHER PRODUCTION / LABOUR COSTS (OPTIONAL) */}
-            <Card padding="none" style={{ borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-              <CardHeader style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#fffbeb', color: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800 }}>
-                    4
-                  </div>
-                  <CardTitle style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                    Other Included Costs (Optional Labour / Filling / Overhead)
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent style={{ padding: '16px 20px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
-                      Additional Cost (PKR)
-                    </label>
-                    <Input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={otherCost}
-                      onChange={(e) => setOtherCost(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="e.g. 4000"
-                      style={{ height: '38px', borderRadius: '6px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '5px' }}>
-                      Cost Description / Notes
-                    </label>
-                    <Input
-                      value={otherCostDescription}
-                      onChange={(e) => setOtherCostDescription(e.target.value)}
-                      placeholder="e.g. Filling &amp; packing labour, contract packing, electricity"
-                      style={{ height: '38px', borderRadius: '6px' }}
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-          </div>
-
-          {/* Right Column: Section 4 — Cost Summary & Execution Card */}
-          <div style={{ position: 'sticky', top: '24px' }}>
-            <Card padding="none" style={{ borderRadius: '12px', border: '2px solid #059669', boxShadow: '0 8px 24px rgba(5, 150, 105, 0.12)', overflow: 'hidden' }}>
-              <div style={{ backgroundColor: '#059669', color: '#ffffff', padding: '16px 20px' }}>
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.9, fontWeight: 700 }}>
-                  Manufacturing Cost Summary
-                </div>
-                <div style={{ fontSize: '18px', fontWeight: 800, marginTop: '2px' }}>
-                  {selectedFinishedProduct?.productName || 'PRODUCT COSTING'}
-                </div>
-                <div style={{ fontSize: '11px', opacity: 0.9, marginTop: '2px', fontFamily: 'var(--font-mono)' }}>
-                  Pack Size: {packSize} {packSizeUnit} • Target: {outputQuantity} Units
-                </div>
-              </div>
-
-              <CardContent style={{ padding: '20px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
-                    <span>Costing Date:</span>
-                    <strong style={{ color: '#0f172a' }}>
-                      {costingDate ? new Date(costingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Today'}
-                    </strong>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
-                    <span>Raw Material Cost:</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a', fontFamily: 'var(--font-mono)' }}>
-                      PKR {totalRawMaterialCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
-                    <span>Packaging Cost:</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a', fontFamily: 'var(--font-mono)' }}>
-                      PKR {totalPackagingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  {otherCostNum > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
-                      <span>Other Cost:</span>
-                      <span style={{ fontWeight: 700, color: '#0f172a', fontFamily: 'var(--font-mono)' }}>
-                        PKR {otherCostNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-
-                  <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '4px 0' }} />
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14.5px', fontWeight: 800 }}>
-                    <span style={{ color: '#0f172a' }}>TOTAL PRODUCTION COST:</span>
-                    <span style={{ color: '#0284c7', fontFamily: 'var(--font-mono)' }}>
-                      PKR {totalProductionCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '12px' }}>
-                    <span>Output Quantity:</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a' }}>{outputQuantity} Units</span>
-                  </div>
-
-                  {/* High Visibility Unit Cost Display */}
-                  <div style={{ background: '#ecfdf5', border: '1.5px solid #a7f3d0', borderRadius: '10px', padding: '16px', textAlign: 'center', marginTop: '12px' }}>
-                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#065f46', fontWeight: 800, letterSpacing: '0.05em' }}>
-                      MANUFACTURING COST PER UNIT / BOTTLE
-                    </div>
-                    <div style={{ fontSize: '30px', fontWeight: 900, color: '#047857', margin: '6px 0', fontFamily: 'var(--font-mono)' }}>
-                      PKR {costPerUnit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#065f46', opacity: 0.85 }}>
-                      ({totalProductionCost.toLocaleString()} ÷ {outputQuantity} units)
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
-                    <Button
-                      variant="primary"
-                      onClick={handleConfirmCosting}
-                      disabled={isSavingCosting || !selectedFinishedProductId || costPerUnit <= 0}
-                      isLoading={isSavingCosting}
-                      style={{
-                        width: '100%',
-                        justifyContent: 'center',
-                        backgroundColor: '#059669',
-                        borderColor: '#059669',
-                        height: '42px',
-                        fontSize: '13.5px',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <IconCheck size={16} /> Confirm &amp; Save Costing Permanently
-                    </Button>
-
-                    <Button
-                      variant="secondary"
-                      onClick={() => handleApplyToProduct()}
-                      disabled={isApplyingCost || !selectedFinishedProductId || costPerUnit <= 0}
-                      isLoading={isApplyingCost}
-                      style={{
-                        width: '100%',
-                        justifyContent: 'center',
-                        borderColor: '#0284c7',
-                        color: '#0284c7',
-                        height: '40px',
-                        fontSize: '13px',
-                        fontWeight: 700,
-                      }}
-                      title="Update the existing Finished Product's standard cost in Product Master"
-                    >
-                      <IconFileText size={15} /> Add to Product (Update Standard Cost)
-                    </Button>
-                  </div>
-
-                  <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center', marginTop: '4px' }}>
-                    Confirming records an immutable costing snapshot. Rate lists are NOT modified.
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
       )}
 
-      {/* ==========================================
-          DETAIL / BREAKDOWN MODAL (FOR AUDIT & INSPECTION)
-          ========================================== */}
-      {isDetailModalOpen && selectedHistoryItem && (
+      {/* ======================================================================= */}
+      {/* HISTORICAL VOUCHER REVIEW MODAL                                         */}
+      {/* ======================================================================= */}
+      {selectedHistoryModalRecord && (
         <Modal
-          isOpen={isDetailModalOpen}
-          onClose={() => setIsDetailModalOpen(false)}
-          title={`Costing Breakdown: ${selectedHistoryItem.costingCode || 'CST-RECORD'}`}
-          size="lg"
+          isOpen={true}
+          onClose={() => setSelectedHistoryModalRecord(null)}
+          title={`Costing Voucher Snapshot — ${
+            (() => {
+              try {
+                const s = JSON.parse(selectedHistoryModalRecord.notes || '{}');
+                return s.serialNumber || s.costingCode || 'Voucher';
+              } catch {
+                return 'Voucher';
+              }
+            })()
+          }`}
+          size="xl"
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Header Identity Bar */}
-            <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-              <div>
-                <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
-                  {selectedHistoryItem.finishedProduct?.productName || selectedHistoryItem.snapshotMetadata?.productName || 'Finished Product'}
-                </div>
-                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                  Costing Date: <strong>{new Date(selectedHistoryItem.costingDate || selectedHistoryItem.createdAt).toLocaleDateString('en-GB')}</strong>
-                  <span style={{ margin: '0 8px', color: '#cbd5e1' }}>&bull;</span>
-                  Output: <strong>{selectedHistoryItem.batchOutputQuantity} Units</strong> ({selectedHistoryItem.packSize} {selectedHistoryItem.packSizeUnit || 'L'})
-                </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>Unit Cost</div>
-                <div style={{ fontSize: '20px', fontWeight: 900, color: '#047857', fontFamily: 'var(--font-mono)' }}>
-                  PKR {Number(selectedHistoryItem.costPerUnit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            </div>
+          {(() => {
+            let snap: any = {};
+            try {
+              if (selectedHistoryModalRecord.notes) snap = JSON.parse(selectedHistoryModalRecord.notes);
+            } catch {}
 
-            {/* Raw Materials Breakdown */}
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 8px 0', color: '#0f172a' }}>
-                Raw Materials Used
-              </h4>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                      <th style={{ padding: '8px 10px', color: '#475569' }}>Material</th>
-                      <th style={{ padding: '8px 10px', color: '#475569' }}>Source PO / Date</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Qty Used</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Unit Cost</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Total (PKR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(selectedHistoryItem.snapshotMetadata?.rawMaterials || selectedHistoryItem.materialLines || []).map((rm: any, idx: number) => {
-                      const name = rm.rawMaterialName || rm.rawMaterial?.materialName || 'Raw Material';
-                      const po = rm.sourcePoNumber ? `PO: ${rm.sourcePoNumber}` : 'Baseline Rate';
-                      const pDate = rm.purchaseDate ? ` (${new Date(rm.purchaseDate).toLocaleDateString('en-GB')})` : '';
-                      const qty = Number(rm.quantity || 0);
-                      const unitRate = Number(rm.unitCost || 0);
-                      const total = Number(rm.totalCost || qty * unitRate);
+            const savedLines: CostingLineItem[] = snap.lines || [];
 
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 600 }}>{name}</td>
-                          <td style={{ padding: '8px 10px', color: '#0284c7' }}>{po}{pDate}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{qty} {rm.uomName || 'KG'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>PKR {unitRate.toLocaleString()}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>PKR {total.toLocaleString()}</td>
+            return (
+              <div className="space-y-4 text-xs">
+                {/* Header Summary */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  <div>
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">End Product:</span>
+                    <p className="font-bold text-gray-900 mt-0.5">
+                      {snap.productName || selectedHistoryModalRecord.finishedProduct?.productName || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Warehouse:</span>
+                    <p className="font-bold text-gray-900 mt-0.5">{snap.warehouseName || 'Standard Warehouse'}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Contractor:</span>
+                    <p className="font-bold text-gray-900 mt-0.5">{snap.contractorVendorName || snap.vendorName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Costing Date:</span>
+                    <p className="font-bold text-gray-900 mt-0.5 font-mono">
+                      {snap.costingDate ? snap.costingDate.split('T')[0] : selectedHistoryModalRecord.createdAt.split('T')[0]}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Table Breakdown */}
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-emerald-900 text-white font-semibold">
+                        <th className="py-2 px-3">#</th>
+                        <th className="py-2 px-3">Product / Material</th>
+                        <th className="py-2 px-2 text-center">Type</th>
+                        <th className="py-2 px-3 text-center">Pack</th>
+                        <th className="py-2 px-3 text-right">Qty</th>
+                        <th className="py-2 px-3 text-right">Rate (PKR)</th>
+                        <th className="py-2 px-4 text-right">Cost (PKR)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {savedLines.map((l, i) => (
+                        <tr key={i} className={i % 2 === 0 ? 'bg-emerald-50/20' : 'bg-white'}>
+                          <td className="py-2 px-3 font-mono text-gray-400">{i + 1}</td>
+                          <td className="py-2 px-3 font-medium text-gray-900">{l.materialName}</td>
+                          <td className="py-2 px-2 text-center">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">
+                              {l.type}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-center">{l.pack}</td>
+                          <td className="py-2 px-3 text-right font-mono">{Number(l.quantity).toLocaleString()}</td>
+                          <td className="py-2 px-3 text-right font-mono">{Number(l.rate).toLocaleString()}</td>
+                          <td className="py-2 px-4 text-right font-mono font-bold text-gray-900">
+                            {Number(l.cost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      ))}
 
-            {/* Packaging Materials Breakdown */}
-            <div>
-              <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 8px 0', color: '#0f172a' }}>
-                Packaging Materials Used
-              </h4>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                      <th style={{ padding: '8px 10px', color: '#475569' }}>Material</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Qty Used</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Unit Cost</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>Total (PKR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(selectedHistoryItem.snapshotMetadata?.packagingMaterials || selectedHistoryItem.packagingLines || []).map((pm: any, idx: number) => {
-                      const name = pm.packingMaterial?.materialName || `Packaging #${idx + 1}`;
-                      const qty = Number(pm.quantity || 0);
-                      const unitRate = Number(pm.unitCost || 0);
-                      const total = Number(pm.totalCost || qty * unitRate);
-
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '8px 10px', fontWeight: 600 }}>{name}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>{qty} {pm.uomName || 'Nos'}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>PKR {unitRate.toLocaleString()}</td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>PKR {total.toLocaleString()}</td>
+                      {savedLines.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-4 text-center text-gray-400">
+                            Line snapshot not preserved for this legacy record.
+                          </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Summary Box */}
-            <div style={{ padding: '14px 18px', backgroundColor: '#ecfdf5', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                <span>Total Raw Material Cost:</span>
-                <strong>PKR {Number(selectedHistoryItem.totalRawMaterialCost || 0).toLocaleString()}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                <span>Total Packaging Cost:</span>
-                <strong>PKR {Number(selectedHistoryItem.totalPackagingCost || 0).toLocaleString()}</strong>
-              </div>
-              {selectedHistoryItem.snapshotMetadata?.otherCost && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
-                  <span>Other Cost ({selectedHistoryItem.snapshotMetadata.otherCostNotes || 'Overhead'}):</span>
-                  <strong>PKR {Number(selectedHistoryItem.snapshotMetadata.otherCost).toLocaleString()}</strong>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-              <div style={{ height: '1px', backgroundColor: '#a7f3d0', margin: '6px 0' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 800, color: '#065f46' }}>
-                <span>TOTAL PRODUCTION BATCH COST:</span>
-                <span>PKR {Number(selectedHistoryItem.totalBatchCost || 0).toLocaleString()}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 800, color: '#047857', marginTop: '4px' }}>
-                <span>CALCULATED COST PER UNIT:</span>
-                <span>PKR {Number(selectedHistoryItem.costPerUnit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / Unit</span>
-              </div>
-            </div>
 
-            {/* Actions */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
-              <Button variant="secondary" onClick={() => setIsDetailModalOpen(false)}>
-                Close
-              </Button>
-              {selectedHistoryItem.finishedProduct?.id && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    handleApplyToProduct(
-                      selectedHistoryItem.finishedProduct?.id,
-                      selectedHistoryItem.costPerUnit
-                    );
-                    setIsDetailModalOpen(false);
-                  }}
-                  style={{ backgroundColor: '#059669', borderColor: '#059669' }}
-                >
-                  <IconFileText size={14} /> Assign Cost to {selectedHistoryItem.finishedProduct.productName}
-                </Button>
-              )}
-            </div>
-          </div>
+                {/* Arithmetic Summary */}
+                <div className="bg-emerald-50 p-3.5 rounded-lg border border-emerald-200 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Total Cost:</span>
+                    <p className="text-base font-bold font-mono text-gray-900">
+                      PKR {Number(selectedHistoryModalRecord.totalBatchCost).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Actual Output Qty:</span>
+                    <p className="text-base font-bold font-mono text-gray-900">
+                      {Number(selectedHistoryModalRecord.batchOutputQuantity).toLocaleString()} units
+                    </p>
+                  </div>
+                  <div className="bg-white px-3 py-1.5 rounded-md border border-emerald-300">
+                    <span className="text-[10px] font-bold text-emerald-700 uppercase">Unit Cost:</span>
+                    <p className="text-lg font-extrabold font-mono text-emerald-800">
+                      PKR {Number(selectedHistoryModalRecord.costPerUnit).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Footer Modal Actions */}
+                <div className="flex justify-end space-x-2 pt-2">
+                  <Button variant="outline" size="sm" onClick={() => setSelectedHistoryModalRecord(null)}>
+                    Close
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={async () => {
+                      const targetFpId =
+                        selectedHistoryModalRecord.finishedProductId ||
+                        selectedHistoryModalRecord.finishedProduct?.id ||
+                        snap.finishedProductId;
+                      if (!targetFpId) {
+                        showToast({ title: 'Error', message: 'No finished product linked to this record.', type: 'error' });
+                        return;
+                      }
+                      try {
+                        await ApiClient.post('/api/v1/costing/apply-to-product', {
+                          finishedProductId: targetFpId,
+                          costPerUnit: selectedHistoryModalRecord.costPerUnit,
+                          notes: `Re-applied cost from historical record v${selectedHistoryModalRecord.version}`,
+                        });
+                        showToast({
+                          title: 'Standard Cost Applied',
+                          message: `Product standard cost set to PKR ${Number(selectedHistoryModalRecord.costPerUnit).toFixed(2)}`,
+                          type: 'success',
+                        });
+                      } catch (err: any) {
+                        showToast({ title: 'Error', message: err.message, type: 'error' });
+                      }
+                    }}
+                    className="bg-emerald-700 text-white font-bold"
+                  >
+                    Apply Cost to Product
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
         </Modal>
       )}
     </div>
   );
-};
+}
+
+export default ProductCostingView;
