@@ -22,15 +22,44 @@ import { v7 as uuidv7 } from 'uuid';
 
 export type CostingMethod = 'LATEST_PURCHASE' | 'WEIGHTED_AVERAGE' | 'STANDARD';
 
+export interface CostingTableLineDto {
+  id?: string;
+  materialId?: string;
+  materialName: string;
+  materialCode?: string;
+  type: 'RM' | 'PM' | 'OTHER';
+  pack: string;
+  quantity: number;
+  rate: number;
+  cost: number;
+  sourcePoId?: string;
+  sourcePoNumber?: string;
+  purchaseDate?: string;
+  vendorName?: string;
+}
+
 export interface SaveCostingRecordInput {
   companyId?: string;
   costingDate?: string;
+  serialNumber?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  contractorVendorId?: string;
+  contractorVendorName?: string;
+  finishedProductId?: string;
+  finishedProductName?: string;
+  finishedProductCode?: string;
+  packSize: number;
+  packSizeUnit?: string;
+  estimatedQuantity?: number;
+  actualQuantity?: number;
+  finishedQuantity: number;
+  lines?: CostingTableLineDto[];
   sourcePoId?: string;
   sourcePoNumber?: string;
   purchaseDate?: string;
   sourceVendorName?: string;
   sourceVendorCode?: string;
-  finishedProductId?: string;
   rawMaterialId?: string;
   rawMaterialQuantity?: number;
   rawMaterialCost?: number;
@@ -47,9 +76,6 @@ export interface SaveCostingRecordInput {
     uomName?: string;
     availableQuantity?: number;
   }[];
-  packSize: number;
-  packSizeUnit?: string;
-  finishedQuantity: number;
   packagingMaterials: {
     packingMaterialId: string;
     quantity: number;
@@ -933,10 +959,15 @@ export class CostingService {
 
       const snapshotData = {
         costingCode,
+        serialNumber: dto.serialNumber || costingCode,
         costingDate: dto.costingDate || new Date().toISOString(),
+        warehouseId: dto.warehouseId || null,
+        warehouseName: dto.warehouseName || null,
+        contractorVendorId: dto.contractorVendorId || null,
+        contractorVendorName: dto.contractorVendorName || null,
         finishedProductId: dto.finishedProductId || null,
-        productCode: finishedProduct?.productCode || null,
-        productName: finishedProduct?.productName || null,
+        productCode: finishedProduct?.productCode || dto.finishedProductCode || null,
+        productName: finishedProduct?.productName || dto.finishedProductName || null,
         sourcePoId: dto.sourcePoId || null,
         sourcePoNumber: dto.sourcePoNumber || null,
         purchaseDate: dto.purchaseDate || null,
@@ -947,16 +978,19 @@ export class CostingService {
         rawMaterialCode: rawMaterialsList[0]?.rawMaterialCode || rawMaterial?.materialCode || '',
         rawMaterialUnitCost: rawMaterialsList[0]?.unitCost || rmUnitCost,
         rawMaterialQuantity: rawMaterialsList[0]?.quantity || dto.rawMaterialQuantity || 0,
-        rawMaterialTotalCost: dto.totalRawMaterialCost,
+        rawMaterialTotalCost: dto.totalRawMaterialCost || 0,
         rawMaterials: rawMaterialsList,
         packSize: dto.packSize,
         packSizeUnit: dto.packSizeUnit || 'Liter',
-        finishedQuantity: dto.finishedQuantity,
+        finishedQuantity: dto.actualQuantity || dto.finishedQuantity,
+        actualQuantity: dto.actualQuantity || dto.finishedQuantity,
+        estimatedQuantity: dto.estimatedQuantity || null,
+        lines: dto.lines || [],
         packagingMaterials: dto.packagingMaterials || [],
         otherCost: dto.otherCost || 0,
         otherCostNotes: dto.otherCostNotes || null,
-        totalRawMaterialCost: dto.totalRawMaterialCost,
-        totalPackagingCost: dto.totalPackagingCost,
+        totalRawMaterialCost: dto.totalRawMaterialCost || 0,
+        totalPackagingCost: dto.totalPackagingCost || 0,
         totalBatchCost: dto.totalBatchCost,
         costPerUnit: dto.costPerUnit,
         userNotes: dto.notes || 'Product Costing calculation confirmed',
@@ -978,12 +1012,12 @@ export class CostingService {
           companyId,
           finishedProductId: dto.finishedProductId || null,
           version: nextVersion,
-          batchOutputQuantity: dto.finishedQuantity,
+          batchOutputQuantity: dto.actualQuantity || dto.finishedQuantity,
           packSize: dto.packSize,
           packSizeUnit: dto.packSizeUnit || 'Liter',
-          totalVolume: Number(dto.finishedQuantity) * Number(dto.packSize),
-          totalRawMaterialCost: dto.totalRawMaterialCost,
-          totalPackagingCost: dto.totalPackagingCost,
+          totalVolume: Number(dto.actualQuantity || dto.finishedQuantity) * Number(dto.packSize),
+          totalRawMaterialCost: dto.totalRawMaterialCost || 0,
+          totalPackagingCost: dto.totalPackagingCost || 0,
           totalBatchCost: dto.totalBatchCost,
           costPerUnit: dto.costPerUnit,
           notes: JSON.stringify(snapshotData),
@@ -991,24 +1025,28 @@ export class CostingService {
           createdById: user.id || null,
           createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
-            create: rawMaterialsList.map((rm) => ({
-              id: uuidv7(),
-              rawMaterialId: rm.rawMaterialId,
-              quantity: rm.quantity,
-              unitCost: rm.unitCost,
-              totalCost: rm.totalCost,
-              uomName: rm.uomName || 'KG',
-            })),
+            create: rawMaterialsList
+              .filter((rm) => !!rm.rawMaterialId)
+              .map((rm) => ({
+                id: uuidv7(),
+                rawMaterialId: rm.rawMaterialId,
+                quantity: rm.quantity,
+                unitCost: rm.unitCost,
+                totalCost: rm.totalCost,
+                uomName: rm.uomName || 'KG',
+              })),
           },
           packagingLines: {
-            create: (dto.packagingMaterials || []).map((pm) => ({
-              id: uuidv7(),
-              packingMaterialId: pm.packingMaterialId,
-              quantity: pm.quantity,
-              unitCost: pm.unitCost,
-              totalCost: pm.totalCost,
-              uomName: pm.uomName || 'Nos',
-            })),
+            create: (dto.packagingMaterials || [])
+              .filter((pm) => !!pm.packingMaterialId)
+              .map((pm) => ({
+                id: uuidv7(),
+                packingMaterialId: pm.packingMaterialId,
+                quantity: pm.quantity,
+                unitCost: pm.unitCost,
+                totalCost: pm.totalCost,
+                uomName: pm.uomName || 'Nos',
+              })),
           },
         },
         include: {

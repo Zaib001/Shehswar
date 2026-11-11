@@ -98,10 +98,23 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
   const [isFocused, setIsFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState(value || '');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [openUpward, setOpenUpward] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < 230 && rect.top > spaceBelow) {
+        setOpenUpward(true);
+      } else {
+        setOpenUpward(false);
+      }
+    }
+  }, [isOpen]);
 
   // Sync searchQuery when external value changes and input is not focused
   useEffect(() => {
@@ -256,17 +269,21 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
           ref={listRef}
           style={{
             position: 'absolute',
-            top: 'calc(100% + 4px)',
+            ...(openUpward
+              ? { bottom: 'calc(100% + 4px)', top: 'auto' }
+              : { top: 'calc(100% + 4px)', bottom: 'auto' }),
             left: 0,
             minWidth: '340px',
-            maxWidth: '480px',
-            maxHeight: '260px',
+            maxWidth: '520px',
+            maxHeight: '220px',
             overflowY: 'auto',
             backgroundColor: '#ffffff',
             border: '1.5px solid #059669',
             borderRadius: '8px',
-            boxShadow: '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-            zIndex: 9999,
+            boxShadow: openUpward
+              ? '0 -12px 28px -5px rgba(0, 0, 0, 0.2), 0 -8px 10px -6px rgba(0, 0, 0, 0.1)'
+              : '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            zIndex: 99999,
           }}
         >
           {filtered.length > 0 ? (
@@ -2490,6 +2507,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           submitLabel="Verify & Create Purchase"
           onSaveDraft={handleSavePo}
           draftLabel="Save PO Only"
+          stickyFooter={false}
         >
           {/* Compact Document Context Banner */}
           {mode === 'ocr_review' && (
@@ -2724,33 +2742,37 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           )}
 
           {/* Section 1: PO Document Information Card */}
-          <Card padding="none" style={{ marginBottom: '20px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
-            <CardHeader
+          <Card padding="none" style={{ marginBottom: '14px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'visible', position: 'relative', zIndex: 40 }}>
+            <div
               style={{
-                padding: '16px 20px',
-                margin: 0,
-                borderBottom: '1px solid #e2e8f0',
+                padding: '10px 18px',
+                borderBottom: '1px solid #f1f5f9',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                width: '100%',
-                boxSizing: 'border-box',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px 12px 0 0',
               }}
             >
-              <CardTitle style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>1. PO Document Information</CardTitle>
-            </CardHeader>
-            <CardContent style={{ padding: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+              <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>1. PO Document Information</span>
+              {extractedVendorRaw && (
+                <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 500 }}>
+                  Extracted from doc: &ldquo;{extractedVendorRaw}&rdquo;
+                </span>
+              )}
+            </div>
+            <CardContent style={{ padding: '12px 18px', overflow: 'visible' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                    PO Number * (Auto Sequential)
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    PO Number *
                   </label>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                     <Input
                       value={formPoNumber}
                       onChange={(e) => setFormPoNumber(e.target.value)}
                       placeholder="PO-2026-000001"
-                      style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, flex: 1 }}
+                      style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, flex: 1, height: '36px' }}
                     />
                     <Button
                       type="button"
@@ -2758,15 +2780,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       variant="secondary"
                       onClick={() => fetchNextPoNumber()}
                       title="Auto-generate next sequential PO Number"
-                      style={{ height: '38px', padding: '0 10px', whiteSpace: 'nowrap' }}
+                      style={{ height: '36px', padding: '0 8px', whiteSpace: 'nowrap' }}
                     >
-                      <IconRefresh size={14} /> Auto
+                      <IconRefresh size={13} /> Auto
                     </Button>
                   </div>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                     Supplier / Vendor *
                   </label>
                   <SearchableCombobox
@@ -2783,15 +2805,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     onAddNew={() => setIsQuickVendorModalOpen(true)}
                     nextFocusId="field-po-warehouse"
                   />
-                  {extractedVendorRaw && (
-                    <div style={{ fontSize: '11px', color: '#2563eb', marginTop: '4px', fontWeight: 500 }}>
-                      Extracted from document: &ldquo;{extractedVendorRaw}&rdquo;
-                    </div>
-                  )}
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                     Receiving Warehouse *
                   </label>
                   <SearchableCombobox
@@ -2808,7 +2825,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                     Expected Delivery Date / PO Date
                   </label>
                   <Input
@@ -2816,6 +2833,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     type="date"
                     value={formExpectedDate}
                     onChange={(e) => setFormExpectedDate(e.target.value)}
+                    style={{ height: '36px' }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -2830,23 +2848,24 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     }}
                   />
                 </div>
-              </div>
 
-              <div style={{ marginTop: '16px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '5px' }}>
-                  Delivery Remarks / Notes
-                </label>
-                <Input
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="Optional reference notes or delivery comments..."
-                />
+                <div>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Delivery Remarks / Notes
+                  </label>
+                  <Input
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    placeholder="Optional reference notes..."
+                    style={{ height: '36px' }}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
 
           {/* Section 2: Structured Line Items Table Card */}
-          <Card padding="none" style={{ marginBottom: '20px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'visible' }}>
+          <Card padding="none" style={{ marginBottom: '14px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', overflow: 'visible', position: 'relative', zIndex: 30 }}>
             <CardHeader
               style={{
                 padding: '14px 20px',

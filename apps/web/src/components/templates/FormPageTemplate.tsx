@@ -34,6 +34,7 @@ export interface FormPageTemplateProps {
   onCancel?: () => void;
   submitLabel?: string;
   draftLabel?: string;
+  stickyFooter?: boolean;
 }
 
 export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
@@ -50,6 +51,7 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
   onCancel,
   submitLabel = 'Save Record',
   draftLabel = 'Save as Draft',
+  stickyFooter = true,
 }) => {
   const activeSubmitting = isSubmitting || isSaving;
 
@@ -187,23 +189,25 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
       {/* Children Content (Custom sub-components) */}
       {children}
 
-      {/* Sticky Action Dock (Always perfectly aligned with the form and fully visible on screen) */}
+      {/* Action Dock (Sticky or static, perfectly aligned) */}
       <div
         style={{
-          position: 'sticky',
-          bottom: '16px',
+          position: stickyFooter ? 'sticky' : 'relative',
+          bottom: stickyFooter ? '16px' : 'auto',
           width: '100%',
           backgroundColor: '#FFFFFF',
           border: '1.5px solid #E2E8F0',
           borderRadius: '16px',
-          boxShadow: '0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.05)',
+          boxShadow: stickyFooter
+            ? '0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 10px -2px rgba(15, 23, 42, 0.05)'
+            : '0 1px 3px rgba(0, 0, 0, 0.04)',
           padding: '14px 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
           gap: '14px',
-          zIndex: 40,
+          zIndex: 10,
           marginTop: '16px',
           boxSizing: 'border-box',
           backdropFilter: 'blur(16px)',
