@@ -175,24 +175,32 @@ export function ProductCostingView() {
     setIsLoadingPurchases(true);
     try {
       const [whRes, venRes, fpRes, nextCodeRes, purchasedRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/procurement/vendors').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/master-data/warehouses?all=true').catch(() => ({ data: [] })),
+        ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => ({ data: { code: 'CST-000001' } })),
         ApiClient.get<any>('/api/v1/costing/purchased-materials').catch(() => ({ data: { purchases: [] } })),
       ]);
 
-      const normalizeList = (res: any) => {
+      const normalizeList = (res: any): any[] => {
         if (!res) return [];
+        if (Array.isArray(res)) return res;
+        if (Array.isArray(res.data)) return res.data;
+        if (Array.isArray(res.data?.items)) return res.data.items;
         if (Array.isArray(res.data?.data)) return res.data.data;
         if (Array.isArray(res.data?.purchases)) return res.data.purchases;
-        if (Array.isArray(res.data)) return res.data;
-        if (Array.isArray(res)) return res;
+        if (Array.isArray(res.items)) return res.items;
+        if (Array.isArray(res.data?.rows)) return res.data.rows;
+        if (Array.isArray(res.rows)) return res.rows;
         return [];
       };
 
       const whList: MasterWarehouse[] = normalizeList(whRes);
-      const venList: MasterVendor[] = normalizeList(venRes);
+      const venList: MasterVendor[] = normalizeList(venRes).map((v: any) => ({
+        id: v.id,
+        code: v.code || '',
+        name: v.name || v.legalName || 'Unnamed Vendor',
+      }));
       const fpList: MasterFinishedProduct[] = normalizeList(fpRes);
       const poItemsList: PurchasedMaterialRecord[] = normalizeList(purchasedRes);
 
@@ -213,8 +221,8 @@ export function ProductCostingView() {
 
       // Default Contractor / Vendor
       if (venList.length > 0) {
-        const preferredVen = venList.find((v) => v.name.toLowerCase().includes('al nasar')) ||
-          venList.find((v) => v.name.toLowerCase().includes('v agrics')) ||
+        const preferredVen = venList.find((v) => v.name.toLowerCase().includes('v agrics')) ||
+          venList.find((v) => v.name.toLowerCase().includes('al nasar')) ||
           venList[0];
         if (preferredVen) setSelectedContractorId(preferredVen.id);
       }
@@ -297,6 +305,14 @@ export function ProductCostingView() {
 
     setIsPickerOpen(false);
     setActiveLineIdForPicker(null);
+
+    // If contractor/vendor or warehouse not explicitly chosen yet, auto-sync from the selected real PO
+    if (!selectedContractorId && purchasedItem.vendorId) {
+      setSelectedContractorId(purchasedItem.vendorId);
+    }
+    if (!selectedWarehouseId && purchasedItem.warehouseId) {
+      setSelectedWarehouseId(purchasedItem.warehouseId);
+    }
 
     const totalPoAmt = Number(purchasedItem.lineTotal) || (purchasedItem.purchaseQuantity * (purchasedItem.purchaseRate || 0));
     showToast({
@@ -804,12 +820,12 @@ export function ProductCostingView() {
                     outline: 'none',
                   }}
                 >
+                  <option value="">Select Warehouse...</option>
                   {warehouses.map((wh) => (
                     <option key={wh.id} value={wh.id}>
-                      {wh.code} - {wh.name}
+                      {wh.code ? `${wh.code} - ${wh.name}` : wh.name}
                     </option>
                   ))}
-                  {warehouses.length === 0 && <option value="">Faisalabad Warehouse</option>}
                 </select>
               </div>
 
@@ -834,12 +850,12 @@ export function ProductCostingView() {
                     outline: 'none',
                   }}
                 >
+                  <option value="">Select Contractor / Vendor...</option>
                   {vendors.map((v) => (
                     <option key={v.id} value={v.id}>
-                      {v.name}
+                      {v.code ? `${v.code} — ${v.name}` : v.name}
                     </option>
                   ))}
-                  {vendors.length === 0 && <option value="">Al Nasar Fertilizer</option>}
                 </select>
               </div>
 
