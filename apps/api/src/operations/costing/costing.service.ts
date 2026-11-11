@@ -884,6 +884,114 @@ export class CostingService {
   }
 
   /**
+   * Retrieves real purchased materials directly from confirmed Purchase Orders
+   * Supports filtering by RAW_MATERIAL, PACKING_MATERIAL, and search query
+   */
+  async getPurchasedMaterials(options?: {
+    companyId?: string;
+    type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'ALL';
+    search?: string;
+  }) {
+    const where: any = {
+      order: {
+        status: { notIn: ['CANCELLED'] },
+        ...(options?.companyId && options.companyId !== 'ALL' ? { companyId: options.companyId } : {}),
+      },
+    };
+
+    if (options?.type && options.type !== 'ALL') {
+      where.materialType = options.type;
+    }
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      where.OR = [
+        { itemName: { contains: q, mode: 'insensitive' } },
+        { materialNameSnapshot: { contains: q, mode: 'insensitive' } },
+        { materialCodeSnapshot: { contains: q, mode: 'insensitive' } },
+        { order: { poNumber: { contains: q, mode: 'insensitive' } } },
+        { order: { vendor: { name: { contains: q, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const items = await this.prisma.purchaseOrderItem.findMany({
+      where,
+      include: {
+        order: {
+          include: {
+            vendor: { select: { id: true, code: true, name: true } },
+            warehouse: { select: { id: true, code: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+
+    const flatPurchases = items.map((it) => {
+      const qty = Number(it.quantity) || 0;
+      const rate = Number(it.unitRate) || 0;
+      const total = Number(it.lineTotal) || qty * rate;
+
+      return {
+        id: it.id,
+        purchaseOrderId: it.order.id,
+        poNumber: it.order.poNumber,
+        purchaseDate: (it.order.createdAt || it.createdAt).toISOString(),
+        vendorId: it.order.vendor?.id,
+        vendorName: it.order.vendor?.name || 'N/A',
+        vendorCode: it.order.vendor?.code || 'N/A',
+        warehouseId: it.order.warehouse?.id,
+        warehouseName: it.order.warehouse?.name || 'N/A',
+        materialId: it.materialId,
+        materialType: (it.materialType as 'RAW_MATERIAL' | 'PACKING_MATERIAL') || 'RAW_MATERIAL',
+        materialCode: it.materialCodeSnapshot || '',
+        materialName: it.itemName || it.materialNameSnapshot || '',
+        pack: it.unit || '1 Nos',
+        purchaseQuantity: qty,
+        purchaseRate: rate,
+        lineTotal: total,
+      };
+    });
+
+    // Group purchases by distinct material name / code
+    const groupedMap = new Map<string, {
+      materialId?: string;
+      materialName: string;
+      materialCode?: string;
+      materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL';
+      latestRate: number;
+      latestPack: string;
+      purchases: typeof flatPurchases;
+    }>();
+
+    for (const p of flatPurchases) {
+      const key = (p.materialName || '').toLowerCase().trim();
+      if (!key) continue;
+
+      if (!groupedMap.has(key)) {
+        groupedMap.set(key, {
+          materialId: p.materialId || undefined,
+          materialName: p.materialName,
+          materialCode: p.materialCode,
+          materialType: p.materialType,
+          latestRate: p.purchaseRate,
+          latestPack: p.pack,
+          purchases: [],
+        });
+      }
+
+      groupedMap.get(key)!.purchases.push(p);
+    }
+
+    return {
+      total: flatPurchases.length,
+      materials: Array.from(groupedMap.values()),
+      purchases: flatPurchases,
+    };
+  }
+
+  /**
    * Retrieves versioned costing history for a product
    */
   async getProductCostingHistory(finishedProductId: string) {

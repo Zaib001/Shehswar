@@ -60,6 +60,21 @@ export class CostingController {
     });
   }
 
+  @Get('purchased-materials')
+  async getPurchasedMaterials(
+    @Query('type') type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'ALL',
+    @Query('search') search?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+  ) {
+    const companyId = ctx?.companyId || user?.companyId;
+    return this.costingService.getPurchasedMaterials({
+      companyId,
+      type,
+      search,
+    });
+  }
+
   @Get('materials/:materialId/purchase-history')
   async getMaterialPurchaseHistory(
     @Param('materialId') materialId: string,

@@ -1,34 +1,23 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Product Costing Engine
+ * SHEHSWAR ONE360 - Enterprise Product Costing Engine
  *
- * Designed according to the Supreme Accounting Filling/Costing Voucher standard:
- *
- * Core Concept:
- *   Product → Material Components → Pack → Quantity → Rate → Cost → Total Cost → Unit Cost
- *
- * Key Principles:
- * 1. Product Creation and Costing are completely separate.
- *    Finished Products are selected from the Product Master.
- * 2. Ultra-simple, high-density professional entry voucher layout.
- * 3. Unified single table for RM, PM, and Other/Labour components.
- * 4. Auto-calculation: Cost = Quantity * Rate.
- * 5. Auto-fetch: Selecting materials auto-populates Pack and Rate from real Purchase Orders.
- * 6. Bottom Summary: Total Cost, Actual Quantity, Unit Cost = Total Cost / Actual Quantity.
- * 7. Permanent Costing History with double-click voucher review modal.
+ * Real Data Production Architecture:
+ * - Direct integration with real database Purchase Orders (PurchaseOrderItem)
+ * - Zero hardcoded or static sample products
+ * - Non-silent, date-wise purchase cost selection
+ * - Unified component costing table: RM, PM, and Direct Labour
+ * - Real-time calculation: Cost = Qty * Rate
+ * - Immutable costing history snapshots in PostgreSQL
+ * - Optional "Add Cost to Product" (updates FinishedProduct.standardCost only)
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Button,
-  Input,
   Modal,
   TableSkeleton,
   SearchableCombobox,
@@ -38,24 +27,37 @@ import {
   IconPlus,
   IconCheck,
   IconTrash,
-  IconFileText,
   IconEye,
   IconFilter,
+  IconSearch,
+  IconClose,
+  IconRefresh,
 } from '../icons';
 
 // ==========================================
 // TYPE DEFINITIONS
 // ==========================================
 
-export type ComponentType = 'RM' | 'PM' | 'Other';
+export type ComponentType = 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER';
 
-export interface HistoricalPurchase {
-  documentNumber: string;
+export interface PurchasedMaterialRecord {
+  id: string; // PurchaseOrderItem ID
+  purchaseOrderId: string;
+  poNumber: string;
   purchaseDate: string;
-  unitCost: number;
+  vendorId?: string;
   vendorName: string;
-  quantity: number;
-  unit: string;
+  vendorCode?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  materialId?: string;
+  materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL';
+  materialCode: string;
+  materialName: string;
+  pack: string;
+  purchaseQuantity: number;
+  purchaseRate: number;
+  lineTotal: number;
 }
 
 export interface CostingLineItem {
@@ -68,12 +70,12 @@ export interface CostingLineItem {
   quantity: number;
   rate: number;
   cost: number;
-  selectedPurchaseKey?: string;
   sourcePoId?: string;
   sourcePoNumber?: string;
   purchaseDate?: string;
   vendorName?: string;
-  historicalPurchases?: HistoricalPurchase[];
+  warehouseName?: string;
+  availablePurchases?: PurchasedMaterialRecord[];
 }
 
 export interface MasterWarehouse {
@@ -98,16 +100,6 @@ export interface MasterFinishedProduct {
   standardCost?: number;
 }
 
-export interface MasterMaterial {
-  id: string;
-  materialCode: string;
-  materialName: string;
-  type: 'RM' | 'PM';
-  standardCost?: number;
-  lastPurchaseCost?: number;
-  baseUom?: { name: string; symbol?: string; code?: string };
-}
-
 export interface SavedCostingRecord {
   id: string;
   version: number;
@@ -125,37 +117,25 @@ export interface SavedCostingRecord {
     productCode: string;
     productName: string;
   };
-  snapshot?: {
-    costingCode?: string;
-    serialNumber?: string;
-    costingDate?: string;
-    warehouseName?: string;
-    contractorVendorName?: string;
-    productName?: string;
-    productCode?: string;
-    actualQuantity?: number;
-    estimatedQuantity?: number;
-    lines?: CostingLineItem[];
-    totalBatchCost?: number;
-    costPerUnit?: number;
-  };
 }
 
 export function ProductCostingView() {
   const { showToast } = useToast();
 
-  // Navigation tab
+  // Active Tab
   const [activeTab, setActiveTab] = useState<'voucher' | 'history'>('voucher');
 
-  // Master Data
+  // Master Data State
   const [warehouses, setWarehouses] = useState<MasterWarehouse[]>([]);
   const [vendors, setVendors] = useState<MasterVendor[]>([]);
   const [finishedProducts, setFinishedProducts] = useState<MasterFinishedProduct[]>([]);
-  const [rawMaterials, setRawMaterials] = useState<MasterMaterial[]>([]);
-  const [packingMaterials, setPackingMaterials] = useState<MasterMaterial[]>([]);
   const [isLoadingMasterData, setIsLoadingMasterData] = useState<boolean>(true);
 
-  // Voucher Header State
+  // Real Purchased Materials from DB Purchase Orders
+  const [purchasedMaterials, setPurchasedMaterials] = useState<PurchasedMaterialRecord[]>([]);
+  const [isLoadingPurchases, setIsLoadingPurchases] = useState<boolean>(false);
+
+  // Costing Voucher Header
   const [serialNumber, setSerialNumber] = useState<string>('CST-000001');
   const [costingDate, setCostingDate] = useState<string>(() => new Date().toISOString().split('T')[0] || '2026-11-11');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
@@ -165,10 +145,16 @@ export function ProductCostingView() {
   const [estimatedQuantity, setEstimatedQuantity] = useState<number>(1000);
   const [actualQuantity, setActualQuantity] = useState<number>(1003);
 
-  // Voucher Lines State (Single Unified Table)
+  // Costing Table Lines (Driven 100% by real POs)
   const [lines, setLines] = useState<CostingLineItem[]>([]);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isApplyingCost, setIsApplyingCost] = useState<boolean>(false);
+
+  // Material Selector Modal / Picker State
+  const [isPickerOpen, setIsPickerOpen] = useState<boolean>(false);
+  const [activeLineIdForPicker, setActiveLineIdForPicker] = useState<string | null>(null);
+  const [pickerFilterType, setPickerFilterType] = useState<'ALL' | 'RAW_MATERIAL' | 'PACKING_MATERIAL'>('ALL');
+  const [pickerSearchQuery, setPickerSearchQuery] = useState<string>('');
 
   // Costing History State
   const [historyRecords, setHistoryRecords] = useState<SavedCostingRecord[]>([]);
@@ -179,24 +165,25 @@ export function ProductCostingView() {
   const [selectedHistoryModalRecord, setSelectedHistoryModalRecord] = useState<SavedCostingRecord | null>(null);
 
   // ==========================================
-  // 1. DATA INITIALIZATION
+  // 1. DATA INITIALIZATION & REAL PO QUERY
   // ==========================================
 
-  const loadMasterData = useCallback(async () => {
+  const loadInitialData = useCallback(async () => {
     setIsLoadingMasterData(true);
+    setIsLoadingPurchases(true);
     try {
-      const [whRes, venRes, fpRes, rmRes, pmRes, nextCodeRes] = await Promise.all([
+      const [whRes, venRes, fpRes, nextCodeRes, purchasedRes] = await Promise.all([
         ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/procurement/vendors').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/finished-products?all=true').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => ({ data: { code: 'CST-000001' } })),
+        ApiClient.get<any>('/api/v1/costing/purchased-materials').catch(() => ({ data: { purchases: [] } })),
       ]);
 
       const normalizeList = (res: any) => {
         if (!res) return [];
         if (Array.isArray(res.data?.data)) return res.data.data;
+        if (Array.isArray(res.data?.purchases)) return res.data.purchases;
         if (Array.isArray(res.data)) return res.data;
         if (Array.isArray(res)) return res;
         return [];
@@ -205,34 +192,12 @@ export function ProductCostingView() {
       const whList: MasterWarehouse[] = normalizeList(whRes);
       const venList: MasterVendor[] = normalizeList(venRes);
       const fpList: MasterFinishedProduct[] = normalizeList(fpRes);
-      const rmListRaw = normalizeList(rmRes);
-      const pmListRaw = normalizeList(pmRes);
-
-      const rmList: MasterMaterial[] = rmListRaw.map((r: any) => ({
-        id: r.id,
-        materialCode: r.materialCode || '',
-        materialName: r.materialName || '',
-        type: 'RM',
-        standardCost: Number(r.standardCost || r.lastPurchaseCost || 0),
-        lastPurchaseCost: Number(r.lastPurchaseCost || r.standardCost || 0),
-        baseUom: r.baseUom,
-      }));
-
-      const pmList: MasterMaterial[] = pmListRaw.map((p: any) => ({
-        id: p.id,
-        materialCode: p.materialCode || '',
-        materialName: p.materialName || '',
-        type: 'PM',
-        standardCost: Number(p.standardCost || p.lastPurchaseCost || 0),
-        lastPurchaseCost: Number(p.lastPurchaseCost || p.standardCost || 0),
-        baseUom: p.baseUom,
-      }));
+      const poItemsList: PurchasedMaterialRecord[] = normalizeList(purchasedRes);
 
       setWarehouses(whList);
       setVendors(venList);
       setFinishedProducts(fpList);
-      setRawMaterials(rmList);
-      setPackingMaterials(pmList);
+      setPurchasedMaterials(poItemsList);
 
       if (nextCodeRes?.data?.code) {
         setSerialNumber(nextCodeRes.data.code);
@@ -246,13 +211,17 @@ export function ProductCostingView() {
 
       // Default Contractor / Vendor
       if (venList.length > 0) {
-        const preferredVen = venList.find((v) => v.name.toLowerCase().includes('v agrics')) || venList[0];
+        const preferredVen = venList.find((v) => v.name.toLowerCase().includes('al nasar')) ||
+          venList.find((v) => v.name.toLowerCase().includes('v agrics')) ||
+          venList[0];
         if (preferredVen) setSelectedContractorId(preferredVen.id);
       }
 
       // Default Finished Product
       if (fpList.length > 0) {
-        const preferredFp = fpList.find((f) => f.productName.toLowerCase().includes('lambda')) || fpList[0];
+        const preferredFp = fpList.find((f) => f.productName.toLowerCase().includes('lambda')) ||
+          fpList.find((f) => f.productName.toLowerCase().includes('bifenthrin')) ||
+          fpList[0];
         if (preferredFp) {
           setSelectedFinishedProductId(preferredFp.id);
           const pSize = preferredFp.packingQuantity
@@ -261,24 +230,22 @@ export function ProductCostingView() {
           setPackSize(pSize);
         }
       }
-
-      // Preload the Supreme Accounting reference voucher by default if lines are empty
-      loadSampleVoucher(rmList, pmList);
     } catch (err: any) {
-      console.error('Failed to load master data:', err);
+      console.error('Failed to load costing initial data:', err);
       showToast({
-        title: 'Notice',
-        message: 'Loaded with available local configurations.',
-        type: 'info',
+        title: 'Data Load Notice',
+        message: 'Could not load complete master data.',
+        type: 'error',
       });
     } finally {
       setIsLoadingMasterData(false);
+      setIsLoadingPurchases(false);
     }
   }, [showToast]);
 
   useEffect(() => {
-    loadMasterData();
-  }, [loadMasterData]);
+    loadInitialData();
+  }, [loadInitialData]);
 
   // When user selects a Finished Product, auto-update pack size
   const handleFinishedProductChange = (productId: string) => {
@@ -293,339 +260,87 @@ export function ProductCostingView() {
   };
 
   // ==========================================
-  // 2. UNIFIED MATERIAL LOOKUP COMBINED LIST
+  // 2. REAL PURCHASE ORDER MATERIAL SELECTION
   // ==========================================
 
-  const allMaterialsOptions = useMemo(() => {
-    const list: Array<{ id: string; name: string; code: string; type: ComponentType; defaultRate: number; defaultPack: string }> = [];
-
-    rawMaterials.forEach((rm) => {
-      list.push({
-        id: rm.id,
-        name: rm.materialName,
-        code: rm.materialCode,
-        type: 'RM',
-        defaultRate: rm.lastPurchaseCost || rm.standardCost || 92000,
-        defaultPack: '200 LTR',
-      });
-    });
-
-    packingMaterials.forEach((pm) => {
-      list.push({
-        id: pm.id,
-        name: pm.materialName,
-        code: pm.materialCode,
-        type: 'PM',
-        defaultRate: pm.lastPurchaseCost || pm.standardCost || 10,
-        defaultPack: '1 Nos',
-      });
-    });
-
-    return list;
-  }, [rawMaterials, packingMaterials]);
-
-  // ==========================================
-  // 3. SAMPLE REFERENCE VOUCHER (Supreme Accounting Reference)
-  // ==========================================
-
-  const loadSampleVoucher = (rms = rawMaterials, pms = packingMaterials) => {
-    const findRm = (kw: string) => rms.find((r) => r.materialName.toLowerCase().includes(kw.toLowerCase()));
-    const findPm = (kw: string) => pms.find((p) => p.materialName.toLowerCase().includes(kw.toLowerCase()));
-
-    const rmLambda = findRm('Lambda') || findRm('Chlorpyrifos') || rms[0];
-    const pmLabel = findPm('Label') || pms.find((p) => p.materialCode === 'PM-000231');
-    const pmBottle = findPm('Bottle') || pms.find((p) => p.materialCode === 'PM-000232');
-    const pmCarton = findPm('Carton') || pms.find((p) => p.materialCode === 'PM-000233');
-    const pmCaps = findPm('Cap') || pms.find((p) => p.materialCode === 'PM-000234');
-    const pmLabour = findPm('Labour') || pms.find((p) => p.materialCode === 'PM-000235');
-
-    const sampleLines: CostingLineItem[] = [
-      {
-        id: 'line-1',
-        materialId: rmLambda?.id,
-        materialName: rmLambda?.materialName || 'RA Lambda Cyhalothrin 2.5 % EC',
-        materialCode: rmLambda?.materialCode || 'RM-000230',
-        type: 'RM',
-        pack: '200 LTR',
-        quantity: 5,
-        rate: 92000,
-        cost: 460000,
-        sourcePoNumber: 'PO-2026-00998',
-        purchaseDate: '2026-10-21',
-        vendorName: 'V Agrics International (Pvt) Ltd.',
-        selectedPurchaseKey: 'PO-2026-00998_0',
-        historicalPurchases: [
-          {
-            documentNumber: 'PO-2026-00998',
-            purchaseDate: '2026-10-21',
-            unitCost: 92000,
-            vendorName: 'V Agrics International (Pvt) Ltd.',
-            quantity: 5,
-            unit: '200 LTR',
-          },
-          {
-            documentNumber: 'PO-2026-01045',
-            purchaseDate: '2026-12-01',
-            unitCost: 96000,
-            vendorName: 'ChemTech Solvents (Pvt) Ltd.',
-            quantity: 5,
-            unit: '200 LTR',
-          },
-        ],
-      },
-      {
-        id: 'line-2',
-        materialId: pmLabel?.id,
-        materialName: pmLabel?.materialName || 'PM Labels Lambda Cyhalothrin',
-        materialCode: pmLabel?.materialCode || 'PM-000231',
-        type: 'PM',
-        pack: '1 Nos',
-        quantity: 1003,
-        rate: 7,
-        cost: 7021,
-        sourcePoNumber: 'PO-2026-00998',
-        purchaseDate: '2026-10-21',
-        vendorName: 'V Agrics International (Pvt) Ltd.',
-        selectedPurchaseKey: 'PO-2026-00998_0',
-        historicalPurchases: [
-          {
-            documentNumber: 'PO-2026-00998',
-            purchaseDate: '2026-10-21',
-            unitCost: 7,
-            vendorName: 'V Agrics International (Pvt) Ltd.',
-            quantity: 1003,
-            unit: '1 Nos',
-          },
-        ],
-      },
-      {
-        id: 'line-3',
-        materialId: pmBottle?.id,
-        materialName: pmBottle?.materialName || 'PM Pet Bottle 1 Liter',
-        materialCode: pmBottle?.materialCode || 'PM-000232',
-        type: 'PM',
-        pack: '1 Nos',
-        quantity: 1003,
-        rate: 42,
-        cost: 42126,
-        sourcePoNumber: 'PO-2026-00998',
-        purchaseDate: '2026-10-21',
-        vendorName: 'V Agrics International (Pvt) Ltd.',
-        selectedPurchaseKey: 'PO-2026-00998_0',
-        historicalPurchases: [
-          {
-            documentNumber: 'PO-2026-00998',
-            purchaseDate: '2026-10-21',
-            unitCost: 42,
-            vendorName: 'V Agrics International (Pvt) Ltd.',
-            quantity: 1003,
-            unit: '1 Nos',
-          },
-        ],
-      },
-      {
-        id: 'line-4',
-        materialId: pmCarton?.id,
-        materialName: pmCarton?.materialName || 'PM Carton 1 x 12 (Bromoxnal 1Ltr)',
-        materialCode: pmCarton?.materialCode || 'PM-000233',
-        type: 'PM',
-        pack: '1 Nos',
-        quantity: 84,
-        rate: 104,
-        cost: 8736,
-        sourcePoNumber: 'PO-2026-00998',
-        purchaseDate: '2026-10-21',
-        vendorName: 'V Agrics International (Pvt) Ltd.',
-        selectedPurchaseKey: 'PO-2026-00998_0',
-        historicalPurchases: [
-          {
-            documentNumber: 'PO-2026-00998',
-            purchaseDate: '2026-10-21',
-            unitCost: 104,
-            vendorName: 'V Agrics International (Pvt) Ltd.',
-            quantity: 84,
-            unit: '1 Nos',
-          },
-        ],
-      },
-      {
-        id: 'line-5',
-        materialId: pmLabour?.id,
-        materialName: pmLabour?.materialName || 'PM Packing Labour',
-        materialCode: pmLabour?.materialCode || 'PM-000235',
-        type: 'PM',
-        pack: '1 Nos',
-        quantity: 1003,
-        rate: 7,
-        cost: 7021,
-        selectedPurchaseKey: 'custom',
-      },
-      {
-        id: 'line-6',
-        materialId: pmCaps?.id,
-        materialName: pmCaps?.materialName || 'PM Caps',
-        materialCode: pmCaps?.materialCode || 'PM-000234',
-        type: 'PM',
-        pack: '1 Nos',
-        quantity: 1003,
-        rate: 8,
-        cost: 8024,
-        sourcePoNumber: 'PO-2026-00998',
-        purchaseDate: '2026-10-21',
-        vendorName: 'V Agrics International (Pvt) Ltd.',
-        selectedPurchaseKey: 'PO-2026-00998_0',
-        historicalPurchases: [
-          {
-            documentNumber: 'PO-2026-00998',
-            purchaseDate: '2026-10-21',
-            unitCost: 8,
-            vendorName: 'V Agrics International (Pvt) Ltd.',
-            quantity: 1003,
-            unit: '1 Nos',
-          },
-        ],
-      },
-    ];
-
-    setLines(sampleLines);
-    setEstimatedQuantity(1000);
-    setActualQuantity(1003);
+  const handleOpenPickerForLine = (lineId: string, filter: 'ALL' | 'RAW_MATERIAL' | 'PACKING_MATERIAL' = 'ALL') => {
+    setActiveLineIdForPicker(lineId);
+    setPickerFilterType(filter);
+    setPickerSearchQuery('');
+    setIsPickerOpen(true);
   };
 
-  // ==========================================
-  // 4. DYNAMIC ROW ACTIONS & PURCHASE RATE FETCH
-  // ==========================================
+  const handleSelectPurchasedItem = (purchasedItem: PurchasedMaterialRecord) => {
+    if (!activeLineIdForPicker) return;
 
-  const handleAddRow = () => {
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== activeLineIdForPicker) return line;
+
+        const qty = line.quantity && line.quantity > 0 ? line.quantity : (actualQuantity || 1);
+        const rate = purchasedItem.purchaseRate;
+        const newCost = Math.round(qty * rate * 100) / 100;
+
+        return {
+          ...line,
+          materialId: purchasedItem.materialId,
+          materialName: purchasedItem.materialName,
+          materialCode: purchasedItem.materialCode,
+          type: purchasedItem.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL',
+          pack: purchasedItem.pack || '1 Nos',
+          rate,
+          quantity: qty,
+          cost: newCost,
+          sourcePoId: purchasedItem.purchaseOrderId,
+          sourcePoNumber: purchasedItem.poNumber,
+          purchaseDate: purchasedItem.purchaseDate,
+          vendorName: purchasedItem.vendorName,
+          warehouseName: purchasedItem.warehouseName,
+        };
+      })
+    );
+
+    setIsPickerOpen(false);
+    setActiveLineIdForPicker(null);
+
+    showToast({
+      title: 'Real Purchase Order Selected',
+      message: `${purchasedItem.materialName} populated from ${purchasedItem.poNumber} @ PKR ${purchasedItem.purchaseRate.toLocaleString()}/${purchasedItem.pack}`,
+      type: 'success',
+    });
+  };
+
+  const handleAddRow = (type: ComponentType = 'RAW_MATERIAL') => {
+    const newLineId = `line-${Date.now()}`;
     const newLine: CostingLineItem = {
-      id: `line-${Date.now()}`,
+      id: newLineId,
       materialName: '',
-      type: 'PM',
-      pack: '1 Nos',
+      type,
+      pack: type === 'RAW_MATERIAL' ? '200 LTR' : '1 Nos',
       quantity: 1,
       rate: 0,
       cost: 0,
+    };
+    setLines((prev) => [...prev, newLine]);
+    // Automatically open the real purchase order selector for this line
+    handleOpenPickerForLine(newLineId, type === 'RAW_MATERIAL' ? 'RAW_MATERIAL' : 'PACKING_MATERIAL');
+  };
+
+  const handleAddLabourRow = () => {
+    const newLine: CostingLineItem = {
+      id: `line-${Date.now()}`,
+      materialName: 'Packing Labour',
+      type: 'OTHER',
+      pack: '1 Nos',
+      quantity: actualQuantity || 1003,
+      rate: 7,
+      cost: Math.round((actualQuantity || 1003) * 7 * 100) / 100,
     };
     setLines((prev) => [...prev, newLine]);
   };
 
   const handleRemoveRow = (id: string) => {
     setLines((prev) => prev.filter((l) => l.id !== id));
-  };
-
-  const handleMaterialSelected = async (lineId: string, materialName: string) => {
-    const matched = allMaterialsOptions.find(
-      (m) => m.name.toLowerCase() === materialName.toLowerCase() || m.code.toLowerCase() === materialName.toLowerCase()
-    );
-
-    let defaultType: ComponentType = 'Other';
-    let defaultPack = '1 Nos';
-    let defaultRate = 0;
-    let materialId = undefined;
-    let materialCode = undefined;
-
-    if (matched) {
-      defaultType = matched.type;
-      defaultPack = matched.defaultPack;
-      defaultRate = matched.defaultRate;
-      materialId = matched.id;
-      materialCode = matched.code;
-    } else if (materialName.toLowerCase().includes('labour') || materialName.toLowerCase().includes('labor')) {
-      defaultType = 'Other';
-      defaultPack = '1 Nos';
-      defaultRate = 7;
-    }
-
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== lineId) return line;
-        const qty = line.quantity || actualQuantity || 1;
-        const newCost = Math.round(qty * defaultRate * 100) / 100;
-        return {
-          ...line,
-          materialId,
-          materialCode,
-          materialName,
-          type: defaultType,
-          pack: defaultPack,
-          rate: defaultRate,
-          quantity: qty,
-          cost: newCost,
-        };
-      })
-    );
-
-    // If real material ID exists, fetch real purchase orders in background
-    if (materialId) {
-      try {
-        const res = await ApiClient.get<any>(`/api/v1/costing/materials/${materialId}/purchase-history`);
-        const purchases: HistoricalPurchase[] = Array.isArray(res.data) ? res.data : [];
-        if (purchases.length > 0) {
-          if (purchases.length === 1) {
-            // Exactly ONE real purchase exists -> Auto-select that specific PO
-            const single = purchases[0]!;
-            const rate = Number(single.unitCost);
-            const pack = single.unit || defaultPack;
-            setLines((prev) =>
-              prev.map((line) => {
-                if (line.id !== lineId) return line;
-                return {
-                  ...line,
-                  rate,
-                  pack,
-                  cost: Math.round(line.quantity * rate * 100) / 100,
-                  sourcePoId: (single as any).documentId,
-                  sourcePoNumber: single.documentNumber,
-                  purchaseDate: single.purchaseDate,
-                  vendorName: single.vendorName,
-                  selectedPurchaseKey: `${single.documentNumber}_0`,
-                  historicalPurchases: purchases,
-                };
-              })
-            );
-          } else {
-            // MULTIPLE real purchases exist on different dates!
-            // RULE: DO NOT silently use the latest purchase!
-            // Leave rate unselected and let the user explicitly choose the required purchase date/PO.
-            setLines((prev) =>
-              prev.map((line) => {
-                if (line.id !== lineId) return line;
-                return {
-                  ...line,
-                  rate: 0,
-                  cost: 0,
-                  selectedPurchaseKey: '',
-                  sourcePoId: undefined,
-                  sourcePoNumber: undefined,
-                  purchaseDate: undefined,
-                  vendorName: undefined,
-                  historicalPurchases: purchases,
-                };
-              })
-            );
-            showToast({
-              title: 'Select Purchase Cost',
-              message: `${purchases.length} purchases on different dates found for ${materialName}. Please select which purchase cost to apply.`,
-              type: 'info',
-            });
-          }
-        } else {
-          // No POs found -> set to standard master rate
-          setLines((prev) =>
-            prev.map((line) => {
-              if (line.id !== lineId) return line;
-              return {
-                ...line,
-                selectedPurchaseKey: 'standard',
-                historicalPurchases: [],
-              };
-            })
-          );
-        }
-      } catch (err) {
-        console.warn('Could not fetch historical POs for material:', materialId);
-      }
-    }
   };
 
   const handleLineChange = (lineId: string, field: keyof CostingLineItem, val: any) => {
@@ -645,83 +360,26 @@ export function ProductCostingView() {
     );
   };
 
-  // Compact Purchase Cost Source Selector Change Handler
-  const handlePurchaseSourceChanged = (lineId: string, key: string) => {
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== lineId) return line;
-
-        if (!key) {
-          return {
-            ...line,
-            selectedPurchaseKey: '',
-            rate: 0,
-            cost: 0,
-            sourcePoNumber: undefined,
-            sourcePoId: undefined,
-            purchaseDate: undefined,
-            vendorName: undefined,
-          };
-        }
-
-        if (key === 'custom') {
-          return {
-            ...line,
-            selectedPurchaseKey: 'custom',
-            sourcePoNumber: undefined,
-            sourcePoId: undefined,
-            purchaseDate: undefined,
-            vendorName: undefined,
-          };
-        }
-
-        if (key === 'standard') {
-          const matched = allMaterialsOptions.find((m) => m.id === line.materialId);
-          const rate = matched?.defaultRate || line.rate;
-          return {
-            ...line,
-            selectedPurchaseKey: 'standard',
-            rate,
-            cost: Math.round(line.quantity * rate * 100) / 100,
-            sourcePoNumber: undefined,
-            sourcePoId: undefined,
-            purchaseDate: undefined,
-            vendorName: undefined,
-          };
-        }
-
-        // Selected from historicalPurchases: format `${docNum}_${idx}`
-        const parts = key.split('_');
-        const idx = parts.length > 1 ? parseInt(parts[parts.length - 1] || '0', 10) : 0;
-        const purchase = line.historicalPurchases?.[idx];
-        if (!purchase) return line;
-
-        const rate = Number(purchase.unitCost);
-        const pack = purchase.unit || line.pack;
-
-        showToast({
-          title: 'Purchase Cost Applied',
-          message: `${purchase.documentNumber} (${purchase.purchaseDate ? purchase.purchaseDate.split('T')[0] : ''}) @ PKR ${rate.toLocaleString()}`,
-          type: 'success',
-        });
-
-        return {
-          ...line,
-          selectedPurchaseKey: key,
-          rate,
-          pack,
-          cost: Math.round(line.quantity * rate * 100) / 100,
-          sourcePoNumber: purchase.documentNumber,
-          sourcePoId: (purchase as any).documentId,
-          purchaseDate: purchase.purchaseDate,
-          vendorName: purchase.vendorName,
-        };
-      })
-    );
-  };
+  // Filtered list of real purchases in picker
+  const filteredPickerPurchases = useMemo(() => {
+    return purchasedMaterials.filter((item) => {
+      if (pickerFilterType !== 'ALL' && item.materialType !== pickerFilterType) {
+        return false;
+      }
+      if (pickerSearchQuery.trim()) {
+        const q = pickerSearchQuery.toLowerCase();
+        const matchesName = item.materialName.toLowerCase().includes(q);
+        const matchesCode = (item.materialCode || '').toLowerCase().includes(q);
+        const matchesPo = item.poNumber.toLowerCase().includes(q);
+        const matchesVendor = item.vendorName.toLowerCase().includes(q);
+        if (!matchesName && !matchesCode && !matchesPo && !matchesVendor) return false;
+      }
+      return true;
+    });
+  }, [purchasedMaterials, pickerFilterType, pickerSearchQuery]);
 
   // ==========================================
-  // 5. TOTALS & ARITHMETIC CALCULATION
+  // 3. ARITHMETIC CALCULATION
   // ==========================================
 
   const totalCost = useMemo(() => {
@@ -733,30 +391,29 @@ export function ProductCostingView() {
     return Math.round((totalCost / actualQuantity) * 100) / 100;
   }, [totalCost, actualQuantity]);
 
-  // Breakdown for backend audit snapshot
   const rawMaterialTotal = useMemo(() => {
-    return lines.filter((l) => l.type === 'RM').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+    return lines.filter((l) => l.type === 'RAW_MATERIAL').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
   }, [lines]);
 
   const packagingTotal = useMemo(() => {
-    return lines.filter((l) => l.type === 'PM').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+    return lines.filter((l) => l.type === 'PACKING_MATERIAL').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
   }, [lines]);
 
   const otherTotal = useMemo(() => {
-    return lines.filter((l) => l.type === 'Other').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
+    return lines.filter((l) => l.type === 'OTHER').reduce((acc, l) => acc + (Number(l.cost) || 0), 0);
   }, [lines]);
 
   // ==========================================
-  // 6. SAVE COSTING VOUCHER (POST /api/v1/costing/save)
+  // 4. SAVE COSTING (POST /api/v1/costing/save)
   // ==========================================
 
   const handleSaveCosting = async () => {
     if (lines.length === 0) {
-      showToast({ title: 'Error', message: 'Please add at least one material line.', type: 'error' });
+      showToast({ title: 'Validation Error', message: 'Please add at least one material component.', type: 'error' });
       return;
     }
     if (!actualQuantity || actualQuantity <= 0) {
-      showToast({ title: 'Error', message: 'Please enter valid actual production quantity.', type: 'error' });
+      showToast({ title: 'Validation Error', message: 'Please enter valid actual production quantity.', type: 'error' });
       return;
     }
 
@@ -768,9 +425,9 @@ export function ProductCostingView() {
 
       const parsedPackSize = parseFloat(packSize) || 1;
 
-      // Extract RM and PM lines for relational DB storage
+      // Extract RM and PM lines with real PO links
       const rmLines = lines
-        .filter((l) => l.type === 'RM' && l.materialId)
+        .filter((l) => l.type === 'RAW_MATERIAL' && l.materialId)
         .map((l) => ({
           rawMaterialId: l.materialId!,
           rawMaterialName: l.materialName,
@@ -780,11 +437,12 @@ export function ProductCostingView() {
           totalCost: l.cost,
           uomName: l.pack,
           sourcePoNumber: l.sourcePoNumber,
+          sourcePoId: l.sourcePoId,
           purchaseDate: l.purchaseDate,
         }));
 
       const pmLines = lines
-        .filter((l) => l.type === 'PM' && l.materialId)
+        .filter((l) => l.type === 'PACKING_MATERIAL' && l.materialId)
         .map((l) => ({
           packingMaterialId: l.materialId!,
           quantity: l.quantity,
@@ -792,6 +450,7 @@ export function ProductCostingView() {
           totalCost: l.cost,
           uomName: l.pack,
           sourcePoNumber: l.sourcePoNumber,
+          sourcePoId: l.sourcePoId,
           purchaseDate: l.purchaseDate,
         }));
 
@@ -812,7 +471,7 @@ export function ProductCostingView() {
         estimatedQuantity,
         actualQuantity,
         finishedQuantity: actualQuantity,
-        lines, // Full unified table preserved in snapshot
+        lines, // Full line snapshot with PO numbers, dates, and vendors
         rawMaterialId: primaryRm?.rawMaterialId,
         rawMaterials: rmLines,
         packagingMaterials: pmLines,
@@ -821,26 +480,26 @@ export function ProductCostingView() {
         totalPackagingCost: packagingTotal,
         totalBatchCost: totalCost,
         costPerUnit: unitCost,
-        notes: `Filling Entry Voucher ${serialNumber} - ${lines.length} lines costed.`,
+        notes: `Product Costing Voucher ${serialNumber} confirmed with ${lines.length} components.`,
       };
 
       const res = await ApiClient.post<any>('/api/v1/costing/save', payload);
-
       const savedCode = res.data?.costingCode || serialNumber;
+
       showToast({
         title: 'Costing Saved Permanently',
-        message: `Voucher ${savedCode} saved with Unit Cost PKR ${unitCost.toLocaleString()}`,
+        message: `Voucher ${savedCode} saved in database with Unit Cost PKR ${unitCost.toFixed(2)}`,
         type: 'success',
       });
 
-      // Refresh next code
+      // Refresh next serial code
       const nextRes = await ApiClient.get<any>('/api/v1/master-data/next-code?entityType=COSTING').catch(() => null);
       if (nextRes?.data?.code) setSerialNumber(nextRes.data.code);
     } catch (err: any) {
       console.error('Save failed:', err);
       showToast({
         title: 'Save Failed',
-        message: err.message || 'Could not save costing voucher.',
+        message: err.message || 'Could not save costing record.',
         type: 'error',
       });
     } finally {
@@ -849,16 +508,16 @@ export function ProductCostingView() {
   };
 
   // ==========================================
-  // 7. ADD TO PRODUCT (UPDATE STANDARD COST)
+  // 5. ADD COST TO PRODUCT (OPTIONAL ACTION)
   // ==========================================
 
   const handleApplyCostToProduct = async () => {
     if (!selectedFinishedProductId) {
-      showToast({ title: 'Error', message: 'Please select an End Product first.', type: 'error' });
+      showToast({ title: 'Validation Error', message: 'Please select an End Product.', type: 'error' });
       return;
     }
     if (!unitCost || unitCost <= 0) {
-      showToast({ title: 'Error', message: 'Calculated Unit Cost must be greater than zero.', type: 'error' });
+      showToast({ title: 'Validation Error', message: 'Unit cost must be greater than zero.', type: 'error' });
       return;
     }
 
@@ -876,35 +535,30 @@ export function ProductCostingView() {
         totalPackagingCost: packagingTotal,
         totalBatchCost: totalCost,
         costPerUnit: unitCost,
-        notes: `Standard cost updated to PKR ${unitCost.toLocaleString()} from Costing Voucher ${serialNumber}`,
+        notes: `Standard cost updated to PKR ${unitCost.toFixed(2)} from Costing Voucher ${serialNumber}`,
       };
 
       await ApiClient.post('/api/v1/costing/apply-to-product', payload);
 
       showToast({
-        title: 'Product Cost Updated',
-        message: `Standard cost of ${selectedFp?.productName || 'Product'} set to PKR ${unitCost.toLocaleString()}`,
+        title: 'Product Standard Cost Updated',
+        message: `Standard cost of ${selectedFp?.productName || 'Product'} updated to PKR ${unitCost.toFixed(2)}. Rate lists remain untouched.`,
         type: 'success',
       });
 
-      // Update local master item
       setFinishedProducts((prev) =>
         prev.map((p) => (p.id === selectedFinishedProductId ? { ...p, standardCost: unitCost } : p))
       );
     } catch (err: any) {
-      console.error('Failed to apply cost:', err);
-      showToast({
-        title: 'Update Failed',
-        message: err.message || 'Could not update product standard cost.',
-        type: 'error',
-      });
+      console.error('Failed to update product cost:', err);
+      showToast({ title: 'Update Failed', message: err.message, type: 'error' });
     } finally {
       setIsApplyingCost(false);
     }
   };
 
   // ==========================================
-  // 8. LOAD HISTORY TAB
+  // 6. HISTORY SCREEN
   // ==========================================
 
   const loadHistory = useCallback(async () => {
@@ -932,346 +586,573 @@ export function ProductCostingView() {
     }
   }, [activeTab, loadHistory]);
 
-  // Open modal for historical record
-  const handleOpenVoucherModal = (rec: SavedCostingRecord) => {
-    setSelectedHistoryModalRecord(rec);
-  };
-
   // ==========================================
-  // 9. RENDER UI
+  // 7. RENDER ENTERPRISE UI
   // ==========================================
 
   return (
-    <div className="space-y-4 max-w-7xl mx-auto pb-12">
-      {/* SECTION TABS */}
-      <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold">
-            <IconFlask className="w-5 h-5" />
+    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto', color: 'var(--text-primary, #0f172a)' }}>
+      {/* SECTION TABS & HEADER */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          borderBottom: '1px solid var(--border-default, #e2e8f0)',
+          paddingBottom: '16px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              backgroundColor: '#0d9488',
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(13, 148, 136, 0.25)',
+            }}
+          >
+            <IconFlask className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 flex items-center">
+            <h1 style={{ fontSize: '20px', fontWeight: 800, margin: 0, color: 'var(--text-primary, #0f172a)' }}>
               Product Costing Engine
-              {isLoadingMasterData && (
-                <span className="ml-2 text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded animate-pulse font-normal">
-                  Loading...
-                </span>
-              )}
             </h1>
-            <p className="text-xs text-gray-500">Simple component-based manufacturing & packaging cost entry</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary, #64748b)', margin: '2px 0 0' }}>
+              Real Purchase Order driven formulation and unit cost calculation
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 bg-gray-100 p-1 rounded-lg">
-          <button
-            type="button"
-            onClick={() => setActiveTab('voucher')}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              activeTab === 'voucher'
-                ? 'bg-white text-emerald-700 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+        {/* Actions & View Switcher Tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadInitialData()}
+            isLoading={isLoadingMasterData || isLoadingPurchases}
+            title="Refresh Purchase Orders & Master Data"
+            style={{
+              height: '38px',
+              padding: '0 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '8px',
+              borderColor: 'var(--border-default, #cbd5e1)',
+              backgroundColor: '#ffffff',
+            }}
           >
-            Costing Voucher
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('history')}
-            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              activeTab === 'history'
-                ? 'bg-white text-emerald-700 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            <IconRefresh className="w-3.5 h-3.5 mr-1.5" />
+            Refresh POs
+          </Button>
+
+          {/* View Switcher Tabs */}
+          <div
+            style={{
+              display: 'flex',
+              backgroundColor: 'var(--bg-surface-raised, #f1f5f9)',
+              padding: '4px',
+              borderRadius: '10px',
+              border: '1px solid var(--border-default, #e2e8f0)',
+            }}
           >
-            Costing History
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('voucher')}
+              style={{
+                padding: '8px 18px',
+                fontSize: '13px',
+                fontWeight: 700,
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: activeTab === 'voucher' ? '#ffffff' : 'transparent',
+                color: activeTab === 'voucher' ? '#0d9488' : 'var(--text-secondary, #64748b)',
+                boxShadow: activeTab === 'voucher' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Costing Voucher
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('history')}
+              style={{
+                padding: '8px 18px',
+                fontSize: '13px',
+                fontWeight: 700,
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: activeTab === 'history' ? '#ffffff' : 'transparent',
+                color: activeTab === 'history' ? '#0d9488' : 'var(--text-secondary, #64748b)',
+                boxShadow: activeTab === 'history' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              Costing History
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ======================================================================= */}
-      {/* TAB 1: MAIN COSTING VOUCHER (SUPREME ACCOUNTING STYLE)                   */}
+      {/* TAB 1: MAIN COSTING VOUCHER (REAL PO DRIVEN)                             */}
       {/* ======================================================================= */}
       {activeTab === 'voucher' && (
-        <div className="space-y-4">
-          {/* COMPACT TOP HEADER */}
-          <Card className="border border-gray-200 shadow-sm bg-white">
-            <CardContent className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-                {/* 1. Serial No */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Serial No.</label>
-                  <div className="flex items-center">
-                    <span className="inline-flex items-center px-2 py-1.5 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs font-bold">
-                      A
-                    </span>
-                    <input
-                      type="text"
-                      value={serialNumber}
-                      onChange={(e) => setSerialNumber(e.target.value)}
-                      className="w-full text-xs font-semibold text-emerald-800 bg-emerald-50/40 border border-gray-300 rounded-r-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
-                      placeholder="CST-000001"
-                    />
-                  </div>
-                </div>
-
-                {/* 2. Date */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Date</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* COMPACT VOUCHER HEADER CARD */}
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-default, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '20px',
+              boxShadow: 'var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06))',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px',
+                alignItems: 'flex-end',
+              }}
+            >
+              {/* 1. Serial No */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                  Serial No.
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      backgroundColor: '#f1f5f9',
+                      border: '1px solid #cbd5e1',
+                      borderRight: 'none',
+                      borderRadius: '8px 0 0 8px',
+                      color: '#475569',
+                    }}
+                  >
+                    A
+                  </span>
                   <input
-                    type="date"
-                    value={costingDate}
-                    onChange={(e) => setCostingDate(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500"
+                    type="text"
+                    value={serialNumber}
+                    onChange={(e) => setSerialNumber(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '38px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: '#0f766e',
+                      backgroundColor: '#f0fdfa',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '0 8px 8px 0',
+                      outline: 'none',
+                    }}
                   />
                 </div>
+              </div>
 
-                {/* 3. Warehouse */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Warehouse</label>
-                  <select
-                    value={selectedWarehouseId}
-                    onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 bg-white"
-                  >
-                    {warehouses.map((wh) => (
-                      <option key={wh.id} value={wh.id}>
-                        {wh.code} - {wh.name}
-                      </option>
-                    ))}
-                    {warehouses.length === 0 && <option value="">01 - Faisalabad Warehouse</option>}
-                  </select>
-                </div>
+              {/* 2. Date */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                  Costing Date
+                </label>
+                <input
+                  type="date"
+                  value={costingDate}
+                  onChange={(e) => setCostingDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    outline: 'none',
+                  }}
+                />
+              </div>
 
-                {/* 4. Contractor / Vendor */}
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Contractor / Vendor</label>
-                  <select
-                    value={selectedContractorId}
-                    onChange={(e) => setSelectedContractorId(e.target.value)}
-                    className="w-full text-xs border border-gray-300 rounded-md px-2.5 py-1.5 focus:ring-1 focus:ring-emerald-500 bg-white"
-                  >
-                    {vendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name}
-                      </option>
-                    ))}
-                    {vendors.length === 0 && <option value="">V Agrics International (Pvt) Ltd.</option>}
-                  </select>
-                </div>
+              {/* 3. Warehouse */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                  Production Warehouse
+                </label>
+                <select
+                  value={selectedWarehouseId}
+                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    outline: 'none',
+                  }}
+                >
+                  {warehouses.map((wh) => (
+                    <option key={wh.id} value={wh.id}>
+                      {wh.code} - {wh.name}
+                    </option>
+                  ))}
+                  {warehouses.length === 0 && <option value="">Faisalabad Warehouse</option>}
+                </select>
+              </div>
 
-                {/* 5. Status / Actions */}
-                <div className="flex items-center justify-between md:justify-end space-x-2">
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5 animate-pulse"></span>
-                    ACTIVE / READY
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => loadSampleVoucher()}
-                    className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
-                    title="Load standard Lambda 2.5% EC 1L test voucher"
-                  >
-                    Reference Sample
-                  </button>
+              {/* 4. Contractor / Vendor */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '6px' }}>
+                  Contractor / Source Vendor
+                </label>
+                <select
+                  value={selectedContractorId}
+                  onChange={(e) => setSelectedContractorId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    height: '38px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    outline: 'none',
+                  }}
+                >
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                  {vendors.length === 0 && <option value="">Al Nasar Fertilizer</option>}
+                </select>
+              </div>
+
+              {/* 5. Status Badge */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: '38px' }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    backgroundColor: '#ecfdf5',
+                    color: '#047857',
+                    border: '1px solid #a7f3d0',
+                  }}
+                >
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#059669' }}></span>
+                  ACTIVE / READY
+                </span>
+              </div>
+            </div>
+
+            {/* End Product Master Bar */}
+            <div
+              style={{
+                marginTop: '16px',
+                paddingTop: '16px',
+                borderTop: '1px solid #f1f5f9',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '16px',
+              }}
+            >
+              <div style={{ flex: '1 1 450px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' }}>
+                  End Product (From Product Master):
+                </label>
+                <div style={{ flex: 1 }}>
+                  <SearchableCombobox
+                    label=""
+                    options={finishedProducts.map((p) => ({
+                      id: p.id,
+                      label: `${p.productCode} — ${p.productName} (${p.packingQuantity || 1} ${p.packingUnit || 'Liter'})`,
+                      value: p.id,
+                    }))}
+                    value={selectedFinishedProductId}
+                    onChange={handleFinishedProductChange}
+                    placeholder="Search existing Finished Products..."
+                  />
                 </div>
               </div>
 
-              {/* End Product Bar */}
-              <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
-                <div className="md:col-span-3 flex items-center space-x-2">
-                  <label className="text-xs font-bold text-gray-700 whitespace-nowrap">End Product:</label>
-                  <div className="flex-1">
-                    <SearchableCombobox
-                      label=""
-                      options={finishedProducts.map((p) => ({
-                        id: p.id,
-                        label: `${p.productCode} - ${p.productName} (${p.packingQuantity || 1} ${p.packingUnit || 'Liter'})`,
-                        value: p.id,
-                      }))}
-                      value={selectedFinishedProductId}
-                      onChange={handleFinishedProductChange}
-                      placeholder="Search and select End Product from Product Master..."
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end space-x-3">
-                  <div className="text-right">
-                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Pack Size:</span>
-                    <span className="ml-1.5 text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
-                      {packSize}
-                    </span>
-                  </div>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Pack Specification:</span>
+                <span
+                  style={{
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    backgroundColor: '#f8fafc',
+                    padding: '4px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  {packSize}
+                </span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* MAIN COSTING TABLE (SINGLE TABLE FOR ALL COMPONENTS) */}
-          <Card className="border border-gray-200 shadow-sm bg-white overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+          {/* MAIN COSTING TABLE (DRIVEN BY REAL DATABASE PURCHASE ORDERS) */}
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-default, #e2e8f0)',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: 'var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06))',
+            }}
+          >
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
                 <thead>
-                  <tr className="bg-emerald-900 text-white font-semibold">
-                    <th className="py-2.5 px-3 w-10 text-center">N</th>
-                    <th className="py-2.5 px-3 min-w-[280px]">Product / Material</th>
-                    <th className="py-2.5 px-2 w-20 text-center">Type</th>
-                    <th className="py-2.5 px-3 w-28 text-center">Pack</th>
-                    <th className="py-2.5 px-3 w-28 text-right">Qty</th>
-                    <th className="py-2.5 px-3 w-32 text-right">Rate (PKR)</th>
-                    <th className="py-2.5 px-4 w-36 text-right">Cost (PKR)</th>
-                    <th className="py-2.5 px-2 w-10 text-center"></th>
+                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: '12px 14px', width: '45px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      #
+                    </th>
+                    <th style={{ padding: '12px 14px', minWidth: '320px', textAlign: 'left', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Product / Material Component & Real PO Source
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '90px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Type
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '130px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Pack Size
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '120px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Required Qty
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '150px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Purchase Rate (PKR)
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '160px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                      Component Cost (PKR)
+                    </th>
+                    <th style={{ padding: '12px 14px', width: '50px', textAlign: 'center' }}></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody>
                   {lines.map((line, idx) => (
                     <tr
                       key={line.id}
-                      className={idx % 2 === 0 ? 'bg-emerald-50/20 hover:bg-emerald-50/50' : 'bg-white hover:bg-emerald-50/30'}
+                      style={{
+                        borderBottom: '1px solid #f1f5f9',
+                        backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fcfdfd',
+                        transition: 'background-color 0.15s ease',
+                      }}
                     >
-                      {/* N (Row number) */}
-                      <td className="py-2 px-3 text-center text-gray-400 font-mono text-[11px]">
+                      {/* Row index */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, fontSize: '12px' }}>
                         {String(idx + 1).padStart(2, '0')}
                       </td>
 
-                      {/* Product / Material Searchable Input */}
-                      <td className="py-2 px-3">
-                        <div className="flex flex-col space-y-1.5 py-1">
-                          <input
-                            type="text"
-                            value={line.materialName}
-                            onChange={(e) => handleLineChange(line.id, 'materialName', e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value && e.target.value !== line.materialName) {
-                                handleMaterialSelected(line.id, e.target.value);
-                              }
-                            }}
-                            list={`materials-list-${line.id}`}
-                            className="w-full text-xs font-semibold text-gray-900 bg-transparent border border-gray-200 rounded px-2 py-1 focus:bg-white focus:ring-1 focus:ring-emerald-500"
-                            placeholder="Type or select material component..."
-                          />
-                          <datalist id={`materials-list-${line.id}`}>
-                            {allMaterialsOptions.map((opt) => (
-                              <option key={opt.id} value={opt.name}>
-                                [{opt.type}] {opt.code} - {opt.name}
-                              </option>
-                            ))}
-                          </datalist>
-
-                          {/* Compact Searchable/Selectable Purchase Cost Source */}
-                          <div className="flex items-center space-x-1.5 pt-0.5">
-                            <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Purchase Cost:</span>
-                            <select
-                              value={line.selectedPurchaseKey || (line.sourcePoNumber ? `${line.sourcePoNumber}_0` : '')}
-                              onChange={(e) => handlePurchaseSourceChanged(line.id, e.target.value)}
-                              className={`w-full text-[10px] font-mono py-0.5 px-1.5 border rounded ${
-                                line.sourcePoNumber
-                                  ? 'border-emerald-300 bg-emerald-50/60 text-emerald-900 font-semibold'
-                                  : 'border-amber-300 bg-amber-50/40 text-amber-900'
-                              } focus:ring-1 focus:ring-emerald-500`}
-                            >
-                              {line.historicalPurchases && line.historicalPurchases.length > 0 ? (
-                                <>
-                                  {!line.selectedPurchaseKey && !line.sourcePoNumber && (
-                                    <option value="">-- Select Purchase Cost ({line.historicalPurchases.length} available) --</option>
-                                  )}
-                                  {line.historicalPurchases.map((p, pIdx) => {
-                                    const dateStr = p.purchaseDate ? p.purchaseDate.split('T')[0] : '';
-                                    const key = `${p.documentNumber}_${pIdx}`;
-                                    return (
-                                      <option key={key} value={key}>
-                                        {dateStr} | {p.documentNumber} | PKR {Number(p.unitCost).toLocaleString()}/{p.unit} ({p.vendorName})
-                                      </option>
-                                    );
-                                  })}
-                                  <option value="custom">Manual / Direct Cost Entry</option>
-                                </>
-                              ) : (
-                                <>
-                                  <option value="standard">Standard Master Rate (PKR {Number(line.rate).toLocaleString()})</option>
-                                  <option value="custom">Manual / Direct Cost Entry</option>
-                                </>
+                      {/* Material & Real PO Details */}
+                      <td style={{ padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>
+                              {line.materialName || (
+                                <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Click to select material from Purchase Orders...</span>
                               )}
-                            </select>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPickerForLine(line.id, line.type === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL')}
+                              style={{
+                                padding: '3px 8px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                borderRadius: '5px',
+                                backgroundColor: '#f0fdfa',
+                                color: '#0f766e',
+                                border: '1px solid #99f6e4',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Browse POs
+                            </button>
                           </div>
+
+                          {/* Purchase Order Traceability Tag */}
+                          {line.sourcePoNumber ? (
+                            <div style={{ fontSize: '11.5px', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                                ✓ {line.sourcePoNumber}
+                              </span>
+                              <span>
+                                {line.purchaseDate ? `Date: ${line.purchaseDate.split('T')[0]}` : ''}
+                                {line.vendorName ? ` • Vendor: ${line.vendorName}` : ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                              {line.type === 'OTHER' ? 'Direct Labour / Overhead' : 'No Purchase Order attached'}
+                            </div>
+                          )}
                         </div>
                       </td>
 
-                      {/* Type (RM / PM / Other) */}
-                      <td className="py-2 px-2 text-center">
-                        <select
-                          value={line.type}
-                          onChange={(e) => handleLineChange(line.id, 'type', e.target.value as ComponentType)}
-                          className={`text-[11px] font-bold rounded px-1.5 py-1 border text-center ${
-                            line.type === 'RM'
-                              ? 'bg-amber-100 text-amber-800 border-amber-300'
-                              : line.type === 'PM'
-                              ? 'bg-blue-100 text-blue-800 border-blue-300'
-                              : 'bg-purple-100 text-purple-800 border-purple-300'
-                          }`}
+                      {/* Type Badge */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            backgroundColor:
+                              line.type === 'RAW_MATERIAL'
+                                ? '#eff6ff'
+                                : line.type === 'PACKING_MATERIAL'
+                                ? '#f5f3ff'
+                                : '#fdf4ff',
+                            color:
+                              line.type === 'RAW_MATERIAL'
+                                ? '#1d4ed8'
+                                : line.type === 'PACKING_MATERIAL'
+                                ? '#6d28d9'
+                                : '#a21caf',
+                            border:
+                              line.type === 'RAW_MATERIAL'
+                                ? '1px solid #bfdbfe'
+                                : line.type === 'PACKING_MATERIAL'
+                                ? '1px solid #ddd6fe'
+                                : '1px solid #fbcfe8',
+                          }}
                         >
-                          <option value="RM">RM</option>
-                          <option value="PM">PM</option>
-                          <option value="Other">Other</option>
-                        </select>
+                          {line.type === 'RAW_MATERIAL' ? 'RM' : line.type === 'PACKING_MATERIAL' ? 'PM' : 'OTHER'}
+                        </span>
                       </td>
 
-                      {/* Pack */}
-                      <td className="py-2 px-3 text-center">
+                      {/* Pack Size */}
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                         <input
                           type="text"
                           value={line.pack}
                           onChange={(e) => handleLineChange(line.id, 'pack', e.target.value)}
-                          className="w-full text-center text-xs border border-gray-200 rounded px-1.5 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
-                          placeholder="200 LTR"
+                          style={{
+                            width: '100%',
+                            height: '34px',
+                            textAlign: 'center',
+                            fontSize: '12.5px',
+                            fontWeight: 600,
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            padding: '0 6px',
+                            backgroundColor: '#ffffff',
+                            color: '#0f172a',
+                            outline: 'none',
+                          }}
                         />
                       </td>
 
-                      {/* Qty */}
-                      <td className="py-2 px-3 text-right">
+                      {/* Required Qty */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                         <input
                           type="number"
                           step="any"
                           value={line.quantity}
                           onChange={(e) => handleLineChange(line.id, 'quantity', parseFloat(e.target.value) || 0)}
-                          className="w-full text-right text-xs font-mono font-semibold border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                          style={{
+                            width: '100%',
+                            height: '34px',
+                            textAlign: 'right',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            fontFamily: 'var(--font-mono)',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: '6px',
+                            padding: '0 8px',
+                            backgroundColor: '#ffffff',
+                            color: '#0f172a',
+                            outline: 'none',
+                          }}
                         />
                       </td>
 
-                      {/* Rate */}
-                      <td className="py-2 px-3 text-right">
-                        <div className="flex flex-col items-end">
+                      {/* Purchase Rate (Auto-populated from real PO) */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
                           <input
                             type="number"
                             step="any"
                             value={line.rate}
                             onChange={(e) => handleLineChange(line.id, 'rate', parseFloat(e.target.value) || 0)}
-                            className="w-full text-right text-xs font-mono font-semibold border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                            style={{
+                              width: '100%',
+                              height: '34px',
+                              textAlign: 'right',
+                              fontSize: '13px',
+                              fontWeight: 700,
+                              fontFamily: 'var(--font-mono)',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '6px',
+                              padding: '0 8px',
+                              backgroundColor: line.sourcePoNumber ? '#f0fdf4' : '#ffffff',
+                              color: '#0f172a',
+                              outline: 'none',
+                            }}
                           />
-                          {line.sourcePoNumber ? (
-                            <span className="text-[9px] text-emerald-700 font-mono mt-0.5 font-bold whitespace-nowrap" title={`From ${line.sourcePoNumber}`}>
-                              ✓ {line.sourcePoNumber}
+                          {line.sourcePoNumber && (
+                            <span style={{ fontSize: '10px', color: '#059669', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                              From {line.sourcePoNumber}
                             </span>
-                          ) : (
-                            <span className="text-[9px] text-gray-400 font-mono mt-0.5 whitespace-nowrap">Direct Rate</span>
                           )}
                         </div>
                       </td>
 
-                      {/* Cost (Quantity * Rate) */}
-                      <td className="py-2 px-4 text-right font-mono font-bold text-gray-900 text-xs">
+                      {/* Component Cost (Qty * Rate) */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>
                         {Number(line.cost || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </td>
 
                       {/* Delete Action */}
-                      <td className="py-2 px-2 text-center">
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                         <button
                           type="button"
                           onClick={() => handleRemoveRow(line.id)}
-                          className="text-gray-400 hover:text-rose-600 transition-colors p-1"
-                          title="Remove row"
+                          style={{
+                            border: 'none',
+                            backgroundColor: 'transparent',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            borderRadius: '4px',
+                            transition: 'color 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = '#ef4444')}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
+                          title="Remove line"
                         >
-                          <IconTrash className="w-3.5 h-3.5" />
+                          <IconTrash className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>
@@ -1279,8 +1160,21 @@ export function ProductCostingView() {
 
                   {lines.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-gray-400 text-xs">
-                        No materials added yet. Click &quot;+ Add Material&quot; or &quot;Reference Sample&quot; to begin.
+                      <td colSpan={8} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                        <p style={{ fontSize: '14px', fontWeight: 600, margin: '0 0 6px' }}>No materials added yet</p>
+                        <p style={{ fontSize: '12px', margin: '0 0 16px', color: '#94a3b8' }}>
+                          Add actual purchased Raw Materials and Packaging Materials from real database Purchase Orders.
+                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
+                          <Button variant="primary" size="sm" onClick={() => handleAddRow('RAW_MATERIAL')}>
+                            <IconPlus className="w-4 h-4 mr-1.5" />
+                            + Add Raw Material (from POs)
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleAddRow('PACKING_MATERIAL')}>
+                            <IconPlus className="w-4 h-4 mr-1.5" />
+                            + Add Packaging Material (from POs)
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -1288,240 +1182,562 @@ export function ProductCostingView() {
               </table>
             </div>
 
-            {/* Table Footer: Add Line Button */}
-            <div className="p-3 bg-gray-50/80 border-t border-gray-200 flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddRow}
-                className="text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-              >
-                <IconPlus className="w-3.5 h-3.5 mr-1" />
-                Add Material
-              </Button>
+            {/* Table Action Bar */}
+            <div
+              style={{
+                padding: '14px 18px',
+                backgroundColor: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+              }}
+            >
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAddRow('RAW_MATERIAL')}
+                  style={{ color: '#1d4ed8', borderColor: '#bfdbfe', backgroundColor: '#eff6ff' }}
+                >
+                  <IconPlus className="w-4 h-4 mr-1" />
+                  + Raw Material (PO)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAddRow('PACKING_MATERIAL')}
+                  style={{ color: '#6d28d9', borderColor: '#ddd6fe', backgroundColor: '#f5f3ff' }}
+                >
+                  <IconPlus className="w-4 h-4 mr-1" />
+                  + Packaging Material (PO)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddLabourRow}
+                  style={{ color: '#475569', borderColor: '#cbd5e1' }}
+                >
+                  <IconPlus className="w-4 h-4 mr-1" />
+                  + Packing Labour / Overhead
+                </Button>
+              </div>
 
-              <span className="text-[11px] text-gray-500">
-                Formula: <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700">Cost = Quantity × Rate</code>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Calculation formula: <strong style={{ color: '#0f172a' }}>Cost = Qty × Rate</strong>
               </span>
             </div>
-          </Card>
+          </div>
 
-          {/* BOTTOM SUMMARY & ACTIONS (MATCHING SCREENSHOT BOTTOM BAR) */}
-          <Card className="border border-emerald-200 shadow-md bg-emerald-50/40">
-            <CardContent className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                {/* 1. Est. Qty (Optional Informational) */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-xs font-semibold text-gray-600 whitespace-nowrap">Est. Qty:</label>
-                  <input
-                    type="number"
-                    value={estimatedQuantity}
-                    onChange={(e) => setEstimatedQuantity(parseFloat(e.target.value) || 0)}
-                    className="w-28 text-xs font-mono font-semibold border border-gray-300 rounded px-2 py-1 bg-white text-right"
-                  />
-                </div>
+          {/* BOTTOM CALCULATION SUMMARY & SAVE ACTIONS */}
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              border: '1px solid #99f6e4',
+              borderRadius: '12px',
+              padding: '24px',
+              boxShadow: '0 4px 6px -1px rgba(13, 148, 136, 0.08), 0 2px 4px -2px rgba(13, 148, 136, 0.04)',
+            }}
+          >
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '20px',
+                alignItems: 'center',
+              }}
+            >
+              {/* Est. Qty */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>
+                  Est. Batch Quantity
+                </label>
+                <input
+                  type="number"
+                  value={estimatedQuantity}
+                  onChange={(e) => setEstimatedQuantity(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: '100%',
+                    height: '42px',
+                    textAlign: 'right',
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    fontFamily: 'var(--font-mono)',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    outline: 'none',
+                  }}
+                />
+              </div>
 
-                {/* 2. Actual Production Qty */}
-                <div className="flex items-center space-x-2">
-                  <label className="text-xs font-bold text-gray-800 whitespace-nowrap">Actual Qty:</label>
+              {/* Actual Production Output Qty */}
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#0f766e', marginBottom: '6px' }}>
+                  Actual Output Quantity *
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
                   <input
                     type="number"
                     value={actualQuantity}
                     onChange={(e) => setActualQuantity(parseFloat(e.target.value) || 0)}
-                    className="w-28 text-xs font-mono font-bold border-2 border-emerald-500 rounded px-2 py-1 bg-white text-right text-emerald-900 shadow-sm"
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      textAlign: 'right',
+                      fontSize: '17px',
+                      fontWeight: 800,
+                      fontFamily: 'var(--font-mono)',
+                      border: '2px solid #0d9488',
+                      borderRadius: '8px 0 0 8px',
+                      padding: '0 12px',
+                      backgroundColor: '#ffffff',
+                      color: '#0f766e',
+                      outline: 'none',
+                      boxShadow: '0 0 0 2px rgba(13, 148, 136, 0.1)',
+                    }}
                   />
-                  <span className="text-xs text-gray-500 font-medium">units</span>
-                </div>
-
-                {/* 3. Total Cost */}
-                <div className="text-right">
-                  <span className="block text-[11px] font-semibold text-gray-500 uppercase">Total Batch Cost</span>
-                  <span className="text-lg font-bold font-mono text-gray-900">
-                    PKR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                  <span
+                    style={{
+                      height: '42px',
+                      padding: '0 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      backgroundColor: '#f0fdfa',
+                      border: '2px solid #0d9488',
+                      borderLeft: 'none',
+                      borderRadius: '0 8px 8px 0',
+                      color: '#0f766e',
+                    }}
+                  >
+                    Units
                   </span>
-                </div>
-
-                {/* 4. Unit Cost */}
-                <div className="text-right bg-white p-2.5 rounded-lg border border-emerald-300 shadow-sm">
-                  <span className="block text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Unit Cost</span>
-                  <span className="text-xl font-extrabold font-mono text-emerald-800">
-                    PKR {unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  <span className="block text-[10px] text-gray-400">Total Cost ÷ Actual Qty</span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="mt-4 pt-4 border-t border-emerald-100 flex flex-wrap items-center justify-between gap-2">
+              {/* Total Batch Cost */}
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                  Total Batch Production Cost
+                </span>
+                <span style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0f172a' }}>
+                  PKR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
+                <span style={{ display: 'block', fontSize: '11px', color: '#94a3b8' }}>
+                  RM: {rawMaterialTotal.toLocaleString()} • PM: {packagingTotal.toLocaleString()}
+                </span>
+              </div>
+
+              {/* Manufacturing Cost Per Unit */}
+              <div
+                style={{
+                  textAlign: 'right',
+                  backgroundColor: '#f0fdfa',
+                  padding: '12px 18px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #5eead4',
+                }}
+              >
+                <span style={{ display: 'block', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#0f766e', letterSpacing: '0.05em' }}>
+                  Unit Cost (Per Bottle / Pack)
+                </span>
+                <span style={{ fontSize: '24px', fontWeight: 900, fontFamily: 'var(--font-mono)', color: '#0f766e' }}>
+                  PKR {unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span style={{ display: 'block', fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                  Total Cost ÷ Actual Qty
+                </span>
+              </div>
+            </div>
+
+            {/* Save & Action Buttons */}
+            <div
+              style={{
+                marginTop: '20px',
+                paddingTop: '18px',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+              }}
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLines([]);
+                  showToast({ title: 'Voucher Cleared', message: 'Ready for new costing entry.', type: 'info' });
+                }}
+                style={{ color: '#64748b' }}
+              >
+                Clear Voucher
+              </Button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setLines([]);
-                    showToast({ title: 'Voucher Cleared', message: 'Ready for new entry.', type: 'info' });
+                  variant="primary"
+                  onClick={handleSaveCosting}
+                  isLoading={isSaving}
+                  style={{
+                    backgroundColor: '#0d9488',
+                    color: '#ffffff',
+                    padding: '10px 24px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    boxShadow: '0 2px 4px rgba(13, 148, 136, 0.25)',
                   }}
-                  className="text-xs text-gray-600 hover:text-gray-900"
                 >
-                  Clear Table
+                  <IconCheck className="w-4 h-4 mr-1.5" />
+                  Save Costing Voucher
                 </Button>
 
-                <div className="flex items-center space-x-3">
-                  <Button
-                    variant="primary"
-                    onClick={handleSaveCosting}
-                    isLoading={isSaving}
-                    className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-5 py-2 font-bold shadow-sm"
-                  >
-                    <IconCheck className="w-4 h-4 mr-1.5" />
-                    Save Costing Voucher
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    onClick={handleApplyCostToProduct}
-                    isLoading={isApplyingCost}
-                    className="border-emerald-600 text-emerald-800 hover:bg-emerald-100 text-xs px-4 py-2 font-semibold"
-                  >
-                    Add Cost to Product (PKR {unitCost.toFixed(2)})
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleApplyCostToProduct}
+                  isLoading={isApplyingCost}
+                  style={{
+                    borderColor: '#0d9488',
+                    color: '#0f766e',
+                    padding: '10px 18px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                  }}
+                >
+                  Add Cost to Product (PKR {unitCost.toFixed(2)})
+                </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* ======================================================================= */}
+      {/* REAL PURCHASE ORDER MATERIAL SELECTOR MODAL                             */}
+      {/* ======================================================================= */}
+      {isPickerOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            setIsPickerOpen(false);
+            setActiveLineIdForPicker(null);
+          }}
+          title="Select Component From Real Purchase Orders"
+          size="lg"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Filter Tabs & Search */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {(['ALL', 'RAW_MATERIAL', 'PACKING_MATERIAL'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setPickerFilterType(t)}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                      border: pickerFilterType === t ? '1px solid #0d9488' : '1px solid #cbd5e1',
+                      backgroundColor: pickerFilterType === t ? '#f0fdfa' : '#ffffff',
+                      color: pickerFilterType === t ? '#0f766e' : '#64748b',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {t === 'ALL' ? 'All Purchases' : t === 'RAW_MATERIAL' ? 'Raw Materials' : 'Packaging'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search input */}
+              <div style={{ display: 'flex', alignItems: 'center', position: 'relative', minWidth: '260px' }}>
+                <IconSearch className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search material, PO#, vendor..."
+                  value={pickerSearchQuery}
+                  onChange={(e) => setPickerSearchQuery(e.target.value)}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    height: '36px',
+                    padding: '0 32px 0 34px',
+                    fontSize: '13px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    outline: 'none',
+                  }}
+                />
+                {pickerSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setPickerSearchQuery('')}
+                    style={{ position: 'absolute', right: '8px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}
+                  >
+                    <IconClose className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* List of Real Purchased Items */}
+            <div
+              style={{
+                maxHeight: '380px',
+                overflowY: 'auto',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                backgroundColor: '#ffffff',
+              }}
+            >
+              {filteredPickerPurchases.length === 0 ? (
+                <div style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                  <p style={{ fontSize: '13px', fontWeight: 600, margin: '0 0 4px' }}>No matching purchase order items found</p>
+                  <p style={{ fontSize: '12px', margin: 0, color: '#94a3b8' }}>
+                    Verify that confirmed Purchase Orders exist in the Procurement module.
+                  </p>
+                </div>
+              ) : (
+                filteredPickerPurchases.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleSelectPurchasedItem(item)}
+                    style={{
+                      padding: '12px 16px',
+                      borderBottom: idx === filteredPickerPurchases.length - 1 ? 'none' : '1px solid #f1f5f9',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f0fdfa')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                          {item.materialName}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: item.materialType === 'RAW_MATERIAL' ? '#eff6ff' : '#f5f3ff',
+                            color: item.materialType === 'RAW_MATERIAL' ? '#1d4ed8' : '#6d28d9',
+                          }}
+                        >
+                          {item.materialType === 'RAW_MATERIAL' ? 'RM' : 'PM'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>
+                        PO: <strong style={{ color: '#0f172a', fontFamily: 'var(--font-mono)' }}>{item.poNumber}</strong>
+                        {' • '}Date: <strong>{item.purchaseDate ? item.purchaseDate.split('T')[0] : ''}</strong>
+                        {' • '}Vendor: <strong>{item.vendorName}</strong>
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0f766e' }}>
+                        PKR {Number(item.purchaseRate).toLocaleString()}
+                        <span style={{ fontSize: '11px', fontWeight: 500, color: '#64748b' }}> / {item.pack}</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                        Purchased: {Number(item.purchaseQuantity).toLocaleString()} {item.pack}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '8px' }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsPickerOpen(false);
+                  setActiveLineIdForPicker(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* ======================================================================= */}
       {/* TAB 2: SEPARATE COSTING HISTORY SCREEN                                 */}
       {/* ======================================================================= */}
       {activeTab === 'history' && (
-        <div className="space-y-4">
-          <Card className="border border-gray-200 shadow-sm bg-white">
-            <CardHeader className="pb-3 border-b border-gray-100">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <CardTitle className="text-base font-bold text-gray-900 flex items-center">
-                  <IconFileText className="w-4 h-4 mr-2 text-emerald-600" />
-                  Product Costing History Records
-                </CardTitle>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface, #ffffff)',
+              border: '1px solid var(--border-default, #e2e8f0)',
+              borderRadius: '12px',
+              padding: '20px',
+              boxShadow: 'var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06))',
+            }}
+          >
+            {/* Filter Bar */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '16px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #f1f5f9',
+              }}
+            >
+              <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Confirmed Costing History Records
+              </h2>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <IconSearch className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+                  <input
+                    type="text"
                     placeholder="Search product, serial..."
                     value={historySearch}
                     onChange={(e) => setHistorySearch(e.target.value)}
-                    className="w-48 text-xs py-1"
+                    style={{
+                      height: '34px',
+                      padding: '0 10px 0 28px',
+                      fontSize: '12.5px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      outline: 'none',
+                      minWidth: '200px',
+                    }}
                   />
-                  <input
-                    type="date"
-                    value={historyStartDate}
-                    onChange={(e) => setHistoryStartDate(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1"
-                  />
-                  <span className="text-xs text-gray-400">to</span>
-                  <input
-                    type="date"
-                    value={historyEndDate}
-                    onChange={(e) => setHistoryEndDate(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1"
-                  />
-                  <Button variant="outline" size="sm" onClick={loadHistory} className="text-xs">
-                    <IconFilter className="w-3.5 h-3.5 mr-1" />
-                    Filter
-                  </Button>
                 </div>
+                <input
+                  type="date"
+                  value={historyStartDate}
+                  onChange={(e) => setHistoryStartDate(e.target.value)}
+                  style={{ height: '34px', padding: '0 8px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>to</span>
+                <input
+                  type="date"
+                  value={historyEndDate}
+                  onChange={(e) => setHistoryEndDate(e.target.value)}
+                  style={{ height: '34px', padding: '0 8px', fontSize: '12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+                <Button variant="outline" size="sm" onClick={loadHistory}>
+                  <IconFilter className="w-3.5 h-3.5 mr-1" />
+                  Filter
+                </Button>
               </div>
-            </CardHeader>
+            </div>
 
-            <CardContent className="p-0">
-              {isLoadingHistory ? (
-                <div className="p-6">
-                  <TableSkeleton rows={5} columns={6} />
-                </div>
-              ) : historyRecords.length === 0 ? (
-                <div className="py-12 text-center text-gray-500 text-xs">
-                  No historical costing records found.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
-                        <th className="py-2.5 px-3">Date</th>
-                        <th className="py-2.5 px-3">Serial / Code</th>
-                        <th className="py-2.5 px-3">End Product</th>
-                        <th className="py-2.5 px-3 text-right">Output Qty</th>
-                        <th className="py-2.5 px-4 text-right">Total Cost (PKR)</th>
-                        <th className="py-2.5 px-4 text-right">Unit Cost (PKR)</th>
-                        <th className="py-2.5 px-3 text-center">Status</th>
-                        <th className="py-2.5 px-3 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {historyRecords.map((rec) => {
-                        let snap: any = {};
-                        try {
-                          if (rec.notes && rec.notes.startsWith('{')) snap = JSON.parse(rec.notes);
-                        } catch {}
+            {/* History Table */}
+            {isLoadingHistory ? (
+              <TableSkeleton rows={5} columns={6} />
+            ) : historyRecords.length === 0 ? (
+              <div style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600 }}>No costing records found</p>
+                <p style={{ fontSize: '12px', color: '#94a3b8' }}>Saved costing vouchers will appear here permanently.</p>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Date</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Serial / Code</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>End Product</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Output Qty</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Batch Cost</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Unit Cost</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyRecords.map((rec, idx) => {
+                      let snap: any = {};
+                      try {
+                        if (rec.notes && rec.notes.startsWith('{')) snap = JSON.parse(rec.notes);
+                      } catch {}
 
-                        const productName =
-                          snap.productName || rec.finishedProduct?.productName || 'Finished Product';
-                        const code = snap.serialNumber || snap.costingCode || `CST-v${rec.version}`;
-                        const dateFormatted = rec.createdAt ? rec.createdAt.split('T')[0] : '';
+                      const productName = snap.productName || rec.finishedProduct?.productName || 'Finished Product';
+                      const code = snap.serialNumber || snap.costingCode || `CST-v${rec.version}`;
+                      const dateStr = rec.createdAt ? rec.createdAt.split('T')[0] : '';
 
-                        return (
-                          <tr
-                            key={rec.id}
-                            onDoubleClick={() => handleOpenVoucherModal(rec)}
-                            className="hover:bg-emerald-50/40 cursor-pointer transition-colors"
-                          >
-                            <td className="py-2.5 px-3 font-mono text-gray-600">{dateFormatted}</td>
-                            <td className="py-2.5 px-3 font-mono font-bold text-emerald-800">{code}</td>
-                            <td className="py-2.5 px-3 font-medium text-gray-900">{productName}</td>
-                            <td className="py-2.5 px-3 text-right font-mono font-semibold">
-                              {Number(rec.batchOutputQuantity).toLocaleString()}
-                            </td>
-                            <td className="py-2.5 px-4 text-right font-mono">
-                              {Number(rec.totalBatchCost).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
-                              {Number(rec.costPerUnit).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <span
-                                className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  rec.status === 'ACTIVE'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-gray-100 text-gray-600'
-                                }`}
-                              >
-                                {rec.status}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenVoucherModal(rec)}
-                                className="text-[11px] py-1 px-2.5"
-                              >
-                                <IconEye className="w-3 h-3 mr-1" />
-                                View
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                      return (
+                        <tr
+                          key={rec.id}
+                          onDoubleClick={() => setSelectedHistoryModalRecord(rec)}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fcfdfd',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', color: '#64748b' }}>{dateStr}</td>
+                          <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#0f766e' }}>{code}</td>
+                          <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0f172a' }}>{productName}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                            {Number(rec.batchOutputQuantity).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                            PKR {Number(rec.totalBatchCost).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#0f766e' }}>
+                            PKR {Number(rec.costPerUnit).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                backgroundColor: rec.status === 'ACTIVE' ? '#ecfdf5' : '#f1f5f9',
+                                color: rec.status === 'ACTIVE' ? '#047857' : '#64748b',
+                              }}
+                            >
+                              {rec.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                            <Button variant="outline" size="sm" onClick={() => setSelectedHistoryModalRecord(rec)}>
+                              <IconEye className="w-3.5 h-3.5 mr-1" />
+                              View
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* ======================================================================= */}
-      {/* HISTORICAL VOUCHER REVIEW MODAL                                         */}
+      {/* HISTORICAL VOUCHER REVIEW MODAL (DOUBLE CLICK ACTION)                  */}
       {/* ======================================================================= */}
       {selectedHistoryModalRecord && (
         <Modal
@@ -1548,110 +1764,118 @@ export function ProductCostingView() {
             const savedLines: CostingLineItem[] = snap.lines || [];
 
             return (
-              <div className="space-y-4 text-xs">
-                {/* Header Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '13px' }}>
+                {/* Header Information */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '12px',
+                    padding: '14px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
                   <div>
-                    <span className="text-[10px] text-gray-500 uppercase font-semibold">End Product:</span>
-                    <p className="font-bold text-gray-900 mt-0.5">
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>End Product</span>
+                    <p style={{ fontWeight: 800, color: '#0f172a', margin: '2px 0 0' }}>
                       {snap.productName || selectedHistoryModalRecord.finishedProduct?.productName || 'N/A'}
                     </p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Warehouse:</span>
-                    <p className="font-bold text-gray-900 mt-0.5">{snap.warehouseName || 'Standard Warehouse'}</p>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Warehouse</span>
+                    <p style={{ fontWeight: 700, color: '#0f172a', margin: '2px 0 0' }}>{snap.warehouseName || 'Standard Warehouse'}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Contractor:</span>
-                    <p className="font-bold text-gray-900 mt-0.5">{snap.contractorVendorName || snap.vendorName || 'N/A'}</p>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Contractor / Vendor</span>
+                    <p style={{ fontWeight: 700, color: '#0f172a', margin: '2px 0 0' }}>{snap.contractorVendorName || snap.vendorName || 'N/A'}</p>
                   </div>
                   <div>
-                    <span className="text-[10px] text-gray-500 uppercase font-semibold">Costing Date:</span>
-                    <p className="font-bold text-gray-900 mt-0.5 font-mono">
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>Costing Date</span>
+                    <p style={{ fontWeight: 700, color: '#0f172a', margin: '2px 0 0', fontFamily: 'var(--font-mono)' }}>
                       {snap.costingDate ? snap.costingDate.split('T')[0] : selectedHistoryModalRecord.createdAt.split('T')[0]}
                     </p>
                   </div>
                 </div>
 
                 {/* Table Breakdown */}
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-left border-collapse text-xs">
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                     <thead>
-                      <tr className="bg-emerald-900 text-white font-semibold">
-                        <th className="py-2 px-3">#</th>
-                        <th className="py-2 px-3">Product / Material</th>
-                        <th className="py-2 px-2 text-center">Type</th>
-                        <th className="py-2 px-3 text-center">Pack</th>
-                        <th className="py-2 px-3 text-right">Qty</th>
-                        <th className="py-2 px-3 text-right">Rate (PKR)</th>
-                        <th className="py-2 px-4 text-right">Cost (PKR)</th>
+                      <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', width: '35px' }}>#</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left' }}>Component & PO Source</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', width: '60px' }}>Type</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center', width: '90px' }}>Pack</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', width: '80px' }}>Qty</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', width: '110px' }}>Rate (PKR)</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', width: '120px' }}>Cost (PKR)</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100 bg-white">
+                    <tbody>
                       {savedLines.map((l, i) => (
-                        <tr key={i} className={i % 2 === 0 ? 'bg-emerald-50/20' : 'bg-white'}>
-                          <td className="py-2 px-3 font-mono text-gray-400">{i + 1}</td>
-                          <td className="py-2 px-3">
-                            <div className="font-semibold text-gray-900">{l.materialName}</div>
-                            {l.sourcePoNumber ? (
-                              <div className="text-[10px] text-gray-500 font-mono">
-                                PO: <span className="text-emerald-700 font-bold">{l.sourcePoNumber}</span>
-                                {l.purchaseDate ? ` (${l.purchaseDate.split('T')[0]})` : ''}
-                                {l.vendorName ? ` • ${l.vendorName}` : ''}
+                        <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94a3b8' }}>{i + 1}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>{l.materialName}</div>
+                            {l.sourcePoNumber && (
+                              <div style={{ fontSize: '11px', color: '#059669', fontFamily: 'var(--font-mono)' }}>
+                                PO: {l.sourcePoNumber} ({l.purchaseDate ? l.purchaseDate.split('T')[0] : ''}) • {l.vendorName || ''}
                               </div>
-                            ) : (
-                              <div className="text-[10px] text-gray-400 font-mono">Direct / Master Rate</div>
                             )}
                           </td>
-                          <td className="py-2 px-2 text-center">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">
-                              {l.type}
+                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                            <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, backgroundColor: '#f1f5f9' }}>
+                              {l.type === 'RAW_MATERIAL' ? 'RM' : l.type === 'PACKING_MATERIAL' ? 'PM' : 'OTHER'}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-center">{l.pack}</td>
-                          <td className="py-2 px-3 text-right font-mono">{Number(l.quantity).toLocaleString()}</td>
-                          <td className="py-2 px-3 text-right font-mono">{Number(l.rate).toLocaleString()}</td>
-                          <td className="py-2 px-4 text-right font-mono font-bold text-gray-900">
-                            {Number(l.cost).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>{l.pack}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{Number(l.quantity).toLocaleString()}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{Number(l.rate).toLocaleString()}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                            {Number(l.cost).toLocaleString()}
                           </td>
                         </tr>
                       ))}
-
-                      {savedLines.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="py-4 text-center text-gray-400">
-                            Line snapshot not preserved for this legacy record.
-                          </td>
-                        </tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Arithmetic Summary */}
-                <div className="bg-emerald-50 p-3.5 rounded-lg border border-emerald-200 flex flex-wrap items-center justify-between gap-4">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    backgroundColor: '#f0fdfa',
+                    padding: '14px',
+                    borderRadius: '8px',
+                    border: '1px solid #99f6e4',
+                  }}
+                >
                   <div>
-                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Total Cost:</span>
-                    <p className="text-base font-bold font-mono text-gray-900">
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>TOTAL BATCH COST:</span>
+                    <p style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-mono)', margin: '2px 0 0' }}>
                       PKR {Number(selectedHistoryModalRecord.totalBatchCost).toLocaleString()}
                     </p>
                   </div>
                   <div>
-                    <span className="text-[11px] text-gray-500 uppercase font-semibold">Actual Output Qty:</span>
-                    <p className="text-base font-bold font-mono text-gray-900">
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>ACTUAL OUTPUT:</span>
+                    <p style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-mono)', margin: '2px 0 0' }}>
                       {Number(selectedHistoryModalRecord.batchOutputQuantity).toLocaleString()} units
                     </p>
                   </div>
-                  <div className="bg-white px-3 py-1.5 rounded-md border border-emerald-300">
-                    <span className="text-[10px] font-bold text-emerald-700 uppercase">Unit Cost:</span>
-                    <p className="text-lg font-extrabold font-mono text-emerald-800">
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#0f766e' }}>UNIT COST:</span>
+                    <p style={{ fontSize: '18px', fontWeight: 900, fontFamily: 'var(--font-mono)', color: '#0f766e', margin: '2px 0 0' }}>
                       PKR {Number(selectedHistoryModalRecord.costPerUnit).toFixed(2)}
                     </p>
                   </div>
                 </div>
 
-                {/* Footer Modal Actions */}
-                <div className="flex justify-end space-x-2 pt-2">
+                {/* Modal Footer */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px' }}>
                   <Button variant="outline" size="sm" onClick={() => setSelectedHistoryModalRecord(null)}>
                     Close
                   </Button>
@@ -1682,7 +1906,6 @@ export function ProductCostingView() {
                         showToast({ title: 'Error', message: err.message, type: 'error' });
                       }
                     }}
-                    className="bg-emerald-700 text-white font-bold"
                   >
                     Apply Cost to Product
                   </Button>
