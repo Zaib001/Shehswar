@@ -40,6 +40,35 @@ import {
 
 export type ComponentType = 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER';
 
+export function formatVolume(qty?: number, unitOrPack?: string): string {
+  const safeQty = Number(qty || 0);
+  if (!unitOrPack) return safeQty.toLocaleString();
+  const clean = String(unitOrPack).trim();
+  const match = clean.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+  if (match && match[1]) {
+    const packQty = parseFloat(match[1]);
+    const uom = (match[2] || '').trim() || 'Unit';
+    if (packQty === 1) return `${safeQty.toLocaleString()} ${uom}`;
+    if (Math.abs(packQty - safeQty) < 0.001) return `${safeQty.toLocaleString()} ${uom}`;
+    const totalVolume = safeQty * packQty;
+    return `${safeQty.toLocaleString()} × ${clean} (${totalVolume.toLocaleString()} ${uom})`;
+  }
+  return `${safeQty.toLocaleString()} ${clean}`;
+}
+
+export function formatUom(unitOrPack?: string): string {
+  if (!unitOrPack) return 'Unit';
+  const clean = String(unitOrPack).trim();
+  const match = clean.match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+  if (match && match[1]) {
+    const packQty = parseFloat(match[1]);
+    const uom = (match[2] || '').trim() || 'Unit';
+    if (packQty === 1) return uom;
+    return clean;
+  }
+  return clean;
+}
+
 export interface PurchasedMaterialRecord {
   id: string; // PurchaseOrderItem ID
   purchaseOrderId: string;
@@ -1013,21 +1042,36 @@ export function ProductCostingView() {
                           </div>
 
                           {/* Purchase Order Traceability Tag */}
-                          {/* Purchase Order Traceability Tag */}
                           {line.sourcePoNumber ? (
-                            <div style={{ fontSize: '11.5px', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: '11.5px', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
                               <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                                 ✓ {line.sourcePoNumber}
                               </span>
-                              <span>
-                                {line.purchaseDate ? `Date: ${line.purchaseDate.split('T')[0]}` : ''}
-                                {line.vendorName ? ` • Vendor: ${line.vendorName}` : ''}
-                              </span>
+                              {line.sourcePoQuantity !== undefined && line.sourcePoQuantity > 0 && (
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: '5px',
+                                    backgroundColor: '#eff6ff',
+                                    color: '#1d4ed8',
+                                    fontWeight: 800,
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '11.5px',
+                                    border: '1px solid #bfdbfe',
+                                  }}
+                                >
+                                  Purchased Volume: {formatVolume(line.sourcePoQuantity, line.pack)}
+                                </span>
+                              )}
                               {line.sourcePoTotal !== undefined && (
                                 <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#f0fdfa', color: '#0f766e', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                                   Total PO Price: PKR {Number(line.sourcePoTotal).toLocaleString()}
                                 </span>
                               )}
+                              <span>
+                                {line.purchaseDate ? `Date: ${line.purchaseDate.split('T')[0]}` : ''}
+                                {line.vendorName ? ` • Vendor: ${line.vendorName}` : ''}
+                              </span>
                             </div>
                           ) : (
                             <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
@@ -1115,6 +1159,11 @@ export function ProductCostingView() {
                             outline: 'none',
                           }}
                         />
+                        {line.sourcePoQuantity !== undefined && line.sourcePoQuantity > 0 && (
+                          <div style={{ fontSize: '10.5px', color: '#1d4ed8', fontWeight: 700, fontFamily: 'var(--font-mono)', marginTop: '3px' }}>
+                            Volume: {formatVolume(line.sourcePoQuantity, line.pack)}
+                          </div>
+                        )}
                       </td>
 
                       {/* Purchase Rate (Auto-populated from real PO) */}
@@ -1569,7 +1618,7 @@ export function ProductCostingView() {
                       </div>
                     </div>
 
-                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                       {/* Prominently Show Total Price */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                         <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
@@ -1580,12 +1629,14 @@ export function ProductCostingView() {
                         </span>
                       </div>
 
-                      {/* Per-Unit Rate & Quantity */}
-                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', fontFamily: 'var(--font-mono)' }}>
-                        <span style={{ color: '#0f172a' }}>PKR {Number(item.purchaseRate).toLocaleString()}</span>
-                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}> / {item.pack}</span>
-                        <span style={{ color: '#cbd5e1', margin: '0 6px' }}>•</span>
-                        <span style={{ color: '#64748b' }}>Purchased: {Number(item.purchaseQuantity).toLocaleString()} {item.pack}</span>
+                      {/* Prominently Show Purchased Volume & Rate */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#1d4ed8', backgroundColor: '#eff6ff', padding: '2px 8px', borderRadius: '4px', border: '1px solid #bfdbfe', fontFamily: 'var(--font-mono)' }}>
+                          Purchased Volume: {formatVolume(item.purchaseQuantity, item.pack)}
+                        </span>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#334155', fontFamily: 'var(--font-mono)' }}>
+                          • Rate: PKR {Number(item.purchaseRate).toLocaleString()} / {formatUom(item.pack)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1852,7 +1903,8 @@ export function ProductCostingView() {
                             {l.sourcePoNumber && (
                               <div style={{ fontSize: '11px', color: '#059669', fontFamily: 'var(--font-mono)' }}>
                                 PO: {l.sourcePoNumber} ({l.purchaseDate ? l.purchaseDate.split('T')[0] : ''}) • {l.vendorName || ''}
-                                {l.sourcePoTotal ? ` • PO Total: PKR ${Number(l.sourcePoTotal).toLocaleString()}` : ''}
+                                {l.sourcePoQuantity ? ` • Vol: ${formatVolume(l.sourcePoQuantity, l.pack)}` : ''}
+                                {l.sourcePoTotal ? ` • Total: PKR ${Number(l.sourcePoTotal).toLocaleString()}` : ''}
                               </div>
                             )}
                           </td>
