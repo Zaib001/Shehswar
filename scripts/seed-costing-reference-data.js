@@ -172,23 +172,96 @@ async function seed() {
 
   // 7. Real Purchase Order for historical rates
   const venVAgrics = await p.vendor.findFirst({ where: { companyId: compId, code: 'VEN-000001' } });
+  const venChemTech = await p.vendor.findFirst({ where: { companyId: compId, code: 'VEN-000002' } });
   const whFsd = await p.warehouse.findFirst({ where: { companyId: compId, code: 'WH-000001' } });
+
+  const pmBottle = await p.packingMaterial.findFirst({ where: { companyId: compId, materialCode: 'PM-000232' } });
+  const pmLabel = await p.packingMaterial.findFirst({ where: { companyId: compId, materialCode: 'PM-000231' } });
+  const pmCarton = await p.packingMaterial.findFirst({ where: { companyId: compId, materialCode: 'PM-000233' } });
+  const pmCaps = await p.packingMaterial.findFirst({ where: { companyId: compId, materialCode: 'PM-000234' } });
 
   const poNumber = 'PO-2026-00998';
   let existingPo = await p.purchaseOrder.findFirst({ where: { companyId: compId, poNumber } });
-  if (!existingPo && venVAgrics && whFsd) {
-    existingPo = await p.purchaseOrder.create({
+  if (existingPo && pmBottle && pmLabel && pmCarton && pmCaps) {
+    const existingItems = await p.purchaseOrderItem.findMany({ where: { poId: existingPo.id } });
+    const hasBottle = existingItems.some((i) => i.materialId === pmBottle.id);
+    if (!hasBottle) {
+      await p.purchaseOrderItem.createMany({
+        data: [
+          {
+            id: uuidv7(),
+            poId: existingPo.id,
+            itemName: 'PM Pet Bottle 1 Liter',
+            materialId: pmBottle.id,
+            materialType: 'PACKING_MATERIAL',
+            materialCodeSnapshot: 'PM-000232',
+            materialNameSnapshot: 'PM Pet Bottle 1 Liter',
+            quantity: 1003,
+            unit: '1 Nos',
+            unitRate: 42,
+            lineTotal: 42126,
+          },
+          {
+            id: uuidv7(),
+            poId: existingPo.id,
+            itemName: 'PM Labels Lambda Cyhalothrin',
+            materialId: pmLabel.id,
+            materialType: 'PACKING_MATERIAL',
+            materialCodeSnapshot: 'PM-000231',
+            materialNameSnapshot: 'PM Labels Lambda Cyhalothrin',
+            quantity: 1003,
+            unit: '1 Nos',
+            unitRate: 7,
+            lineTotal: 7021,
+          },
+          {
+            id: uuidv7(),
+            poId: existingPo.id,
+            itemName: 'PM Carton 1 x 12 (Bromoxnal 1Ltr)',
+            materialId: pmCarton.id,
+            materialType: 'PACKING_MATERIAL',
+            materialCodeSnapshot: 'PM-000233',
+            materialNameSnapshot: 'PM Carton 1 x 12 (Bromoxnal 1Ltr)',
+            quantity: 84,
+            unit: '1 Nos',
+            unitRate: 104,
+            lineTotal: 8736,
+          },
+          {
+            id: uuidv7(),
+            poId: existingPo.id,
+            itemName: 'PM Caps',
+            materialId: pmCaps.id,
+            materialType: 'PACKING_MATERIAL',
+            materialCodeSnapshot: 'PM-000234',
+            materialNameSnapshot: 'PM Caps',
+            quantity: 1003,
+            unit: '1 Nos',
+            unitRate: 8,
+            lineTotal: 8024,
+          },
+        ],
+      });
+      console.log('Added PM items to PO-2026-00998');
+    }
+  }
+
+  // 8. Second PO on 01-Dec-2026 at different rate (PKR 96,000) for testing date-wise selection
+  const poNumber2 = 'PO-2026-01045';
+  let po2 = await p.purchaseOrder.findFirst({ where: { companyId: compId, poNumber: poNumber2 } });
+  if (!po2 && venChemTech && whFsd) {
+    await p.purchaseOrder.create({
       data: {
         id: uuidv7(),
         organizationId: orgId,
         companyId: compId,
-        poNumber,
-        vendorId: venVAgrics.id,
+        poNumber: poNumber2,
+        vendorId: venChemTech.id,
         warehouseId: whFsd.id,
-        createdAt: new Date('2026-10-21'),
-        expectedDeliveryDate: new Date('2026-10-25'),
+        createdAt: new Date('2026-12-01'),
+        expectedDeliveryDate: new Date('2026-12-05'),
         status: 'CONFIRMED',
-        totalAmount: 532928,
+        totalAmount: 480000,
         items: {
           create: [
             {
@@ -200,14 +273,14 @@ async function seed() {
               materialNameSnapshot: 'RA Lambda Cyhalothrin 2.5 % EC',
               quantity: 5,
               unit: '200 LTR',
-              unitRate: 92000,
-              lineTotal: 460000,
+              unitRate: 96000,
+              lineTotal: 480000,
             },
           ],
         },
       },
     });
-    console.log('Created PO:', poNumber);
+    console.log('Created PO-2026-01045 (Dec-2026 purchase @ 96,000)');
   }
 
   console.log('Seeding reference costing data completed!');

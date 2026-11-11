@@ -68,6 +68,7 @@ export interface CostingLineItem {
   quantity: number;
   rate: number;
   cost: number;
+  selectedPurchaseKey?: string;
   sourcePoId?: string;
   sourcePoNumber?: string;
   purchaseDate?: string;
@@ -349,6 +350,28 @@ export function ProductCostingView() {
         quantity: 5,
         rate: 92000,
         cost: 460000,
+        sourcePoNumber: 'PO-2026-00998',
+        purchaseDate: '2026-10-21',
+        vendorName: 'V Agrics International (Pvt) Ltd.',
+        selectedPurchaseKey: 'PO-2026-00998_0',
+        historicalPurchases: [
+          {
+            documentNumber: 'PO-2026-00998',
+            purchaseDate: '2026-10-21',
+            unitCost: 92000,
+            vendorName: 'V Agrics International (Pvt) Ltd.',
+            quantity: 5,
+            unit: '200 LTR',
+          },
+          {
+            documentNumber: 'PO-2026-01045',
+            purchaseDate: '2026-12-01',
+            unitCost: 96000,
+            vendorName: 'ChemTech Solvents (Pvt) Ltd.',
+            quantity: 5,
+            unit: '200 LTR',
+          },
+        ],
       },
       {
         id: 'line-2',
@@ -360,6 +383,20 @@ export function ProductCostingView() {
         quantity: 1003,
         rate: 7,
         cost: 7021,
+        sourcePoNumber: 'PO-2026-00998',
+        purchaseDate: '2026-10-21',
+        vendorName: 'V Agrics International (Pvt) Ltd.',
+        selectedPurchaseKey: 'PO-2026-00998_0',
+        historicalPurchases: [
+          {
+            documentNumber: 'PO-2026-00998',
+            purchaseDate: '2026-10-21',
+            unitCost: 7,
+            vendorName: 'V Agrics International (Pvt) Ltd.',
+            quantity: 1003,
+            unit: '1 Nos',
+          },
+        ],
       },
       {
         id: 'line-3',
@@ -371,6 +408,20 @@ export function ProductCostingView() {
         quantity: 1003,
         rate: 42,
         cost: 42126,
+        sourcePoNumber: 'PO-2026-00998',
+        purchaseDate: '2026-10-21',
+        vendorName: 'V Agrics International (Pvt) Ltd.',
+        selectedPurchaseKey: 'PO-2026-00998_0',
+        historicalPurchases: [
+          {
+            documentNumber: 'PO-2026-00998',
+            purchaseDate: '2026-10-21',
+            unitCost: 42,
+            vendorName: 'V Agrics International (Pvt) Ltd.',
+            quantity: 1003,
+            unit: '1 Nos',
+          },
+        ],
       },
       {
         id: 'line-4',
@@ -382,6 +433,20 @@ export function ProductCostingView() {
         quantity: 84,
         rate: 104,
         cost: 8736,
+        sourcePoNumber: 'PO-2026-00998',
+        purchaseDate: '2026-10-21',
+        vendorName: 'V Agrics International (Pvt) Ltd.',
+        selectedPurchaseKey: 'PO-2026-00998_0',
+        historicalPurchases: [
+          {
+            documentNumber: 'PO-2026-00998',
+            purchaseDate: '2026-10-21',
+            unitCost: 104,
+            vendorName: 'V Agrics International (Pvt) Ltd.',
+            quantity: 84,
+            unit: '1 Nos',
+          },
+        ],
       },
       {
         id: 'line-5',
@@ -393,6 +458,7 @@ export function ProductCostingView() {
         quantity: 1003,
         rate: 7,
         cost: 7021,
+        selectedPurchaseKey: 'custom',
       },
       {
         id: 'line-6',
@@ -404,6 +470,20 @@ export function ProductCostingView() {
         quantity: 1003,
         rate: 8,
         cost: 8024,
+        sourcePoNumber: 'PO-2026-00998',
+        purchaseDate: '2026-10-21',
+        vendorName: 'V Agrics International (Pvt) Ltd.',
+        selectedPurchaseKey: 'PO-2026-00998_0',
+        historicalPurchases: [
+          {
+            documentNumber: 'PO-2026-00998',
+            purchaseDate: '2026-10-21',
+            unitCost: 8,
+            vendorName: 'V Agrics International (Pvt) Ltd.',
+            quantity: 1003,
+            unit: '1 Nos',
+          },
+        ],
       },
     ];
 
@@ -479,22 +559,65 @@ export function ProductCostingView() {
     if (materialId) {
       try {
         const res = await ApiClient.get<any>(`/api/v1/costing/materials/${materialId}/purchase-history`);
-        const purchases = Array.isArray(res.data) ? res.data : [];
+        const purchases: HistoricalPurchase[] = Array.isArray(res.data) ? res.data : [];
         if (purchases.length > 0) {
-          const latest = purchases[0];
+          if (purchases.length === 1) {
+            // Exactly ONE real purchase exists -> Auto-select that specific PO
+            const single = purchases[0]!;
+            const rate = Number(single.unitCost);
+            const pack = single.unit || defaultPack;
+            setLines((prev) =>
+              prev.map((line) => {
+                if (line.id !== lineId) return line;
+                return {
+                  ...line,
+                  rate,
+                  pack,
+                  cost: Math.round(line.quantity * rate * 100) / 100,
+                  sourcePoId: (single as any).documentId,
+                  sourcePoNumber: single.documentNumber,
+                  purchaseDate: single.purchaseDate,
+                  vendorName: single.vendorName,
+                  selectedPurchaseKey: `${single.documentNumber}_0`,
+                  historicalPurchases: purchases,
+                };
+              })
+            );
+          } else {
+            // MULTIPLE real purchases exist on different dates!
+            // RULE: DO NOT silently use the latest purchase!
+            // Leave rate unselected and let the user explicitly choose the required purchase date/PO.
+            setLines((prev) =>
+              prev.map((line) => {
+                if (line.id !== lineId) return line;
+                return {
+                  ...line,
+                  rate: 0,
+                  cost: 0,
+                  selectedPurchaseKey: '',
+                  sourcePoId: undefined,
+                  sourcePoNumber: undefined,
+                  purchaseDate: undefined,
+                  vendorName: undefined,
+                  historicalPurchases: purchases,
+                };
+              })
+            );
+            showToast({
+              title: 'Select Purchase Cost',
+              message: `${purchases.length} purchases on different dates found for ${materialName}. Please select which purchase cost to apply.`,
+              type: 'info',
+            });
+          }
+        } else {
+          // No POs found -> set to standard master rate
           setLines((prev) =>
             prev.map((line) => {
               if (line.id !== lineId) return line;
-              const rate = Number(latest.unitCost || line.rate);
               return {
                 ...line,
-                rate,
-                cost: Math.round(line.quantity * rate * 100) / 100,
-                sourcePoId: latest.documentId,
-                sourcePoNumber: latest.documentNumber,
-                purchaseDate: latest.purchaseDate,
-                vendorName: latest.vendorName,
-                historicalPurchases: purchases,
+                selectedPurchaseKey: 'standard',
+                historicalPurchases: [],
               };
             })
           );
@@ -522,27 +645,79 @@ export function ProductCostingView() {
     );
   };
 
-  // Switch historical PO rate for a line
-  const handleSelectHistoricalPo = (lineId: string, purchase: HistoricalPurchase) => {
+  // Compact Purchase Cost Source Selector Change Handler
+  const handlePurchaseSourceChanged = (lineId: string, key: string) => {
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
+
+        if (!key) {
+          return {
+            ...line,
+            selectedPurchaseKey: '',
+            rate: 0,
+            cost: 0,
+            sourcePoNumber: undefined,
+            sourcePoId: undefined,
+            purchaseDate: undefined,
+            vendorName: undefined,
+          };
+        }
+
+        if (key === 'custom') {
+          return {
+            ...line,
+            selectedPurchaseKey: 'custom',
+            sourcePoNumber: undefined,
+            sourcePoId: undefined,
+            purchaseDate: undefined,
+            vendorName: undefined,
+          };
+        }
+
+        if (key === 'standard') {
+          const matched = allMaterialsOptions.find((m) => m.id === line.materialId);
+          const rate = matched?.defaultRate || line.rate;
+          return {
+            ...line,
+            selectedPurchaseKey: 'standard',
+            rate,
+            cost: Math.round(line.quantity * rate * 100) / 100,
+            sourcePoNumber: undefined,
+            sourcePoId: undefined,
+            purchaseDate: undefined,
+            vendorName: undefined,
+          };
+        }
+
+        // Selected from historicalPurchases: format `${docNum}_${idx}`
+        const parts = key.split('_');
+        const idx = parts.length > 1 ? parseInt(parts[parts.length - 1] || '0', 10) : 0;
+        const purchase = line.historicalPurchases?.[idx];
+        if (!purchase) return line;
+
         const rate = Number(purchase.unitCost);
+        const pack = purchase.unit || line.pack;
+
+        showToast({
+          title: 'Purchase Cost Applied',
+          message: `${purchase.documentNumber} (${purchase.purchaseDate ? purchase.purchaseDate.split('T')[0] : ''}) @ PKR ${rate.toLocaleString()}`,
+          type: 'success',
+        });
+
         return {
           ...line,
+          selectedPurchaseKey: key,
           rate,
+          pack,
           cost: Math.round(line.quantity * rate * 100) / 100,
           sourcePoNumber: purchase.documentNumber,
+          sourcePoId: (purchase as any).documentId,
           purchaseDate: purchase.purchaseDate,
           vendorName: purchase.vendorName,
         };
       })
     );
-    showToast({
-      title: 'PO Rate Applied',
-      message: `Applied ${purchase.documentNumber} rate of PKR ${Number(purchase.unitCost).toLocaleString()}`,
-      type: 'success',
-    });
   };
 
   // ==========================================
@@ -961,7 +1136,7 @@ export function ProductCostingView() {
 
                       {/* Product / Material Searchable Input */}
                       <td className="py-2 px-3">
-                        <div className="flex flex-col space-y-1">
+                        <div className="flex flex-col space-y-1.5 py-1">
                           <input
                             type="text"
                             value={line.materialName}
@@ -983,27 +1158,42 @@ export function ProductCostingView() {
                             ))}
                           </datalist>
 
-                          {/* Subtle PO History Rate Switcher if available */}
-                          {line.historicalPurchases && line.historicalPurchases.length > 1 && (
-                            <div className="flex items-center space-x-1.5 text-[10px] text-gray-500">
-                              <span>PO History:</span>
-                              <select
-                                onChange={(e) => {
-                                  const po = line.historicalPurchases?.find((p) => p.documentNumber === e.target.value);
-                                  if (po) handleSelectHistoricalPo(line.id, po);
-                                }}
-                                className="text-[10px] py-0 px-1 border border-gray-200 rounded bg-white text-emerald-800 font-semibold"
-                                value={line.sourcePoNumber || ''}
-                              >
-                                {line.historicalPurchases.map((p) => (
-                                  <option key={p.documentNumber} value={p.documentNumber}>
-                                    {p.documentNumber} ({p.purchaseDate ? p.purchaseDate.split('T')[0] : ''} @ PKR{' '}
-                                    {Number(p.unitCost).toLocaleString()})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
+                          {/* Compact Searchable/Selectable Purchase Cost Source */}
+                          <div className="flex items-center space-x-1.5 pt-0.5">
+                            <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Purchase Cost:</span>
+                            <select
+                              value={line.selectedPurchaseKey || (line.sourcePoNumber ? `${line.sourcePoNumber}_0` : '')}
+                              onChange={(e) => handlePurchaseSourceChanged(line.id, e.target.value)}
+                              className={`w-full text-[10px] font-mono py-0.5 px-1.5 border rounded ${
+                                line.sourcePoNumber
+                                  ? 'border-emerald-300 bg-emerald-50/60 text-emerald-900 font-semibold'
+                                  : 'border-amber-300 bg-amber-50/40 text-amber-900'
+                              } focus:ring-1 focus:ring-emerald-500`}
+                            >
+                              {line.historicalPurchases && line.historicalPurchases.length > 0 ? (
+                                <>
+                                  {!line.selectedPurchaseKey && !line.sourcePoNumber && (
+                                    <option value="">-- Select Purchase Cost ({line.historicalPurchases.length} available) --</option>
+                                  )}
+                                  {line.historicalPurchases.map((p, pIdx) => {
+                                    const dateStr = p.purchaseDate ? p.purchaseDate.split('T')[0] : '';
+                                    const key = `${p.documentNumber}_${pIdx}`;
+                                    return (
+                                      <option key={key} value={key}>
+                                        {dateStr} | {p.documentNumber} | PKR {Number(p.unitCost).toLocaleString()}/{p.unit} ({p.vendorName})
+                                      </option>
+                                    );
+                                  })}
+                                  <option value="custom">Manual / Direct Cost Entry</option>
+                                </>
+                              ) : (
+                                <>
+                                  <option value="standard">Standard Master Rate (PKR {Number(line.rate).toLocaleString()})</option>
+                                  <option value="custom">Manual / Direct Cost Entry</option>
+                                </>
+                              )}
+                            </select>
+                          </div>
                         </div>
                       </td>
 
@@ -1050,13 +1240,22 @@ export function ProductCostingView() {
 
                       {/* Rate */}
                       <td className="py-2 px-3 text-right">
-                        <input
-                          type="number"
-                          step="any"
-                          value={line.rate}
-                          onChange={(e) => handleLineChange(line.id, 'rate', parseFloat(e.target.value) || 0)}
-                          className="w-full text-right text-xs font-mono border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
-                        />
+                        <div className="flex flex-col items-end">
+                          <input
+                            type="number"
+                            step="any"
+                            value={line.rate}
+                            onChange={(e) => handleLineChange(line.id, 'rate', parseFloat(e.target.value) || 0)}
+                            className="w-full text-right text-xs font-mono font-semibold border border-gray-200 rounded px-2 py-1 bg-transparent focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                          />
+                          {line.sourcePoNumber ? (
+                            <span className="text-[9px] text-emerald-700 font-mono mt-0.5 font-bold whitespace-nowrap" title={`From ${line.sourcePoNumber}`}>
+                              ✓ {line.sourcePoNumber}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-gray-400 font-mono mt-0.5 whitespace-nowrap">Direct Rate</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Cost (Quantity * Rate) */}
@@ -1392,7 +1591,18 @@ export function ProductCostingView() {
                       {savedLines.map((l, i) => (
                         <tr key={i} className={i % 2 === 0 ? 'bg-emerald-50/20' : 'bg-white'}>
                           <td className="py-2 px-3 font-mono text-gray-400">{i + 1}</td>
-                          <td className="py-2 px-3 font-medium text-gray-900">{l.materialName}</td>
+                          <td className="py-2 px-3">
+                            <div className="font-semibold text-gray-900">{l.materialName}</div>
+                            {l.sourcePoNumber ? (
+                              <div className="text-[10px] text-gray-500 font-mono">
+                                PO: <span className="text-emerald-700 font-bold">{l.sourcePoNumber}</span>
+                                {l.purchaseDate ? ` (${l.purchaseDate.split('T')[0]})` : ''}
+                                {l.vendorName ? ` • ${l.vendorName}` : ''}
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-gray-400 font-mono">Direct / Master Rate</div>
+                            )}
+                          </td>
                           <td className="py-2 px-2 text-center">
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">
                               {l.type}
