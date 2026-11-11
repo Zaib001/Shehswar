@@ -76,6 +76,8 @@ export interface CostingLineItem {
   vendorName?: string;
   warehouseName?: string;
   availablePurchases?: PurchasedMaterialRecord[];
+  sourcePoTotal?: number;
+  sourcePoQuantity?: number;
 }
 
 export interface MasterWarehouse {
@@ -141,9 +143,9 @@ export function ProductCostingView() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
   const [selectedContractorId, setSelectedContractorId] = useState<string>('');
   const [selectedFinishedProductId, setSelectedFinishedProductId] = useState<string>('');
-  const [packSize, setPackSize] = useState<string>('1 Liter');
-  const [estimatedQuantity, setEstimatedQuantity] = useState<number>(1000);
-  const [actualQuantity, setActualQuantity] = useState<number>(1003);
+  const [packSize, setPackSize] = useState<string>('0');
+  const [estimatedQuantity, setEstimatedQuantity] = useState<number>(0);
+  const [actualQuantity, setActualQuantity] = useState<number>(0);
 
   // Costing Table Lines (Driven 100% by real POs)
   const [lines, setLines] = useState<CostingLineItem[]>([]);
@@ -217,19 +219,8 @@ export function ProductCostingView() {
         if (preferredVen) setSelectedContractorId(preferredVen.id);
       }
 
-      // Default Finished Product
-      if (fpList.length > 0) {
-        const preferredFp = fpList.find((f) => f.productName.toLowerCase().includes('lambda')) ||
-          fpList.find((f) => f.productName.toLowerCase().includes('bifenthrin')) ||
-          fpList[0];
-        if (preferredFp) {
-          setSelectedFinishedProductId(preferredFp.id);
-          const pSize = preferredFp.packingQuantity
-            ? `${preferredFp.packingQuantity} ${preferredFp.packingUnit || 'Liter'}`
-            : '1 Liter';
-          setPackSize(pSize);
-        }
-      }
+      // Keep finished product unselected by default so all quantities and values remain 0
+      // User selects their desired finished product from the combobox
     } catch (err: any) {
       console.error('Failed to load costing initial data:', err);
       showToast({
@@ -277,9 +268,11 @@ export function ProductCostingView() {
       prev.map((line) => {
         if (line.id !== activeLineIdForPicker) return line;
 
-        const qty = line.quantity && line.quantity > 0 ? line.quantity : (actualQuantity || 1);
-        const rate = purchasedItem.purchaseRate;
+        // "all value will be 0 by default" -> quantity is 0 unless user already entered a quantity
+        const qty = line.quantity && line.quantity > 0 ? line.quantity : 0;
+        const rate = purchasedItem.purchaseRate || 0;
         const newCost = Math.round(qty * rate * 100) / 100;
+        const poTotal = Number(purchasedItem.lineTotal) || (purchasedItem.purchaseQuantity * rate);
 
         return {
           ...line,
@@ -296,6 +289,8 @@ export function ProductCostingView() {
           purchaseDate: purchasedItem.purchaseDate,
           vendorName: purchasedItem.vendorName,
           warehouseName: purchasedItem.warehouseName,
+          sourcePoTotal: poTotal,
+          sourcePoQuantity: purchasedItem.purchaseQuantity,
         };
       })
     );
@@ -303,9 +298,10 @@ export function ProductCostingView() {
     setIsPickerOpen(false);
     setActiveLineIdForPicker(null);
 
+    const totalPoAmt = Number(purchasedItem.lineTotal) || (purchasedItem.purchaseQuantity * (purchasedItem.purchaseRate || 0));
     showToast({
       title: 'Real Purchase Order Selected',
-      message: `${purchasedItem.materialName} populated from ${purchasedItem.poNumber} @ PKR ${purchasedItem.purchaseRate.toLocaleString()}/${purchasedItem.pack}`,
+      message: `${purchasedItem.materialName} from ${purchasedItem.poNumber} (Total PO: PKR ${totalPoAmt.toLocaleString()} @ PKR ${purchasedItem.purchaseRate.toLocaleString()}/${purchasedItem.pack})`,
       type: 'success',
     });
   };
@@ -316,8 +312,8 @@ export function ProductCostingView() {
       id: newLineId,
       materialName: '',
       type,
-      pack: type === 'RAW_MATERIAL' ? '200 LTR' : '1 Nos',
-      quantity: 1,
+      pack: type === 'RAW_MATERIAL' ? 'LTR' : '1 Nos',
+      quantity: 0,
       rate: 0,
       cost: 0,
     };
@@ -329,12 +325,12 @@ export function ProductCostingView() {
   const handleAddLabourRow = () => {
     const newLine: CostingLineItem = {
       id: `line-${Date.now()}`,
-      materialName: 'Packing Labour',
+      materialName: 'PM Packing Labour',
       type: 'OTHER',
       pack: '1 Nos',
-      quantity: actualQuantity || 1003,
-      rate: 7,
-      cost: Math.round((actualQuantity || 1003) * 7 * 100) / 100,
+      quantity: 0,
+      rate: 0,
+      cost: 0,
     };
     setLines((prev) => [...prev, newLine]);
   };
@@ -1001,8 +997,9 @@ export function ProductCostingView() {
                           </div>
 
                           {/* Purchase Order Traceability Tag */}
+                          {/* Purchase Order Traceability Tag */}
                           {line.sourcePoNumber ? (
-                            <div style={{ fontSize: '11.5px', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ fontSize: '11.5px', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#ecfdf5', color: '#047857', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                                 ✓ {line.sourcePoNumber}
                               </span>
@@ -1010,6 +1007,11 @@ export function ProductCostingView() {
                                 {line.purchaseDate ? `Date: ${line.purchaseDate.split('T')[0]}` : ''}
                                 {line.vendorName ? ` • Vendor: ${line.vendorName}` : ''}
                               </span>
+                              {line.sourcePoTotal !== undefined && (
+                                <span style={{ padding: '2px 6px', borderRadius: '4px', backgroundColor: '#f0fdfa', color: '#0f766e', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                                  Total PO Price: PKR {Number(line.sourcePoTotal).toLocaleString()}
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
@@ -1080,7 +1082,8 @@ export function ProductCostingView() {
                           type="number"
                           step="any"
                           value={line.quantity}
-                          onChange={(e) => handleLineChange(line.id, 'quantity', parseFloat(e.target.value) || 0)}
+                          onFocus={(e) => e.target.select()}
+                          onChange={(e) => handleLineChange(line.id, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                           style={{
                             width: '100%',
                             height: '34px',
@@ -1105,7 +1108,8 @@ export function ProductCostingView() {
                             type="number"
                             step="any"
                             value={line.rate}
-                            onChange={(e) => handleLineChange(line.id, 'rate', parseFloat(e.target.value) || 0)}
+                            onFocus={(e) => e.target.select()}
+                            onChange={(e) => handleLineChange(line.id, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                             style={{
                               width: '100%',
                               height: '34px',
@@ -1166,13 +1170,11 @@ export function ProductCostingView() {
                           Add actual purchased Raw Materials and Packaging Materials from real database Purchase Orders.
                         </p>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '10px' }}>
-                          <Button variant="primary" size="sm" onClick={() => handleAddRow('RAW_MATERIAL')}>
-                            <IconPlus className="w-4 h-4 mr-1.5" />
-                            + Add Raw Material (from POs)
+                          <Button variant="primary" size="sm" onClick={() => handleAddRow('RAW_MATERIAL')} icon={<IconPlus size={14} />}>
+                            Add Raw Material (from POs)
                           </Button>
-                          <Button variant="outline" size="sm" onClick={() => handleAddRow('PACKING_MATERIAL')}>
-                            <IconPlus className="w-4 h-4 mr-1.5" />
-                            + Add Packaging Material (from POs)
+                          <Button variant="outline" size="sm" onClick={() => handleAddRow('PACKING_MATERIAL')} icon={<IconPlus size={14} />}>
+                            Add Packaging Material (from POs)
                           </Button>
                         </div>
                       </td>
@@ -1200,28 +1202,28 @@ export function ProductCostingView() {
                   variant="outline"
                   size="sm"
                   onClick={() => handleAddRow('RAW_MATERIAL')}
+                  icon={<IconPlus size={14} />}
                   style={{ color: '#1d4ed8', borderColor: '#bfdbfe', backgroundColor: '#eff6ff' }}
                 >
-                  <IconPlus className="w-4 h-4 mr-1" />
-                  + Raw Material (PO)
+                  Raw Material (PO)
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleAddRow('PACKING_MATERIAL')}
+                  icon={<IconPlus size={14} />}
                   style={{ color: '#6d28d9', borderColor: '#ddd6fe', backgroundColor: '#f5f3ff' }}
                 >
-                  <IconPlus className="w-4 h-4 mr-1" />
-                  + Packaging Material (PO)
+                  Packaging Material (PO)
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleAddLabourRow}
+                  icon={<IconPlus size={14} />}
                   style={{ color: '#475569', borderColor: '#cbd5e1' }}
                 >
-                  <IconPlus className="w-4 h-4 mr-1" />
-                  + Packing Labour / Overhead
+                  Packing Labour / Overhead
                 </Button>
               </div>
 
@@ -1257,7 +1259,8 @@ export function ProductCostingView() {
                 <input
                   type="number"
                   value={estimatedQuantity}
-                  onChange={(e) => setEstimatedQuantity(parseFloat(e.target.value) || 0)}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setEstimatedQuantity(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                   style={{
                     width: '100%',
                     height: '42px',
@@ -1284,7 +1287,8 @@ export function ProductCostingView() {
                   <input
                     type="number"
                     value={actualQuantity}
-                    onChange={(e) => setActualQuantity(parseFloat(e.target.value) || 0)}
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setActualQuantity(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                     style={{
                       width: '100%',
                       height: '42px',
@@ -1549,13 +1553,23 @@ export function ProductCostingView() {
                       </div>
                     </div>
 
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0f766e' }}>
-                        PKR {Number(item.purchaseRate).toLocaleString()}
-                        <span style={{ fontSize: '11px', fontWeight: 500, color: '#64748b' }}> / {item.pack}</span>
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+                      {/* Prominently Show Total Price */}
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                          Total Price:
+                        </span>
+                        <span style={{ fontSize: '16px', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0f766e' }}>
+                          PKR {(Number(item.lineTotal) || (Number(item.purchaseQuantity) * Number(item.purchaseRate))).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>
-                        Purchased: {Number(item.purchaseQuantity).toLocaleString()} {item.pack}
+
+                      {/* Per-Unit Rate & Quantity */}
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', fontFamily: 'var(--font-mono)' }}>
+                        <span style={{ color: '#0f172a' }}>PKR {Number(item.purchaseRate).toLocaleString()}</span>
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}> / {item.pack}</span>
+                        <span style={{ color: '#cbd5e1', margin: '0 6px' }}>•</span>
+                        <span style={{ color: '#64748b' }}>Purchased: {Number(item.purchaseQuantity).toLocaleString()} {item.pack}</span>
                       </div>
                     </div>
                   </div>
@@ -1822,6 +1836,7 @@ export function ProductCostingView() {
                             {l.sourcePoNumber && (
                               <div style={{ fontSize: '11px', color: '#059669', fontFamily: 'var(--font-mono)' }}>
                                 PO: {l.sourcePoNumber} ({l.purchaseDate ? l.purchaseDate.split('T')[0] : ''}) • {l.vendorName || ''}
+                                {l.sourcePoTotal ? ` • PO Total: PKR ${Number(l.sourcePoTotal).toLocaleString()}` : ''}
                               </div>
                             )}
                           </td>
