@@ -34,10 +34,14 @@ export interface CreateOperationalPoDto {
     materialId?: string;
     materialType?: string;
     itemName: string;
+    packSize?: string;
+    numberOfPacks?: number;
     packing?: string;
     unit?: string;
     quantity: number;
     unitRate: number;
+    totalPurchaseAmount?: number;
+    costPerPack?: number;
     discountAmount?: number;
     taxAmount?: number;
     lineTotal?: number;
@@ -331,6 +335,31 @@ export class OperationalPoService {
           if (pm) {
             materialId = pm.id;
             materialCodeSnapshot = pm.materialCode;
+            if (Number(item.unitRate) > 0) {
+              await this.prisma.packingMaterial.update({
+                where: { id: pm.id },
+                data: { lastPurchaseCost: Number(item.unitRate) },
+              }).catch(() => null);
+            }
+          }
+        } else if (materialType === 'FINISHED_PRODUCT') {
+          let fp = materialId
+            ? await this.prisma.finishedProduct.findUnique({ where: { id: materialId } })
+            : null;
+          if (!fp && cleanName) {
+            fp = await this.prisma.finishedProduct.findFirst({
+              where: { companyId, productName: { equals: cleanName, mode: 'insensitive' } },
+            });
+          }
+          if (fp) {
+            materialId = fp.id;
+            materialCodeSnapshot = fp.productCode;
+            if (Number(item.unitRate) > 0) {
+              await this.prisma.finishedProduct.update({
+                where: { id: fp.id },
+                data: { standardCost: Number(item.unitRate) },
+              }).catch(() => null);
+            }
           }
         } else {
           // RAW_MATERIAL
@@ -366,6 +395,12 @@ export class OperationalPoService {
           if (rm) {
             materialId = rm.id;
             materialCodeSnapshot = rm.materialCode;
+            if (Number(item.unitRate) > 0) {
+              await this.prisma.rawMaterial.update({
+                where: { id: rm.id },
+                data: { lastPurchaseCost: Number(item.unitRate) },
+              }).catch(() => null);
+            }
           }
         }
 
@@ -394,7 +429,13 @@ export class OperationalPoService {
           lineTotal: line,
           materialCodeSnapshot,
           materialNameSnapshot: item.itemName,
-          specificationSnapshot: item.packing ? `Packing: ${item.packing}` : null,
+          specificationSnapshot: item.packing
+            ? item.packing
+            : item.packSize && item.numberOfPacks
+            ? `Packs: ${item.numberOfPacks} × ${item.packSize} (${qty} ${item.unit || 'KG'})`
+            : item.packSize
+            ? `Pack Size: ${item.packSize}`
+            : null,
         };
       }),
     );

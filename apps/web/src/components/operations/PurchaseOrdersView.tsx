@@ -32,14 +32,49 @@ import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFi
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 
+export function parsePackSize(
+  packSizeStr: string | null | undefined,
+  defaultUnit = 'KG'
+): { capacity: number; unit: string } {
+  if (!packSizeStr) return { capacity: 1, unit: defaultUnit };
+  const clean = packSizeStr.replace(/^Pack Size:\s*/i, '').trim();
+
+  // Pattern: e.g. "25 KG", "500 ML", "2.5 L", "100 PCS", "50KG", "2L"
+  const match = clean.match(/^([\d.]+)\s*([a-zA-Z%]+)?$/);
+  if (match && match[1]) {
+    const num = parseFloat(match[1]);
+    const rawUnit = (match[2] || defaultUnit).toUpperCase();
+    return {
+      capacity: isNaN(num) || num <= 0 ? 1 : num,
+      unit: rawUnit || defaultUnit,
+    };
+  }
+
+  // Pattern for "Drum (200L)" or "Bag (50KG)"
+  const drumMatch = clean.match(/(\d+)\s*(L|KG|LTR|GM|ML|PCS)/i);
+  if (drumMatch && drumMatch[1]) {
+    return {
+      capacity: parseFloat(drumMatch[1]) || 1,
+      unit: (drumMatch[2] || defaultUnit).toUpperCase(),
+    };
+  }
+
+  return { capacity: 1, unit: defaultUnit };
+}
+
 export interface PurchaseOrderItemRow {
   materialId?: string;
   materialType?: string;
   itemName: string;
-  packing?: string;
-  unit?: string;
+  packSize?: string;
+  packCapacity?: number;
+  numberOfPacks?: number;
   quantity: number;
+  unit?: string;
+  totalPurchaseAmount?: number;
+  costPerPack?: number;
   unitRate: number;
+  packing?: string;
   taxAmount?: number;
   discountAmount?: number;
   lineTotal?: number;
@@ -92,7 +127,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const [formExpectedDate, setFormExpectedDate] = useState<string>('');
   const [formNotes, setFormNotes] = useState<string>('');
   const [formItems, setFormItems] = useState<PurchaseOrderItemRow[]>([
-    { itemName: '', materialType: 'RAW_MATERIAL', packing: 'Bulk', unit: 'KG', quantity: 1, unitRate: 0, lineTotal: 0 },
+    {
+      itemName: '',
+      materialType: 'RAW_MATERIAL',
+      packSize: '25 KG',
+      packCapacity: 25,
+      numberOfPacks: 10,
+      quantity: 250,
+      unit: 'KG',
+      totalPurchaseAmount: 0,
+      costPerPack: 0,
+      unitRate: 0,
+      lineTotal: 0,
+    },
   ]);
 
   // Multi-Warehouse Split Modal State
@@ -295,24 +342,52 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     email: v.email || '',
   });
 
-  const normalizeMaterial = (m: any) => ({
-    id: m.id,
-    materialCode: m.materialCode || m.code || '',
-    materialName: m.materialName || m.name || 'Unnamed Material',
-    standardCost: Number(m.standardCost) || 0,
-    lastPurchaseCost: Number(m.lastPurchaseCost) || 0,
-    specifications: m.specifications || m.description || m.bulkPacking || '',
-    unit: m.baseUom?.symbol || m.baseUom?.code || m.uom?.symbol || m.uom?.code || m.unit || '',
-  });
+  const normalizeMaterial = (m: any) => {
+    let packSize = m.packSize || m.bulkPacking || m.packCompatibility || m.specifications || m.description || '';
+    if (packSize && typeof packSize === 'string' && packSize.startsWith('Pack Size:')) {
+      packSize = packSize.replace(/^Pack Size:\s*/i, '').trim();
+    }
+    const unit = m.baseUom?.symbol || m.baseUom?.code || m.uom?.symbol || m.uom?.code || m.unit || 'KG';
+    if (!packSize) {
+      packSize = `1 ${unit}`;
+    }
+    return {
+      id: m.id,
+      materialCode: m.materialCode || m.code || '',
+      materialName: m.materialName || m.name || 'Unnamed Material',
+      packSize: String(packSize).trim(),
+      standardCost: Number(m.standardCost) || 0,
+      lastPurchaseCost: Number(m.lastPurchaseCost) || 0,
+      specifications: m.specifications || m.description || m.bulkPacking || '',
+      unit,
+    };
+  };
 
   const normalizeFinishedProduct = (p: any) => {
-    const packLabel = p.packSize ? `${p.packSize.sizeValue || ''} ${p.packSize.uom?.symbol || p.packSize.uom?.name || ''}`.trim() : (p.packing || '');
+    let packLabel = '';
+    if (p.packSize?.name) {
+      packLabel = p.packSize.name;
+    } else if (p.packSize?.quantity || p.packSize?.sizeValue) {
+      const q = p.packSize.quantity || p.packSize.sizeValue;
+      const u = p.packSize.unit || p.packSize.uom?.symbol || p.packSize.uom?.name || '';
+      packLabel = `${q} ${u}`.trim();
+    } else if (p.packingQuantity) {
+      packLabel = `${p.packingQuantity} ${p.packingUnit || ''}`.trim();
+    } else if (p.packSize) {
+      packLabel = typeof p.packSize === 'string' ? p.packSize : (p.packSize.name || '');
+    } else {
+      packLabel = p.packing || '';
+    }
+    const unit = p.salesUom?.symbol || p.baseUom?.symbol || p.packSize?.uom?.symbol || p.packingUnit || 'Units';
+    if (!packLabel) {
+      packLabel = `1 ${unit}`;
+    }
     return {
       id: p.id,
       productCode: p.productCode || p.code || '',
       productName: p.productName || p.name || 'Unnamed Product',
-      packSize: packLabel,
-      unit: p.salesUom?.symbol || p.baseUom?.symbol || p.packSize?.uom?.symbol || 'Units',
+      packSize: String(packLabel).trim(),
+      unit,
       standardCost: Number(p.standardCost) || Number(p.lastPurchaseCost) || 0,
       mrp: Number(p.mrp) || 0,
       status: p.status || 'ACTIVE',
@@ -630,67 +705,127 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     }
   };
 
-  // Form item update
+  // Form item update with Real-Time Pack Size, Quantity & Automatic Unit Cost Calculations
   const updateItem = (index: number, field: string, value: any) => {
     const updated = [...formItems];
-    const item = { ...updated[index], [field]: value } as PurchaseOrderItemRow;
+    const cur = updated[index];
+    const item = { ...cur } as PurchaseOrderItemRow;
 
     if (field === 'materialId') {
+      item.materialId = value;
+      let selectedItem: any = null;
+
       const rm = rawMaterials.find((m) => m.id === value);
       if (rm) {
-        item.materialId = rm.id;
-        item.itemName = rm.materialName;
+        selectedItem = rm;
         item.materialType = 'RAW_MATERIAL';
-        item.unitRate = Number(rm.lastPurchaseCost || rm.standardCost || 0);
-        if (rm.specifications) item.packing = rm.specifications;
-        if (rm.baseUom?.code) item.unit = rm.baseUom.code;
-        else if (rm.purchaseUom?.code) item.unit = rm.purchaseUom.code;
-        else if (rm.unit) item.unit = rm.unit;
+        item.itemName = rm.materialName;
       } else {
         const pm = packingMaterials.find((m) => m.id === value);
         if (pm) {
-          item.materialId = pm.id;
-          item.itemName = pm.materialName;
+          selectedItem = pm;
           item.materialType = 'PACKING_MATERIAL';
-          item.unitRate = Number(pm.lastPurchaseCost || pm.standardCost || 0);
-          if (pm.description || pm.specifications) item.packing = pm.description || pm.specifications;
-          if (pm.baseUom?.code) item.unit = pm.baseUom.code;
-          else if (pm.purchaseUom?.code) item.unit = pm.purchaseUom.code;
-          else if (pm.unit) item.unit = pm.unit;
+          item.itemName = pm.materialName;
         } else {
           const fp = finishedProducts.find((p) => p.id === value);
           if (fp) {
-            item.materialId = fp.id;
-            item.itemName = fp.productName;
+            selectedItem = fp;
             item.materialType = 'FINISHED_PRODUCT';
-            item.unitRate = Number(fp.standardCost || fp.mrp || 0);
-            if (fp.packSize) item.packing = fp.packSize;
-            if (fp.unit) item.unit = fp.unit;
+            item.itemName = fp.productName;
           }
         }
       }
-    }
 
-    if (field === 'materialType') {
-      item.materialType = value;
-      if (value === 'FINISHED_PRODUCT') {
-        const fpMatch = finishedProducts.find((p) => p.id === item.materialId);
-        if (!fpMatch) item.materialId = undefined;
-        item.unit = item.unit || 'Units';
-      } else if (value === 'PACKING_MATERIAL') {
-        const pmMatch = packingMaterials.find((m) => m.id === item.materialId);
-        if (!pmMatch) item.materialId = undefined;
-        if (!item.unit || item.unit === 'KG') item.unit = 'PCS';
-      } else if (value === 'RAW_MATERIAL') {
-        const rmMatch = rawMaterials.find((m) => m.id === item.materialId);
-        if (!rmMatch) item.materialId = undefined;
-        if (!item.unit || item.unit === 'PCS') item.unit = 'KG';
+      if (selectedItem) {
+        // 1. Pack Size & Base UoM automatically fetched from Product Master
+        item.packSize = selectedItem.packSize || `1 ${selectedItem.unit || 'KG'}`;
+        item.unit = selectedItem.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG');
+
+        // 2. Parse pack capacity (e.g. 25 from "25 KG", 2 from "2 L", 50 from "50 KG")
+        const parsed = parsePackSize(item.packSize, item.unit);
+        item.packCapacity = parsed.capacity;
+        if (parsed.unit) {
+          item.unit = parsed.unit;
+        }
+
+        // 3. Default packs
+        if (!item.numberOfPacks || item.numberOfPacks <= 0) {
+          item.numberOfPacks = 10;
+        }
+
+        // 4. Calculate Total Quantity: Packs × Pack Capacity
+        item.quantity = item.numberOfPacks * (item.packCapacity || 1);
+        item.packing = `${item.numberOfPacks} × ${item.packSize}`;
+
+        // 5. If Total Amount exists, calculate Cost/Pack & Cost/UoM
+        if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0) {
+          item.costPerPack = item.totalPurchaseAmount / item.numberOfPacks;
+          item.unitRate = item.quantity > 0 ? item.totalPurchaseAmount / item.quantity : 0;
+          item.lineTotal = item.totalPurchaseAmount;
+        } else if (item.costPerPack && item.costPerPack > 0) {
+          item.totalPurchaseAmount = item.costPerPack * item.numberOfPacks;
+          item.unitRate = item.quantity > 0 ? item.totalPurchaseAmount / item.quantity : 0;
+          item.lineTotal = item.totalPurchaseAmount;
+        }
+      } else {
+        item.materialId = '';
+        item.itemName = '';
       }
-    }
+    } else if (field === 'numberOfPacks') {
+      const packs = Math.max(0, parseFloat(value) || 0);
+      item.numberOfPacks = packs;
+      const cap = item.packCapacity || 1;
+      item.quantity = packs * cap;
+      item.packing = `${packs} × ${item.packSize || `${cap} ${item.unit || 'KG'}`}`;
 
-    const qty = Number(item.quantity) || 0;
-    const rate = Number(item.unitRate) || 0;
-    item.lineTotal = qty * rate;
+      if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0 && packs > 0) {
+        item.costPerPack = item.totalPurchaseAmount / packs;
+        item.unitRate = item.quantity > 0 ? item.totalPurchaseAmount / item.quantity : 0;
+        item.lineTotal = item.totalPurchaseAmount;
+      } else if (item.costPerPack && item.costPerPack > 0 && packs > 0) {
+        item.totalPurchaseAmount = item.costPerPack * packs;
+        item.unitRate = item.quantity > 0 ? item.totalPurchaseAmount / item.quantity : 0;
+        item.lineTotal = item.totalPurchaseAmount;
+      }
+    } else if (field === 'totalPurchaseAmount') {
+      const totalAmt = Math.max(0, parseFloat(value) || 0);
+      item.totalPurchaseAmount = totalAmt;
+      item.lineTotal = totalAmt;
+
+      const packs = item.numberOfPacks || 1;
+      const qty = item.quantity || (packs * (item.packCapacity || 1));
+
+      item.costPerPack = packs > 0 ? totalAmt / packs : 0;
+      item.unitRate = qty > 0 ? totalAmt / qty : 0;
+    } else if (field === 'costPerPack') {
+      const cpp = Math.max(0, parseFloat(value) || 0);
+      item.costPerPack = cpp;
+      const packs = item.numberOfPacks || 1;
+      item.totalPurchaseAmount = cpp * packs;
+      item.lineTotal = item.totalPurchaseAmount;
+
+      const qty = item.quantity || (packs * (item.packCapacity || 1));
+      item.unitRate = qty > 0 ? item.totalPurchaseAmount / qty : 0;
+    } else if (field === 'packSize') {
+      item.packSize = value;
+      const parsed = parsePackSize(value, item.unit || 'KG');
+      item.packCapacity = parsed.capacity;
+      if (parsed.unit) item.unit = parsed.unit;
+      const packs = item.numberOfPacks || 1;
+      item.quantity = packs * item.packCapacity;
+      item.packing = `${packs} × ${value}`;
+
+      if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0) {
+        item.costPerPack = packs > 0 ? item.totalPurchaseAmount / packs : 0;
+        item.unitRate = item.quantity > 0 ? item.totalPurchaseAmount / item.quantity : 0;
+      }
+    } else if (field === 'materialType') {
+      item.materialType = value;
+      item.materialId = undefined;
+      item.itemName = '';
+    } else {
+      (item as any)[field] = value;
+    }
 
     updated[index] = item;
     setFormItems(updated);
@@ -699,7 +834,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const addItemRow = () => {
     setFormItems([
       ...formItems,
-      { itemName: '', materialType: 'RAW_MATERIAL', packing: 'Bulk', unit: 'KG', quantity: 1, unitRate: 0, lineTotal: 0 },
+      {
+        itemName: '',
+        materialType: 'RAW_MATERIAL',
+        packSize: '25 KG',
+        packCapacity: 25,
+        numberOfPacks: 10,
+        quantity: 250,
+        unit: 'KG',
+        totalPurchaseAmount: 0,
+        costPerPack: 0,
+        unitRate: 0,
+        lineTotal: 0,
+      },
     ]);
   };
 
@@ -727,11 +874,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         extraFields: extractedExtraFields,
         items: formItems.map((it) => ({
           ...it,
+          packing: `${it.numberOfPacks || 1} × ${it.packSize || `${it.packCapacity || 1} ${it.unit || 'KG'}`} (${it.quantity || 1} ${it.unit || 'KG'})`.trim(),
+          packSize: it.packSize,
+          numberOfPacks: it.numberOfPacks,
+          totalPurchaseAmount: it.totalPurchaseAmount || it.lineTotal,
+          costPerPack: it.costPerPack,
           materialType: it.materialType || 'RAW_MATERIAL',
           rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
           packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
           finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
           warehouseId: it.warehouseId || formWarehouseId || undefined,
+          quantity: it.quantity,
+          unitRate: it.unitRate,
+          lineTotal: it.lineTotal || it.totalPurchaseAmount,
         })),
         status: 'CONFIRMED',
       });
@@ -2381,37 +2536,34 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
             </CardHeader>
             <CardContent style={{ padding: '0' }}>
               <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                <table style={{ width: '100%', minWidth: '1360px', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+                <table style={{ width: '100%', minWidth: '1380px', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc', textAlign: 'left' }}>
-                      <th style={{ padding: '14px 12px', width: '48px', textAlign: 'center', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ padding: '14px 10px', width: '40px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         #
                       </th>
-                      <th style={{ padding: '14px 12px', width: '185px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Material Type *
+                      <th style={{ padding: '14px 12px', minWidth: '340px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Product Selection *
                       </th>
-                      <th style={{ padding: '14px 12px', width: '380px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Item / Material Selection *
+                      <th style={{ padding: '14px 10px', width: '135px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Pack Size (Master)
                       </th>
-                      <th style={{ padding: '14px 12px', width: '185px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Destination WH
+                      <th style={{ padding: '14px 10px', width: '110px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Packs *
                       </th>
-                      <th style={{ padding: '14px 12px', width: '140px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Packing Spec
+                      <th style={{ padding: '14px 10px', width: '135px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Total Quantity
                       </th>
-                      <th style={{ padding: '14px 12px', width: '105px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Unit
+                      <th style={{ padding: '14px 12px', width: '175px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Total Amount (PKR) *
                       </th>
-                      <th style={{ padding: '14px 12px', width: '130px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Quantity
+                      <th style={{ padding: '14px 12px', width: '150px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Cost / Pack (PKR)
                       </th>
-                      <th style={{ padding: '14px 12px', width: '150px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Rate (PKR)
+                      <th style={{ padding: '14px 12px', width: '155px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                        Cost / Base UoM
                       </th>
-                      <th style={{ padding: '14px 12px', width: '160px', textAlign: 'right', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Total (PKR)
-                      </th>
-                      <th style={{ padding: '14px 12px', width: '105px', textAlign: 'center', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ padding: '14px 10px', width: '85px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
                         Actions
                       </th>
                     </tr>
@@ -2433,43 +2585,59 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           </span>
                         </td>
 
-                        {/* Material Type */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <select
-                            id={`field-po-mat-type-${idx}`}
-                            value={item.materialType || 'RAW_MATERIAL'}
-                            onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                document.getElementById(`field-po-item-${idx}-input`)?.focus() || document.getElementById(`field-po-item-${idx}`)?.focus();
-                                document.getElementById(`field-po-item-${idx}`)?.focus();
-                              }
-                            }}
-                            style={{
-                              width: '100%',
-                              height: '42px',
-                              padding: '0 12px',
-                              borderRadius: '8px',
-                              fontSize: '13.5px',
-                              fontWeight: 600,
-                              border: '1.5px solid #cbd5e1',
-                              backgroundColor: '#ffffff',
-                              color: '#0f172a',
-                              boxSizing: 'border-box',
-                              cursor: 'pointer',
-                              outline: 'none',
-                            }}
-                          >
-                            <option value="RAW_MATERIAL">Raw Material</option>
-                            <option value="PACKING_MATERIAL">Packaging Material</option>
-                            <option value="FINISHED_PRODUCT">Finished Product</option>
-                          </select>
-                        </td>
-
-                        {/* Item Name / Product Selection */}
+                        {/* Product Selection */}
                         <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <select
+                                id={`field-po-mat-type-${idx}`}
+                                value={item.materialType || 'RAW_MATERIAL'}
+                                onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
+                                style={{
+                                  width: '140px',
+                                  height: '40px',
+                                  padding: '0 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  border: '1.5px solid #cbd5e1',
+                                  backgroundColor: '#f8fafc',
+                                  color: '#0f172a',
+                                  cursor: 'pointer',
+                                  outline: 'none',
+                                }}
+                              >
+                                <option value="RAW_MATERIAL">Raw Material</option>
+                                <option value="PACKING_MATERIAL">Packaging Material</option>
+                                <option value="FINISHED_PRODUCT">Finished Product</option>
+                              </select>
+
+                              <select
+                                id={`field-po-wh-${idx}`}
+                                value={item.warehouseId || formWarehouseId}
+                                onChange={(e) => updateItem(idx, 'warehouseId', e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  height: '40px',
+                                  padding: '0 8px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  border: '1.5px solid #cbd5e1',
+                                  backgroundColor: '#f8fafc',
+                                  color: '#334155',
+                                  cursor: 'pointer',
+                                  outline: 'none',
+                                }}
+                              >
+                                {warehouses.map((w) => (
+                                  <option key={w.id} value={w.id}>
+                                    WH: {w.code} - {w.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <select
                                 id={`field-po-item-${idx}`}
@@ -2486,7 +2654,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
                                     e.preventDefault();
-                                    document.getElementById(`field-po-qty-${idx}`)?.focus();
+                                    document.getElementById(`field-po-packs-${idx}`)?.focus();
                                   }
                                 }}
                                 style={{
@@ -2517,15 +2685,16 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                   : item.materialType === 'PACKING_MATERIAL'
                                   ? packingMaterials.map((m) => (
                                       <option key={m.id} value={m.id}>
-                                        [{m.materialCode}] {m.materialName}{m.specifications ? ` — ${m.specifications}` : ''}
+                                        [{m.materialCode}] {m.materialName}{m.packSize ? ` [${m.packSize}]` : m.specifications ? ` [${m.specifications}]` : ''}
                                       </option>
                                     ))
                                   : rawMaterials.map((m) => (
                                       <option key={m.id} value={m.id}>
-                                        [{m.materialCode}] {m.materialName}{m.specifications ? ` — ${m.specifications}` : ''}
+                                        [{m.materialCode}] {m.materialName}{m.packSize ? ` [${m.packSize}]` : m.specifications ? ` [${m.specifications}]` : ''}
                                       </option>
                                     ))}
                               </select>
+
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2534,7 +2703,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                   setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
                                   setNewMatRate(item.unitRate || 0);
                                   setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
-                                  setNewMatPacking(item.packing || 'Bulk');
+                                  setNewMatPacking(item.packSize || 'Bulk');
                                   setIsQuickMaterialModalOpen(true);
                                 }}
                                 title="Quick Add Item"
@@ -2581,48 +2750,59 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           </div>
                         </td>
 
-                        {/* Destination WH */}
+                        {/* Pack Size (Auto-fetched from Product Master) */}
                         <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <select
-                            id={`field-po-wh-${idx}`}
-                            value={item.warehouseId || formWarehouseId}
-                            onChange={(e) => updateItem(idx, 'warehouseId', e.target.value)}
-                            style={{
-                              width: '100%',
-                              height: '42px',
-                              padding: '0 12px',
-                              borderRadius: '8px',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              border: '1.5px solid #cbd5e1',
-                              backgroundColor: '#ffffff',
-                              color: '#0f172a',
-                              boxSizing: 'border-box',
-                              cursor: 'pointer',
-                              outline: 'none',
-                            }}
-                          >
-                            {warehouses.map((w) => (
-                              <option key={w.id} value={w.id}>
-                                {w.code} - {w.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                color: '#0f172a',
+                                padding: '8px 10px',
+                                backgroundColor: '#f1f5f9',
+                                borderRadius: '8px',
+                                border: '1.5px solid #cbd5e1',
+                                fontSize: '13px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <span>{item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}</span>
+                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#0284c7', backgroundColor: '#e0f2fe', padding: '1px 5px', borderRadius: '4px' }}>
+                                Master
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                              Base UoM: <strong>{item.unit || 'KG'}</strong>
+                            </div>
+                          </div>
                         </td>
 
-                        {/* Packing */}
+                        {/* Number of Packs */}
                         <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
-                            id={`field-po-packing-${idx}`}
-                            value={item.packing || ''}
-                            onChange={(e) => updateItem(idx, 'packing', e.target.value)}
-                            placeholder="e.g. 200L Drum, Bulk"
+                            id={`field-po-packs-${idx}`}
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            value={item.numberOfPacks === 0 ? '' : item.numberOfPacks}
+                            onChange={(e) => updateItem(idx, 'numberOfPacks', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById(`field-po-amount-${idx}`)?.focus();
+                              }
+                            }}
+                            placeholder="10"
                             style={{
                               width: '100%',
                               height: '42px',
-                              padding: '0 12px',
+                              padding: '0 10px',
                               borderRadius: '8px',
-                              fontSize: '13px',
+                              fontSize: '14px',
+                              fontWeight: 700,
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
                               border: '1.5px solid #cbd5e1',
                               backgroundColor: '#ffffff',
                               color: '#0f172a',
@@ -2630,15 +2810,88 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               outline: 'none',
                             }}
                           />
+                          <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'right', marginTop: '3px' }}>
+                            Packs
+                          </div>
                         </td>
 
-                        {/* Unit */}
+                        {/* Total Quantity (Calculated) */}
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle', textAlign: 'right' }}>
+                          <div
+                            style={{
+                              padding: '8px 10px',
+                              backgroundColor: '#e0f2fe',
+                              borderRadius: '8px',
+                              border: '1.5px solid #bae6fd',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 800,
+                              fontSize: '13.5px',
+                              color: '#0369a1',
+                              textAlign: 'right',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {Number(item.quantity || 0).toLocaleString()} {item.unit || 'KG'}
+                          </div>
+                          <div style={{ fontSize: '10.5px', color: '#0284c7', marginTop: '3px', fontWeight: 600 }}>
+                            {item.numberOfPacks || 0} × {item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}
+                          </div>
+                        </td>
+
+                        {/* Total Purchase Amount (PKR) */}
                         <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
                           <input
-                            id={`field-po-unit-${idx}`}
-                            value={item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG')}
-                            onChange={(e) => updateItem(idx, 'unit', e.target.value.toUpperCase())}
-                            placeholder="KG / L"
+                            id={`field-po-amount-${idx}`}
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={item.totalPurchaseAmount === 0 ? '' : item.totalPurchaseAmount}
+                            onChange={(e) => updateItem(idx, 'totalPurchaseAmount', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (idx === formItems.length - 1) {
+                                  addItemRow();
+                                  setTimeout(() => {
+                                    document.getElementById(`field-po-item-${idx + 1}`)?.focus();
+                                  }, 60);
+                                } else {
+                                  document.getElementById(`field-po-item-${idx + 1}`)?.focus();
+                                }
+                              }
+                            }}
+                            placeholder="e.g. 200000"
+                            style={{
+                              width: '100%',
+                              height: '42px',
+                              padding: '0 12px',
+                              borderRadius: '8px',
+                              fontSize: '14px',
+                              fontWeight: 800,
+                              textAlign: 'right',
+                              fontFamily: 'var(--font-mono)',
+                              border: '1.5px solid #0284c7',
+                              backgroundColor: '#f0f9ff',
+                              color: '#0c4a6e',
+                              boxSizing: 'border-box',
+                              outline: 'none',
+                            }}
+                          />
+                          <div style={{ fontSize: '11px', color: '#0369a1', textAlign: 'right', marginTop: '3px', fontWeight: 600 }}>
+                            Agreed Total Value
+                          </div>
+                        </td>
+
+                        {/* Cost / Pack */}
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
+                          <input
+                            id={`field-po-cost-per-pack-${idx}`}
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={item.costPerPack === 0 ? '' : item.costPerPack}
+                            onChange={(e) => updateItem(idx, 'costPerPack', e.target.value)}
+                            placeholder="e.g. 20000"
                             style={{
                               width: '100%',
                               height: '42px',
@@ -2646,40 +2899,6 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               borderRadius: '8px',
                               fontSize: '13px',
                               fontWeight: 700,
-                              textAlign: 'center',
-                              border: '1.5px solid #cbd5e1',
-                              backgroundColor: '#ffffff',
-                              color: '#0f172a',
-                              boxSizing: 'border-box',
-                              textTransform: 'uppercase',
-                              outline: 'none',
-                            }}
-                          />
-                        </td>
-
-                        {/* Quantity */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <input
-                            id={`field-po-qty-${idx}`}
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.quantity === 0 ? '' : item.quantity}
-                            onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                document.getElementById(`field-po-rate-${idx}`)?.focus();
-                              }
-                            }}
-                            placeholder="0.00"
-                            style={{
-                              width: '100%',
-                              height: '42px',
-                              padding: '0 12px',
-                              borderRadius: '8px',
-                              fontSize: '14px',
-                              fontWeight: 700,
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
                               border: '1.5px solid #cbd5e1',
@@ -2689,65 +2908,31 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               outline: 'none',
                             }}
                           />
+                          <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'right', marginTop: '3px' }}>
+                            Cost / Pack
+                          </div>
                         </td>
 
-                        {/* Rate */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <input
-                            id={`field-po-rate-${idx}`}
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.unitRate === 0 ? '' : item.unitRate}
-                            onChange={(e) => updateItem(idx, 'unitRate', parseFloat(e.target.value) || 0)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                if (idx === formItems.length - 1) {
-                                  addItemRow();
-                                  setTimeout(() => {
-                                    document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
-                                  }, 60);
-                                } else {
-                                  document.getElementById(`field-po-mat-type-${idx + 1}`)?.focus();
-                                }
-                              }
-                            }}
-                            placeholder="0.00"
-                            style={{
-                              width: '100%',
-                              height: '42px',
-                              padding: '0 12px',
-                              borderRadius: '8px',
-                              fontSize: '14px',
-                              fontWeight: 700,
-                              textAlign: 'right',
-                              fontFamily: 'var(--font-mono)',
-                              border: '1.5px solid #cbd5e1',
-                              backgroundColor: '#ffffff',
-                              color: '#0f172a',
-                              boxSizing: 'border-box',
-                              outline: 'none',
-                            }}
-                          />
-                        </td>
-
-                        {/* Total */}
-                        <td style={{ padding: '12px 10px', textAlign: 'right', verticalAlign: 'middle' }}>
+                        {/* Cost / Base UoM */}
+                        <td style={{ padding: '12px 10px', verticalAlign: 'middle', textAlign: 'right' }}>
                           <div
                             style={{
-                              display: 'inline-block',
-                              padding: '8px 12px',
-                              borderRadius: '6px',
-                              backgroundColor: '#f1f5f9',
-                              color: '#0f172a',
+                              padding: '8px 10px',
+                              backgroundColor: '#ecfdf5',
+                              borderRadius: '8px',
+                              border: '1.5px solid #a7f3d0',
                               fontFamily: 'var(--font-mono)',
                               fontWeight: 800,
-                              fontSize: '14px',
+                              fontSize: '13.5px',
+                              color: '#047857',
+                              textAlign: 'right',
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            PKR {Number(item.lineTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            PKR {Number(item.unitRate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#059669', textAlign: 'right', marginTop: '3px', fontWeight: 600 }}>
+                            per {item.unit || 'KG'}
                           </div>
                         </td>
 
@@ -2757,7 +2942,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             <button
                               type="button"
                               onClick={() => openSplitModal('form', idx)}
-                              title="Split item across warehouses (e.g. WH A: 50, WH B: 100, WH C: 50)"
+                              title="Split item across warehouses"
                               style={{
                                 height: '34px',
                                 padding: '0 10px',
@@ -2911,28 +3096,32 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                 <tr style={{ borderBottom: '2px solid var(--border-default)', background: '#f8fafc', textAlign: 'left' }}>
                   <th style={{ padding: '10px 14px', width: '44px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>#</th>
                   <th style={{ padding: '10px 14px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Material Description</th>
-                  <th style={{ padding: '10px 14px', width: '160px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Type</th>
-                  <th style={{ padding: '10px 14px', width: '120px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Packing Spec</th>
-                  <th style={{ padding: '10px 14px', width: '100px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Qty</th>
-                  <th style={{ padding: '10px 14px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Rate (PKR)</th>
-                  <th style={{ padding: '10px 14px', width: '140px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Total (PKR)</th>
+                  <th style={{ padding: '10px 14px', width: '140px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Type</th>
+                  <th style={{ padding: '10px 14px', width: '180px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Pack Breakdown</th>
+                  <th style={{ padding: '10px 14px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Total Quantity</th>
+                  <th style={{ padding: '10px 14px', width: '140px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Cost / UoM</th>
+                  <th style={{ padding: '10px 14px', width: '150px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Total (PKR)</th>
                 </tr>
               </thead>
               <tbody>
                 {selectedOrder.items.map((i, idx) => (
                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)', backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fcfdfd' }}>
                     <td style={{ padding: '10px 14px', textAlign: 'center', color: '#94a3b8', fontWeight: 600, fontSize: '12px' }}>{idx + 1}</td>
-                    <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{i.itemName}</td>
+                    <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>{i.itemName}</td>
                     <td style={{ padding: '10px 14px' }}>
-                      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: i.materialType === 'PACKING_MATERIAL' ? '#f5f3ff' : '#eff6ff', color: i.materialType === 'PACKING_MATERIAL' ? '#6b21a8' : '#1e40af' }}>
+                      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, backgroundColor: i.materialType === 'PACKING_MATERIAL' ? '#f5f3ff' : i.materialType === 'FINISHED_PRODUCT' ? '#ecfdf5' : '#eff6ff', color: i.materialType === 'PACKING_MATERIAL' ? '#6b21a8' : i.materialType === 'FINISHED_PRODUCT' ? '#047857' : '#1e40af' }}>
                         {i.materialType === 'PACKING_MATERIAL' ? 'Packaging' : i.materialType === 'FINISHED_PRODUCT' ? 'Finished Good' : 'Raw Material'}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#64748b' }}>{i.packing || '-'}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{Number(i.quantity).toLocaleString()}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>PKR {Number(i.unitRate).toLocaleString()}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0f172a' }}>
-                      PKR {Number(i.lineTotal).toLocaleString()}
+                    <td style={{ padding: '10px 14px', color: '#475569', fontWeight: 500 }}>{i.packing || (i as any).specificationSnapshot || '-'}</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0284c7' }}>
+                      {Number(i.quantity).toLocaleString()} {i.unit || ''}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#047857', fontWeight: 600 }}>
+                      PKR {Number(i.unitRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {i.unit || 'unit'}
+                    </td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#0f172a' }}>
+                      PKR {Number(i.lineTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))}
