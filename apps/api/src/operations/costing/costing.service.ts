@@ -31,9 +31,22 @@ export interface SaveCostingRecordInput {
   sourceVendorName?: string;
   sourceVendorCode?: string;
   finishedProductId?: string;
-  rawMaterialId: string;
-  rawMaterialQuantity: number;
-  rawMaterialCost: number;
+  rawMaterialId?: string;
+  rawMaterialQuantity?: number;
+  rawMaterialCost?: number;
+  rawMaterials?: {
+    rawMaterialId: string;
+    rawMaterialName?: string;
+    rawMaterialCode?: string;
+    sourcePoId?: string;
+    sourcePoNumber?: string;
+    purchaseDate?: string;
+    quantity: number;
+    unitCost: number;
+    totalCost: number;
+    uomName?: string;
+    availableQuantity?: number;
+  }[];
   packSize: number;
   packSizeUnit?: string;
   finishedQuantity: number;
@@ -46,6 +59,8 @@ export interface SaveCostingRecordInput {
     sourcePoNumber?: string;
     purchaseDate?: string;
   }[];
+  otherCost?: number;
+  otherCostNotes?: string;
   totalRawMaterialCost: number;
   totalPackagingCost: number;
   totalBatchCost: number;
@@ -873,10 +888,22 @@ export class CostingService {
     const organizationId = user.organizationId;
 
     return this.prisma.$transaction(async (tx) => {
-      const rawMaterial = await tx.rawMaterial.findUnique({
-        where: { id: dto.rawMaterialId },
-        include: { baseUom: true },
-      });
+      let rawMaterial = null;
+      const primaryRmId = dto.rawMaterialId || dto.rawMaterials?.[0]?.rawMaterialId;
+      if (primaryRmId) {
+        rawMaterial = await tx.rawMaterial.findUnique({
+          where: { id: primaryRmId },
+          include: { baseUom: true },
+        });
+      }
+
+      let finishedProduct = null;
+      if (dto.finishedProductId) {
+        finishedProduct = await tx.finishedProduct.findUnique({
+          where: { id: dto.finishedProductId },
+          select: { id: true, productCode: true, productName: true },
+        });
+      }
 
       const costingCode = await this.codeGen.generateCode({
         companyId,
@@ -884,29 +911,54 @@ export class CostingService {
         entityType: 'COSTING',
       });
 
-      const rmUnitCost = dto.rawMaterialQuantity > 0 ? dto.rawMaterialCost / dto.rawMaterialQuantity : Number(dto.rawMaterialCost);
+      const singleRmQty = dto.rawMaterialQuantity || 0;
+      const rmUnitCost = singleRmQty > 0 ? (dto.rawMaterialCost || 0) / singleRmQty : Number(dto.rawMaterialCost || 0);
+
+      const rawMaterialsList = dto.rawMaterials && dto.rawMaterials.length > 0
+        ? dto.rawMaterials
+        : primaryRmId ? [
+            {
+              rawMaterialId: primaryRmId,
+              rawMaterialName: rawMaterial?.materialName || 'Raw Material',
+              rawMaterialCode: rawMaterial?.materialCode || '',
+              sourcePoId: dto.sourcePoId,
+              sourcePoNumber: dto.sourcePoNumber,
+              purchaseDate: dto.purchaseDate,
+              quantity: dto.rawMaterialQuantity || 0,
+              unitCost: rmUnitCost,
+              totalCost: dto.totalRawMaterialCost || (dto.rawMaterialCost || 0),
+              uomName: dto.packSizeUnit || 'Liter',
+            },
+          ] : [];
 
       const snapshotData = {
         costingCode,
         costingDate: dto.costingDate || new Date().toISOString(),
+        finishedProductId: dto.finishedProductId || null,
+        productCode: finishedProduct?.productCode || null,
+        productName: finishedProduct?.productName || null,
         sourcePoId: dto.sourcePoId || null,
         sourcePoNumber: dto.sourcePoNumber || null,
         purchaseDate: dto.purchaseDate || null,
         vendorName: dto.sourceVendorName || null,
         vendorCode: dto.sourceVendorCode || null,
-        rawMaterialId: dto.rawMaterialId,
-        rawMaterialName: rawMaterial?.materialName || 'Raw Material',
-        rawMaterialCode: rawMaterial?.materialCode || '',
-        rawMaterialUnitCost: rmUnitCost,
-        rawMaterialQuantity: dto.rawMaterialQuantity,
+        rawMaterialId: primaryRmId || null,
+        rawMaterialName: rawMaterialsList[0]?.rawMaterialName || rawMaterial?.materialName || 'Raw Material',
+        rawMaterialCode: rawMaterialsList[0]?.rawMaterialCode || rawMaterial?.materialCode || '',
+        rawMaterialUnitCost: rawMaterialsList[0]?.unitCost || rmUnitCost,
+        rawMaterialQuantity: rawMaterialsList[0]?.quantity || dto.rawMaterialQuantity || 0,
         rawMaterialTotalCost: dto.totalRawMaterialCost,
+        rawMaterials: rawMaterialsList,
         packSize: dto.packSize,
         packSizeUnit: dto.packSizeUnit || 'Liter',
         finishedQuantity: dto.finishedQuantity,
+        packagingMaterials: dto.packagingMaterials || [],
+        otherCost: dto.otherCost || 0,
+        otherCostNotes: dto.otherCostNotes || null,
+        totalRawMaterialCost: dto.totalRawMaterialCost,
         totalPackagingCost: dto.totalPackagingCost,
         totalBatchCost: dto.totalBatchCost,
         costPerUnit: dto.costPerUnit,
-        packagingMaterials: dto.packagingMaterials,
         userNotes: dto.notes || 'Product Costing calculation confirmed',
       };
 
@@ -939,16 +991,14 @@ export class CostingService {
           createdById: user.id || null,
           createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
-            create: [
-              {
-                id: uuidv7(),
-                rawMaterialId: dto.rawMaterialId,
-                quantity: dto.rawMaterialQuantity,
-                unitCost: rmUnitCost,
-                totalCost: dto.totalRawMaterialCost,
-                uomName: dto.packSizeUnit || 'Liter',
-              },
-            ],
+            create: rawMaterialsList.map((rm) => ({
+              id: uuidv7(),
+              rawMaterialId: rm.rawMaterialId,
+              quantity: rm.quantity,
+              unitCost: rm.unitCost,
+              totalCost: rm.totalCost,
+              uomName: rm.uomName || 'KG',
+            })),
           },
           packagingLines: {
             create: (dto.packagingMaterials || []).map((pm) => ({
