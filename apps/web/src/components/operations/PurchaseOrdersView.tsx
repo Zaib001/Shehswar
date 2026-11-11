@@ -62,6 +62,323 @@ export function parsePackSize(
   return { capacity: 1, unit: defaultUnit };
 }
 
+export interface ProductOption {
+  id: string;
+  code: string;
+  name: string;
+  packSize: string;
+  unit: string;
+  materialType: string;
+}
+
+interface ProductAutocompleteInputProps {
+  id: string;
+  value: string;
+  selectedId?: string;
+  options: ProductOption[];
+  placeholder?: string;
+  onSelect: (option: ProductOption) => void;
+  onCustomTextChange: (text: string) => void;
+  onAddNewProduct: () => void;
+  nextFocusId?: string;
+}
+
+export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> = ({
+  id,
+  value,
+  selectedId,
+  options,
+  placeholder = 'Type code or product name (e.g. AC Lamp)...',
+  onSelect,
+  onCustomTextChange,
+  onAddNewProduct,
+  nextFocusId,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(value || '');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Sync searchQuery when external value changes and input is not focused
+  useEffect(() => {
+    if (!isFocused) {
+      setSearchQuery(value || '');
+    }
+  }, [value, isFocused]);
+
+  // Filter options based on query
+  const filtered = React.useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return options.slice(0, 40);
+    return options
+      .filter((opt) => {
+        const c = (opt.code || '').toLowerCase();
+        const n = (opt.name || '').toLowerCase();
+        const p = (opt.packSize || '').toLowerCase();
+        return c.includes(q) || n.includes(q) || p.includes(q);
+      })
+      .slice(0, 40);
+  }, [options, searchQuery]);
+
+  // Keep highlighted index in bounds
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filtered.length, searchQuery]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (isOpen && listRef.current) {
+      const items = listRef.current.querySelectorAll('[data-product-option]');
+      const el = items[highlightedIndex] as HTMLElement;
+      if (el) {
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIndex, isOpen]);
+
+  const handleSelect = (option: ProductOption) => {
+    const display = option.code ? `[${option.code}] ${option.name}` : option.name;
+    setSearchQuery(display);
+    setIsOpen(false);
+    onSelect(option);
+
+    if (nextFocusId) {
+      setTimeout(() => {
+        const nextEl = document.getElementById(nextFocusId) as HTMLInputElement | null;
+        if (nextEl) {
+          nextEl.focus();
+          if (typeof nextEl.select === 'function') {
+            nextEl.select();
+          }
+        }
+      }, 50);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      setHighlightedIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : filtered.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOpen && filtered.length > 0 && highlightedIndex >= 0 && highlightedIndex < filtered.length) {
+        const chosen = filtered[highlightedIndex];
+        if (chosen) {
+          handleSelect(chosen);
+        }
+      } else {
+        setIsOpen(false);
+        if (nextFocusId) {
+          setTimeout(() => {
+            const nextEl = document.getElementById(nextFocusId) as HTMLInputElement | null;
+            if (nextEl) {
+              nextEl.focus();
+              if (typeof nextEl.select === 'function') {
+                nextEl.select();
+              }
+            }
+          }, 50);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsOpen(false);
+    } else if (e.key === 'Tab') {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <input
+        ref={inputRef}
+        id={id}
+        type="text"
+        value={searchQuery}
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={(e) => {
+          const val = e.target.value;
+          setSearchQuery(val);
+          setIsOpen(true);
+          onCustomTextChange(val);
+        }}
+        onFocus={() => {
+          setIsFocused(true);
+          setIsOpen(true);
+          inputRef.current?.select();
+        }}
+        onBlur={() => {
+          setTimeout(() => {
+            setIsFocused(false);
+            setIsOpen(false);
+          }, 180);
+        }}
+        onKeyDown={handleKeyDown}
+        style={{
+          width: '100%',
+          height: '40px',
+          padding: '0 12px',
+          borderRadius: '8px',
+          fontSize: '13.5px',
+          fontWeight: 600,
+          border: isFocused ? '2px solid #059669' : '1.5px solid #cbd5e1',
+          boxShadow: isFocused ? '0 0 0 3px rgba(5, 150, 105, 0.18)' : 'none',
+          backgroundColor: '#ffffff',
+          color: '#0f172a',
+          outline: 'none',
+          boxSizing: 'border-box',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        }}
+      />
+
+      {isOpen && (
+        <div
+          ref={listRef}
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: '260px',
+            overflowY: 'auto',
+            backgroundColor: '#ffffff',
+            border: '1.5px solid #059669',
+            borderRadius: '8px',
+            boxShadow: '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            zIndex: 9999,
+          }}
+        >
+          {filtered.length > 0 ? (
+            filtered.map((opt, oIdx) => {
+              const isHighlighted = oIdx === highlightedIndex;
+              const isSelected = selectedId === opt.id;
+              return (
+                <div
+                  key={opt.id}
+                  data-product-option
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelect(opt);
+                  }}
+                  onMouseEnter={() => setHighlightedIndex(oIdx)}
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    backgroundColor: isHighlighted ? '#ecfdf5' : isSelected ? '#f0fdf4' : 'transparent',
+                    borderLeft: isHighlighted ? '3px solid #059669' : '3px solid transparent',
+                    borderBottom: '1px solid #f1f5f9',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    {opt.code && (
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#059669',
+                          backgroundColor: '#e6f4ea',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {opt.code}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: isSelected ? 700 : 600,
+                        color: '#0f172a',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {opt.name}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {opt.packSize && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          color: '#475569',
+                          backgroundColor: '#f1f5f9',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {opt.packSize}
+                      </span>
+                    )}
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b' }}>
+                      {opt.unit}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div style={{ padding: '12px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+              No master product matches &ldquo;{searchQuery}&rdquo;.
+              <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px', fontWeight: 600 }}>
+                Press Enter to use as custom description or click Add below.
+              </div>
+            </div>
+          )}
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onAddNewProduct();
+            }}
+            style={{
+              padding: '9px 12px',
+              borderTop: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafc',
+              cursor: 'pointer',
+              color: '#0284c7',
+              fontWeight: 700,
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <IconPlus size={14} /> + Add New Product to Master
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export interface PurchaseOrderItemRow {
   materialId?: string;
   materialType?: string;
@@ -705,6 +1022,49 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     }
   };
 
+  // Helper to fetch options formatted for ProductAutocompleteInput based on material type
+  const getProductOptionsForType = useCallback(
+    (type?: string): ProductOption[] => {
+      const normType = type || 'RAW_MATERIAL';
+      if (normType === 'RAW_MATERIAL') {
+        return rawMaterials.map((m) => ({
+          id: m.id,
+          code: m.materialCode || '',
+          name: m.materialName || '',
+          packSize: m.packSize || `1 ${m.unit || 'KG'}`,
+          unit: m.unit || 'KG',
+          materialType: 'RAW_MATERIAL',
+        }));
+      }
+      if (normType === 'PACKING_MATERIAL') {
+        return packingMaterials.map((m) => ({
+          id: m.id,
+          code: m.materialCode || '',
+          name: m.materialName || '',
+          packSize: m.packSize || `1 ${m.unit || 'PCS'}`,
+          unit: m.unit || 'PCS',
+          materialType: 'PACKING_MATERIAL',
+        }));
+      }
+      if (normType === 'FINISHED_PRODUCT') {
+        return finishedProducts.map((p) => ({
+          id: p.id,
+          code: p.productCode || '',
+          name: p.productName || '',
+          packSize: p.packSize || `1 ${p.unit || 'Units'}`,
+          unit: p.unit || 'Units',
+          materialType: 'FINISHED_PRODUCT',
+        }));
+      }
+      return [
+        ...rawMaterials.map((m) => ({ id: m.id, code: m.materialCode || '', name: m.materialName || '', packSize: m.packSize || '', unit: m.unit || 'KG', materialType: 'RAW_MATERIAL' })),
+        ...packingMaterials.map((m) => ({ id: m.id, code: m.materialCode || '', name: m.materialName || '', packSize: m.packSize || '', unit: m.unit || 'PCS', materialType: 'PACKING_MATERIAL' })),
+        ...finishedProducts.map((p) => ({ id: p.id, code: p.productCode || '', name: p.productName || '', packSize: p.packSize || '', unit: p.unit || 'Units', materialType: 'FINISHED_PRODUCT' })),
+      ];
+    },
+    [rawMaterials, packingMaterials, finishedProducts]
+  );
+
   // Form item update with Real-Time Pack Size, Quantity & Automatic Unit Cost Calculations
   const updateItem = (index: number, field: string, value: any) => {
     const updated = [...formItems];
@@ -832,8 +1192,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   };
 
   const addItemRow = () => {
-    setFormItems([
-      ...formItems,
+    const nextIdx = formItems.length;
+    setFormItems((prev) => [
+      ...prev,
       {
         itemName: '',
         materialType: 'RAW_MATERIAL',
@@ -848,6 +1209,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         lineTotal: 0,
       },
     ]);
+    setTimeout(() => {
+      const nextProduct = document.getElementById(`field-po-product-${nextIdx}`) as HTMLInputElement | null;
+      if (nextProduct) {
+        nextProduct.focus();
+        if (typeof nextProduct.select === 'function') {
+          nextProduct.select();
+        }
+      }
+    }, 60);
   };
 
   const removeItemRow = (index: number) => {
@@ -883,7 +1253,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
           packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
           finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
-          warehouseId: it.warehouseId || formWarehouseId || undefined,
+          warehouseId: formWarehouseId || undefined,
           quantity: it.quantity,
           unitRate: it.unitRate,
           lineTotal: it.lineTotal || it.totalPurchaseAmount,
@@ -2410,7 +2780,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     placeholder="Type to search vendor..."
                     addNewLabel="+ Add Vendor"
                     onAddNew={() => setIsQuickVendorModalOpen(true)}
-                    nextFocusId="field-po-date"
+                    nextFocusId="field-po-warehouse"
                   />
                   {extractedVendorRaw && (
                     <div style={{ fontSize: '11px', color: '#2563eb', marginTop: '4px', fontWeight: 500 }}>
@@ -2432,7 +2802,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       label: `${w.code} - ${w.name}`,
                     }))}
                     placeholder="Type to search warehouse..."
-                    nextFocusId="field-po-mat-type-0"
+                    nextFocusId="field-po-date"
                   />
                 </div>
 
@@ -2448,7 +2818,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        document.getElementById('field-po-warehouse')?.focus();
+                        const firstProd = document.getElementById('field-po-product-0') as HTMLInputElement | null;
+                        if (firstProd) {
+                          firstProd.focus();
+                          if (typeof firstProd.select === 'function') {
+                            firstProd.select();
+                          }
+                        }
                       }
                     }}
                   />
@@ -2514,7 +2890,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     fontWeight: 500,
                   }}
                 >
-                  ⌨ Enter on Rate = Add New Row
+                  ⌨ Enter on Total Amount = Add New Row
                 </span>
                 <Button
                   size="sm"
@@ -2535,36 +2911,52 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               </div>
             </CardHeader>
             <CardContent style={{ padding: '0' }}>
-              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                <table style={{ width: '100%', minWidth: '1380px', borderCollapse: 'collapse', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc', textAlign: 'left' }}>
-                      <th style={{ padding: '14px 10px', width: '40px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+              {/* Contained Internal Scroll Container */}
+              <div
+                style={{
+                  maxHeight: '440px',
+                  overflowY: 'auto',
+                  overflowX: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  position: 'relative',
+                  borderBottom: '1px solid #e2e8f0',
+                }}
+              >
+                <table style={{ width: '100%', minWidth: '1380px', borderCollapse: 'separate', borderSpacing: 0, fontSize: '13px' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc' }}>
+                    <tr style={{ backgroundColor: '#f8fafc' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '40px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         #
                       </th>
-                      <th style={{ padding: '14px 12px', minWidth: '340px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Product Selection *
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 10px', width: '150px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
+                        Type
                       </th>
-                      <th style={{ padding: '14px 10px', width: '135px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 10px', minWidth: '340px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
+                        Product / Item Selection *
+                      </th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '130px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         Pack Size (Master)
                       </th>
-                      <th style={{ padding: '14px 10px', width: '110px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '70px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
+                        UoM
+                      </th>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '105px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         Packs *
                       </th>
-                      <th style={{ padding: '14px 10px', width: '135px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         Total Quantity
                       </th>
-                      <th style={{ padding: '14px 12px', width: '175px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 10px', width: '170px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         Total Amount (PKR) *
                       </th>
-                      <th style={{ padding: '14px 12px', width: '150px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Cost / Pack (PKR)
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '125px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
+                        Cost / Pack
                       </th>
-                      <th style={{ padding: '14px 12px', width: '155px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '135px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
                         Cost / Base UoM
                       </th>
-                      <th style={{ padding: '14px 10px', width: '85px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em' }}>
-                        Actions
+                      <th style={{ position: 'sticky', top: 0, zIndex: 25, backgroundColor: '#f8fafc', padding: '12px 8px', width: '55px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#475569', letterSpacing: '0.04em', borderBottom: '2px solid #cbd5e1' }}>
+                        Action
                       </th>
                     </tr>
                   </thead>
@@ -2575,211 +2967,117 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         style={{
                           borderBottom: '1px solid #e2e8f0',
                           backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc',
-                          transition: 'background-color 0.15s ease',
+                          position: 'relative',
+                          zIndex: formItems.length - idx + 1,
                         }}
                       >
                         {/* Index */}
-                        <td style={{ padding: '12px 10px', textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px', verticalAlign: 'middle' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#f1f5f9', color: '#334155' }}>
+                        <td style={{ padding: '8px 6px', textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '12px', verticalAlign: 'middle' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', borderRadius: '50%', backgroundColor: '#f1f5f9', color: '#334155' }}>
                             {idx + 1}
                           </span>
                         </td>
 
-                        {/* Product Selection */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <select
-                                id={`field-po-mat-type-${idx}`}
-                                value={item.materialType || 'RAW_MATERIAL'}
-                                onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
-                                style={{
-                                  width: '140px',
-                                  height: '40px',
-                                  padding: '0 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '12px',
-                                  fontWeight: 700,
-                                  border: '1.5px solid #cbd5e1',
-                                  backgroundColor: '#f8fafc',
-                                  color: '#0f172a',
-                                  cursor: 'pointer',
-                                  outline: 'none',
-                                }}
-                              >
-                                <option value="RAW_MATERIAL">Raw Material</option>
-                                <option value="PACKING_MATERIAL">Packaging Material</option>
-                                <option value="FINISHED_PRODUCT">Finished Product</option>
-                              </select>
+                        {/* Material Type */}
+                        <td style={{ padding: '8px 8px', verticalAlign: 'middle' }}>
+                          <select
+                            id={`field-po-mat-type-${idx}`}
+                            value={item.materialType || 'RAW_MATERIAL'}
+                            onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
+                            style={{
+                              width: '100%',
+                              height: '40px',
+                              padding: '0 8px',
+                              borderRadius: '8px',
+                              fontSize: '12.5px',
+                              fontWeight: 700,
+                              border: '1.5px solid #cbd5e1',
+                              backgroundColor: '#f8fafc',
+                              color: '#0f172a',
+                              cursor: 'pointer',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          >
+                            <option value="RAW_MATERIAL">Raw Material</option>
+                            <option value="PACKING_MATERIAL">Packaging Material</option>
+                            <option value="FINISHED_PRODUCT">Finished Product</option>
+                          </select>
+                        </td>
 
-                              <select
-                                id={`field-po-wh-${idx}`}
-                                value={item.warehouseId || formWarehouseId}
-                                onChange={(e) => updateItem(idx, 'warehouseId', e.target.value)}
-                                style={{
-                                  flex: 1,
-                                  height: '40px',
-                                  padding: '0 8px',
-                                  borderRadius: '6px',
-                                  fontSize: '12px',
-                                  fontWeight: 600,
-                                  border: '1.5px solid #cbd5e1',
-                                  backgroundColor: '#f8fafc',
-                                  color: '#334155',
-                                  cursor: 'pointer',
-                                  outline: 'none',
-                                }}
-                              >
-                                {warehouses.map((w) => (
-                                  <option key={w.id} value={w.id}>
-                                    WH: {w.code} - {w.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <select
-                                id={`field-po-item-${idx}`}
-                                value={item.materialId || ''}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (val) {
-                                    updateItem(idx, 'materialId', val);
-                                  } else {
-                                    updateItem(idx, 'materialId', '');
-                                    updateItem(idx, 'itemName', '');
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    document.getElementById(`field-po-packs-${idx}`)?.focus();
-                                  }
-                                }}
-                                style={{
-                                  flex: 1,
-                                  width: '100%',
-                                  height: '42px',
-                                  padding: '0 12px',
-                                  borderRadius: '8px',
-                                  fontSize: '13.5px',
-                                  fontWeight: 600,
-                                  border: '1.5px solid #cbd5e1',
-                                  backgroundColor: '#ffffff',
-                                  color: item.materialId ? '#0f172a' : '#64748b',
-                                  boxSizing: 'border-box',
-                                  cursor: 'pointer',
-                                  outline: 'none',
-                                }}
-                              >
-                                <option value="">
-                                  -- Select {item.materialType === 'FINISHED_PRODUCT' ? 'Finished Product' : item.materialType === 'PACKING_MATERIAL' ? 'Packaging Material' : 'Raw Material'} --
-                                </option>
-                                {item.materialType === 'FINISHED_PRODUCT'
-                                  ? finishedProducts.map((p) => (
-                                      <option key={p.id} value={p.id}>
-                                        [{p.productCode}] {p.productName}{p.packSize ? ` (${p.packSize})` : ''}
-                                      </option>
-                                    ))
-                                  : item.materialType === 'PACKING_MATERIAL'
-                                  ? packingMaterials.map((m) => (
-                                      <option key={m.id} value={m.id}>
-                                        [{m.materialCode}] {m.materialName}{m.packSize ? ` [${m.packSize}]` : m.specifications ? ` [${m.specifications}]` : ''}
-                                      </option>
-                                    ))
-                                  : rawMaterials.map((m) => (
-                                      <option key={m.id} value={m.id}>
-                                        [{m.materialCode}] {m.materialName}{m.packSize ? ` [${m.packSize}]` : m.specifications ? ` [${m.specifications}]` : ''}
-                                      </option>
-                                    ))}
-                              </select>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTargetItemIndexForMat(idx);
-                                  setNewMatName(item.itemName || '');
-                                  setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
-                                  setNewMatRate(item.unitRate || 0);
-                                  setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
-                                  setNewMatPacking(item.packSize || 'Bulk');
-                                  setIsQuickMaterialModalOpen(true);
-                                }}
-                                title="Quick Add Item"
-                                style={{
-                                  height: '42px',
-                                  padding: '0 12px',
-                                  fontSize: '12px',
-                                  fontWeight: 700,
-                                  borderRadius: '8px',
-                                  border: '1.5px solid #cbd5e1',
-                                  backgroundColor: '#f8fafc',
-                                  color: '#0284c7',
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <IconPlus size={14} /> Add
-                              </button>
-                            </div>
-
-                            {!item.materialId && (
-                              <input
-                                value={item.itemName || ''}
-                                onChange={(e) => updateItem(idx, 'itemName', e.target.value)}
-                                placeholder="Or enter custom / non-catalog material description..."
-                                style={{
-                                  width: '100%',
-                                  height: '34px',
-                                  padding: '0 10px',
-                                  borderRadius: '6px',
-                                  fontSize: '12px',
-                                  border: '1px solid #cbd5e1',
-                                  backgroundColor: '#ffffff',
-                                  color: '#0f172a',
-                                  boxSizing: 'border-box',
-                                  outline: 'none',
-                                }}
-                              />
-                            )}
-                          </div>
+                        {/* Product / Item Searchable Autocomplete */}
+                        <td style={{ padding: '8px 8px', verticalAlign: 'middle' }}>
+                          <ProductAutocompleteInput
+                            id={`field-po-product-${idx}`}
+                            value={item.itemName || ''}
+                            selectedId={item.materialId}
+                            options={getProductOptionsForType(item.materialType)}
+                            onSelect={(opt) => {
+                              updateItem(idx, 'materialId', opt.id);
+                            }}
+                            onCustomTextChange={(text) => {
+                              updateItem(idx, 'itemName', text);
+                            }}
+                            onAddNewProduct={() => {
+                              setTargetItemIndexForMat(idx);
+                              setNewMatName(item.itemName || '');
+                              setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
+                              setNewMatRate(item.unitRate || 0);
+                              setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
+                              setNewMatPacking(item.packSize || 'Bulk');
+                              setIsQuickMaterialModalOpen(true);
+                            }}
+                            nextFocusId={`field-po-packs-${idx}`}
+                          />
                         </td>
 
                         {/* Pack Size (Auto-fetched from Product Master) */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <div
-                              style={{
-                                fontWeight: 700,
-                                color: '#0f172a',
-                                padding: '8px 10px',
-                                backgroundColor: '#f1f5f9',
-                                borderRadius: '8px',
-                                border: '1.5px solid #cbd5e1',
-                                fontSize: '13px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                              }}
-                            >
-                              <span>{item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}</span>
-                              <span style={{ fontSize: '10px', fontWeight: 700, color: '#0284c7', backgroundColor: '#e0f2fe', padding: '1px 5px', borderRadius: '4px' }}>
-                                Master
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#64748b' }}>
-                              Base UoM: <strong>{item.unit || 'KG'}</strong>
-                            </div>
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle' }}>
+                          <div
+                            style={{
+                              height: '40px',
+                              padding: '0 8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              backgroundColor: '#f1f5f9',
+                              borderRadius: '8px',
+                              border: '1.5px solid #cbd5e1',
+                              boxSizing: 'border-box',
+                              fontSize: '12.5px',
+                              fontWeight: 700,
+                              color: '#0f172a',
+                            }}
+                          >
+                            <span>{item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}</span>
+                            <span style={{ fontSize: '9px', fontWeight: 800, color: '#0284c7', backgroundColor: '#e0f2fe', padding: '1px 5px', borderRadius: '4px' }}>
+                              Master
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Base UoM */}
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle', textAlign: 'center' }}>
+                          <div
+                            style={{
+                              height: '40px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: '#f8fafc',
+                              borderRadius: '8px',
+                              border: '1.5px solid #e2e8f0',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              color: '#475569',
+                            }}
+                          >
+                            {item.unit || 'KG'}
                           </div>
                         </td>
 
                         {/* Number of Packs */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle' }}>
                           <input
                             id={`field-po-packs-${idx}`}
                             type="number"
@@ -2787,19 +3085,27 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             step="any"
                             value={item.numberOfPacks === 0 ? '' : item.numberOfPacks}
                             onChange={(e) => updateItem(idx, 'numberOfPacks', e.target.value)}
+                            onFocus={(e) => e.target.select()}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
-                                document.getElementById(`field-po-amount-${idx}`)?.focus();
+                                e.stopPropagation();
+                                const nextEl = document.getElementById(`field-po-amount-${idx}`) as HTMLInputElement | null;
+                                if (nextEl) {
+                                  nextEl.focus();
+                                  if (typeof nextEl.select === 'function') {
+                                    nextEl.select();
+                                  }
+                                }
                               }
                             }}
                             placeholder="10"
                             style={{
                               width: '100%',
-                              height: '42px',
-                              padding: '0 10px',
+                              height: '40px',
+                              padding: '0 8px',
                               borderRadius: '8px',
-                              fontSize: '14px',
+                              fontSize: '13.5px',
                               fontWeight: 700,
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
@@ -2809,37 +3115,44 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               boxSizing: 'border-box',
                               outline: 'none',
                             }}
+                            onFocusCapture={(e) => {
+                              e.currentTarget.style.border = '2px solid #059669';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.18)';
+                            }}
+                            onBlurCapture={(e) => {
+                              e.currentTarget.style.border = '1.5px solid #cbd5e1';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
-                          <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'right', marginTop: '3px' }}>
-                            Packs
-                          </div>
                         </td>
 
                         {/* Total Quantity (Calculated) */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle', textAlign: 'right' }}>
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle', textAlign: 'right' }}>
                           <div
                             style={{
-                              padding: '8px 10px',
+                              height: '40px',
+                              padding: '0 8px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'flex-end',
                               backgroundColor: '#e0f2fe',
                               borderRadius: '8px',
                               border: '1.5px solid #bae6fd',
-                              fontFamily: 'var(--font-mono)',
-                              fontWeight: 800,
-                              fontSize: '13.5px',
-                              color: '#0369a1',
-                              textAlign: 'right',
-                              whiteSpace: 'nowrap',
+                              boxSizing: 'border-box',
                             }}
                           >
-                            {Number(item.quantity || 0).toLocaleString()} {item.unit || 'KG'}
-                          </div>
-                          <div style={{ fontSize: '10.5px', color: '#0284c7', marginTop: '3px', fontWeight: 600 }}>
-                            {item.numberOfPacks || 0} × {item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '13px', color: '#0369a1', whiteSpace: 'nowrap' }}>
+                              {Number(item.quantity || 0).toLocaleString()} {item.unit || 'KG'}
+                            </span>
+                            <span style={{ fontSize: '9.5px', color: '#0284c7', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {item.numberOfPacks || 0} × {item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}
+                            </span>
                           </div>
                         </td>
 
                         {/* Total Purchase Amount (PKR) */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '8px 8px', verticalAlign: 'middle' }}>
                           <input
                             id={`field-po-amount-${idx}`}
                             type="number"
@@ -2847,26 +3160,40 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             step="any"
                             value={item.totalPurchaseAmount === 0 ? '' : item.totalPurchaseAmount}
                             onChange={(e) => updateItem(idx, 'totalPurchaseAmount', e.target.value)}
+                            onFocus={(e) => e.target.select()}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
+                                e.stopPropagation();
                                 if (idx === formItems.length - 1) {
                                   addItemRow();
                                   setTimeout(() => {
-                                    document.getElementById(`field-po-item-${idx + 1}`)?.focus();
+                                    const nextProduct = document.getElementById(`field-po-product-${idx + 1}`) as HTMLInputElement | null;
+                                    if (nextProduct) {
+                                      nextProduct.focus();
+                                      if (typeof nextProduct.select === 'function') {
+                                        nextProduct.select();
+                                      }
+                                    }
                                   }, 60);
                                 } else {
-                                  document.getElementById(`field-po-item-${idx + 1}`)?.focus();
+                                  const nextProduct = document.getElementById(`field-po-product-${idx + 1}`) as HTMLInputElement | null;
+                                  if (nextProduct) {
+                                    nextProduct.focus();
+                                    if (typeof nextProduct.select === 'function') {
+                                      nextProduct.select();
+                                    }
+                                  }
                                 }
                               }
                             }}
                             placeholder="e.g. 200000"
                             style={{
                               width: '100%',
-                              height: '42px',
-                              padding: '0 12px',
+                              height: '40px',
+                              padding: '0 10px',
                               borderRadius: '8px',
-                              fontSize: '14px',
+                              fontSize: '13.5px',
                               fontWeight: 800,
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
@@ -2876,101 +3203,78 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               boxSizing: 'border-box',
                               outline: 'none',
                             }}
+                            onFocusCapture={(e) => {
+                              e.currentTarget.style.border = '2px solid #059669';
+                              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(5, 150, 105, 0.18)';
+                            }}
+                            onBlurCapture={(e) => {
+                              e.currentTarget.style.border = '1.5px solid #0284c7';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
                           />
-                          <div style={{ fontSize: '11px', color: '#0369a1', textAlign: 'right', marginTop: '3px', fontWeight: 600 }}>
-                            Agreed Total Value
-                          </div>
                         </td>
 
                         {/* Cost / Pack */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle' }}>
-                          <input
-                            id={`field-po-cost-per-pack-${idx}`}
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={item.costPerPack === 0 ? '' : item.costPerPack}
-                            onChange={(e) => updateItem(idx, 'costPerPack', e.target.value)}
-                            placeholder="e.g. 20000"
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle' }}>
+                          <div
                             style={{
-                              width: '100%',
-                              height: '42px',
-                              padding: '0 10px',
+                              height: '40px',
+                              padding: '0 8px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'flex-end',
+                              backgroundColor: '#f8fafc',
                               borderRadius: '8px',
-                              fontSize: '13px',
-                              fontWeight: 700,
-                              textAlign: 'right',
-                              fontFamily: 'var(--font-mono)',
-                              border: '1.5px solid #cbd5e1',
-                              backgroundColor: '#ffffff',
-                              color: '#0f172a',
+                              border: '1.5px solid #e2e8f0',
                               boxSizing: 'border-box',
-                              outline: 'none',
                             }}
-                          />
-                          <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'right', marginTop: '3px' }}>
-                            Cost / Pack
+                          >
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '12.5px', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                              {Number(item.costPerPack || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '9.5px', color: '#64748b' }}>PKR / Pack</span>
                           </div>
                         </td>
 
                         {/* Cost / Base UoM */}
-                        <td style={{ padding: '12px 10px', verticalAlign: 'middle', textAlign: 'right' }}>
+                        <td style={{ padding: '8px 6px', verticalAlign: 'middle', textAlign: 'right' }}>
                           <div
                             style={{
-                              padding: '8px 10px',
+                              height: '40px',
+                              padding: '0 8px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'flex-end',
                               backgroundColor: '#ecfdf5',
                               borderRadius: '8px',
                               border: '1.5px solid #a7f3d0',
-                              fontFamily: 'var(--font-mono)',
-                              fontWeight: 800,
-                              fontSize: '13.5px',
-                              color: '#047857',
-                              textAlign: 'right',
-                              whiteSpace: 'nowrap',
+                              boxSizing: 'border-box',
                             }}
                           >
-                            PKR {Number(item.unitRate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#059669', textAlign: 'right', marginTop: '3px', fontWeight: 600 }}>
-                            per {item.unit || 'KG'}
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '12.5px', color: '#047857', whiteSpace: 'nowrap' }}>
+                              PKR {Number(item.unitRate || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '9.5px', color: '#059669', fontWeight: 600 }}>per {item.unit || 'KG'}</span>
                           </div>
                         </td>
 
                         {/* Actions */}
-                        <td style={{ padding: '12px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => openSplitModal('form', idx)}
-                              title="Split item across warehouses"
-                              style={{
-                                height: '34px',
-                                padding: '0 10px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                borderRadius: '6px',
-                                border: '1.5px solid #93c5fd',
-                                background: '#eff6ff',
-                                color: '#1d4ed8',
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                                transition: 'all 0.15s ease',
-                              }}
-                            >
-                              Split
-                            </button>
+                        <td style={{ padding: '8px 6px', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <button
                               type="button"
                               onClick={() => removeItemRow(idx)}
                               disabled={formItems.length === 1}
                               style={{
-                                height: '34px',
-                                width: '34px',
+                                height: '36px',
+                                width: '36px',
                                 background: formItems.length === 1 ? '#f8fafc' : '#fef2f2',
                                 border: `1.5px solid ${formItems.length === 1 ? '#e2e8f0' : '#fecaca'}`,
                                 color: formItems.length === 1 ? '#cbd5e1' : '#dc2626',
                                 cursor: formItems.length === 1 ? 'not-allowed' : 'pointer',
-                                borderRadius: '6px',
+                                borderRadius: '8px',
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -3055,6 +3359,37 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setFormPoNumber(selectedOrder.poNumber);
+                setFormVendorId(selectedOrder.vendorId || selectedOrder.vendor?.id || '');
+                setFormWarehouseId(selectedOrder.warehouseId || selectedOrder.warehouse?.id || '');
+                setFormExpectedDate(selectedOrder.expectedDeliveryDate ? selectedOrder.expectedDeliveryDate.slice(0, 10) : '');
+                setFormNotes(selectedOrder.notes || '');
+                setFormItems(
+                  selectedOrder.items && selectedOrder.items.length > 0
+                    ? selectedOrder.items.map((it) => {
+                        const parsed = parsePackSize(it.packSize, it.unit);
+                        const packCap = it.packCapacity || parsed.capacity;
+                        const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
+                        return {
+                          ...it,
+                          packSize: it.packSize || `${packCap} ${it.unit || 'KG'}`,
+                          packCapacity: packCap,
+                          numberOfPacks: packs,
+                          totalPurchaseAmount: it.totalPurchaseAmount || it.lineTotal || (Number(it.quantity || 1) * Number(it.unitRate || 0)),
+                          costPerPack: it.costPerPack || (packs > 0 ? (Number(it.totalPurchaseAmount || it.lineTotal || 0) / packs) : 0),
+                        };
+                      })
+                    : [{ itemName: '', materialType: 'RAW_MATERIAL', packSize: '25 KG', packCapacity: 25, numberOfPacks: 10, quantity: 250, unit: 'KG', totalPurchaseAmount: 0, costPerPack: 0, unitRate: 0, lineTotal: 0 }]
+                );
+                setMode('create_manual');
+              }}
+              icon={<IconFileText size={16} />}
+            >
+              Edit PO
+            </Button>
             {selectedOrder.status !== 'CONVERTED_TO_PURCHASE' && selectedOrder.status !== 'CANCELLED' && (
               <Button variant="primary" onClick={() => openVerifyModalFromOrder(selectedOrder)} icon={<IconCheck size={16} />}>
                 Verify &amp; Create Purchase

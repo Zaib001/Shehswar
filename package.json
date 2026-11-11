@@ -29,6 +29,7 @@
     "render:start:web": "npm run start --workspace=@shehswar/web"
   },
   "dependencies": {
+    "pg": "^8.23.1",
     "prisma": "^5.20.0",
     "turbo": "^2.1.2",
     "xlsx": "^0.18.5"
