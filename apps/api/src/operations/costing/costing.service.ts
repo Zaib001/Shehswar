@@ -24,6 +24,13 @@ export type CostingMethod = 'LATEST_PURCHASE' | 'WEIGHTED_AVERAGE' | 'STANDARD';
 
 export interface SaveCostingRecordInput {
   companyId?: string;
+  costingDate?: string;
+  sourcePoId?: string;
+  sourcePoNumber?: string;
+  purchaseDate?: string;
+  sourceVendorName?: string;
+  sourceVendorCode?: string;
+  finishedProductId?: string;
   rawMaterialId: string;
   rawMaterialQuantity: number;
   rawMaterialCost: number;
@@ -36,6 +43,8 @@ export interface SaveCostingRecordInput {
     unitCost: number;
     totalCost: number;
     uomName?: string;
+    sourcePoNumber?: string;
+    purchaseDate?: string;
   }[];
   totalRawMaterialCost: number;
   totalPackagingCost: number;
@@ -55,6 +64,12 @@ export interface BatchCostCalculationInput {
 
 export interface ApplyCostingInput {
   companyId?: string;
+  costingDate?: string;
+  sourcePoId?: string;
+  sourcePoNumber?: string;
+  purchaseDate?: string;
+  sourceVendorName?: string;
+  sourceVendorCode?: string;
   finishedProductId?: string;
   newProductName?: string;
   categoryId?: string;
@@ -537,6 +552,34 @@ export class CostingService {
       const costDiff = newCost - previousCost;
       const costDiffPct = previousCost > 0 ? (costDiff / previousCost) * 100 : 0;
 
+      const costingCode = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'COSTING',
+      });
+
+      const snapshotNotes = JSON.stringify({
+        costingCode,
+        costingDate: dto.costingDate || new Date().toISOString(),
+        sourcePoId: dto.sourcePoId || null,
+        sourcePoNumber: dto.sourcePoNumber || null,
+        purchaseDate: dto.purchaseDate || null,
+        vendorName: dto.sourceVendorName || null,
+        vendorCode: dto.sourceVendorCode || null,
+        productName: product.productName,
+        productCode: product.productCode,
+        batchOutputQuantity: dto.batchOutputQuantity,
+        packSize: dto.packSize,
+        packSizeUnit: dto.packSizeUnitName || 'Liter',
+        totalRawMaterialCost: dto.totalRawMaterialCost,
+        totalPackagingCost: dto.totalPackagingCost,
+        totalBatchCost: dto.totalBatchCost,
+        costPerUnit: dto.costPerUnit,
+        rawMaterials: dto.rawMaterials,
+        packagingMaterials: dto.packagingMaterials,
+        userNotes: dto.notes || `Costing Version ${nextVersion} saved via Product Costing module`,
+      });
+
       // Create Immutable Costing Snapshot
       const costingSnapshot = await tx.productCosting.create({
         data: {
@@ -555,9 +598,10 @@ export class CostingService {
           previousCost: previousCost > 0 ? previousCost : null,
           costDifference: previousCost > 0 ? costDiff : null,
           costDifferencePct: previousCost > 0 ? Math.round(costDiffPct * 100) / 100 : null,
-          notes: dto.notes || `Costing Version ${nextVersion} saved via Product Costing module`,
+          notes: snapshotNotes,
           status: 'ACTIVE',
           createdById: user.id || null,
+          createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
             create: (dto.rawMaterials || []).map((rm) => ({
               rawMaterialId: rm.rawMaterialId,
@@ -600,12 +644,202 @@ export class CostingService {
 
       return {
         success: true,
+        costingCode,
         product: updatedProduct,
         costing: costingSnapshot,
         version: nextVersion,
-        message: `Successfully applied Costing V${nextVersion} (PKR ${dto.costPerUnit}/pack) to "${updatedProduct.productName}"`,
+        message: `Successfully applied Costing ${costingCode} (V${nextVersion} - PKR ${dto.costPerUnit}/pack) to "${updatedProduct.productName}"`,
       };
     });
+  }
+
+  /**
+   * Retrieves date-wise purchase history for a material from all POs and Invoices.
+   * Enables selecting a specific purchase rate for Product Costing.
+   */
+  async getMaterialPurchaseHistory(
+    materialId: string,
+    options?: { startDate?: string; endDate?: string; companyId?: string },
+  ) {
+    const rawMaterial = await this.prisma.rawMaterial.findUnique({
+      where: { id: materialId },
+      include: { baseUom: true, purchaseUom: true },
+    });
+    const packingMaterial = !rawMaterial
+      ? await this.prisma.packingMaterial.findUnique({
+          where: { id: materialId },
+          include: { baseUom: true },
+        })
+      : null;
+
+    const materialName = rawMaterial?.materialName || packingMaterial?.materialName || '';
+    const materialCode = rawMaterial?.materialCode || packingMaterial?.materialCode || '';
+    const uomName =
+      rawMaterial?.baseUom?.name ||
+      packingMaterial?.baseUom?.name ||
+      rawMaterial?.purchaseUom?.name ||
+      'KG';
+
+    const poDateFilter: any = {};
+    if (options?.startDate) poDateFilter.gte = new Date(options.startDate);
+    if (options?.endDate) {
+      const end = new Date(options.endDate);
+      end.setHours(23, 59, 59, 999);
+      poDateFilter.lte = end;
+    }
+
+    const poItems = await this.prisma.purchaseOrderItem.findMany({
+      where: {
+        OR: [
+          { materialId },
+          ...(materialCode ? [{ materialCodeSnapshot: materialCode }] : []),
+          ...(materialName
+            ? [
+                { materialNameSnapshot: { equals: materialName, mode: 'insensitive' as const } },
+                { itemName: { equals: materialName, mode: 'insensitive' as const } },
+              ]
+            : []),
+        ],
+        ...(options?.companyId && options.companyId !== 'ALL'
+          ? { order: { companyId: options.companyId } }
+          : {}),
+        ...(Object.keys(poDateFilter).length > 0 ? { order: { createdAt: poDateFilter } } : {}),
+      },
+      include: {
+        order: {
+          include: {
+            vendor: { select: { id: true, name: true, code: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const piDateFilter: any = {};
+    if (options?.startDate) piDateFilter.gte = new Date(options.startDate);
+    if (options?.endDate) {
+      const end = new Date(options.endDate);
+      end.setHours(23, 59, 59, 999);
+      piDateFilter.lte = end;
+    }
+
+    const piItems = await this.prisma.purchaseInvoiceItem.findMany({
+      where: {
+        OR: [
+          ...(rawMaterial ? [{ rawMaterialId: materialId }] : []),
+          ...(packingMaterial ? [{ packingMaterialId: materialId }] : []),
+          ...(materialName
+            ? [{ itemName: { equals: materialName, mode: 'insensitive' as const } }]
+            : []),
+        ],
+        ...(options?.companyId && options.companyId !== 'ALL'
+          ? { purchaseInvoice: { companyId: options.companyId } }
+          : {}),
+        ...(Object.keys(piDateFilter).length > 0
+          ? { purchaseInvoice: { date: piDateFilter } }
+          : {}),
+      },
+      include: {
+        purchaseInvoice: {
+          include: {
+            vendor: { select: { id: true, name: true, code: true } },
+          },
+        },
+      },
+      orderBy: { purchaseInvoice: { date: 'desc' } },
+    });
+
+    const history: Array<{
+      id: string;
+      sourceType: 'PURCHASE_ORDER' | 'PURCHASE_INVOICE';
+      documentId: string;
+      documentNumber: string;
+      purchaseDate: string;
+      vendorId?: string;
+      vendorName: string;
+      vendorCode?: string;
+      quantity: number;
+      unit: string;
+      unitCost: number;
+      totalAmount: number;
+      specification?: string;
+      numberOfPacks?: number;
+      costPerPack?: number;
+      packSize?: string;
+      status?: string;
+    }> = [];
+
+    for (const item of poItems) {
+      const qty = Number(item.quantity) || 0;
+      const rate = Number(item.unitRate) || 0;
+      const total = Number(item.lineTotal) || qty * rate;
+
+      const spec = item.specificationSnapshot || item.notes || '';
+      let numberOfPacks: number | undefined;
+      let packSize: string | undefined;
+
+      const packsMatch = spec.match(/Packs?:\s*(\d+(?:\.\d+)?)/i);
+      if (packsMatch && packsMatch[1]) numberOfPacks = parseFloat(packsMatch[1]);
+
+      const packSizeMatch = spec.match(/(?:Pack Size:|\u00d7\s*)([^\(\)]+)/i);
+      if (packSizeMatch && packSizeMatch[1]) packSize = packSizeMatch[1].trim();
+
+      const costPerPack = numberOfPacks && numberOfPacks > 0 ? total / numberOfPacks : undefined;
+
+      history.push({
+        id: item.id,
+        sourceType: 'PURCHASE_ORDER',
+        documentId: item.order.id,
+        documentNumber: item.order.poNumber,
+        purchaseDate: (item.order.createdAt || item.createdAt).toISOString(),
+        vendorId: item.order.vendor?.id,
+        vendorName: item.order.vendor?.name || 'N/A',
+        vendorCode: item.order.vendor?.code || 'N/A',
+        quantity: qty,
+        unit: item.unit || uomName,
+        unitCost: rate,
+        totalAmount: total,
+        specification: spec || undefined,
+        numberOfPacks,
+        packSize,
+        costPerPack,
+        status: item.order.status,
+      });
+    }
+
+    for (const item of (piItems as any[])) {
+      const qty = Number(item.quantity) || 0;
+      const rate = Number(item.rate) || 0;
+      const total = Number(item.grossAmount) || qty * rate;
+
+      history.push({
+        id: item.id,
+        sourceType: 'PURCHASE_INVOICE',
+        documentId: item.purchaseInvoice?.id || item.purchaseInvoiceId,
+        documentNumber: item.purchaseInvoice?.voucherNumber || 'INVOICE',
+        purchaseDate: (item.purchaseInvoice?.date || item.purchaseInvoice?.createdAt || new Date()).toISOString(),
+        vendorId: item.purchaseInvoice?.vendor?.id,
+        vendorName: item.purchaseInvoice?.vendor?.name || 'N/A',
+        vendorCode: item.purchaseInvoice?.vendor?.code || 'N/A',
+        quantity: qty,
+        unit: uomName,
+        unitCost: rate,
+        totalAmount: total,
+        specification: item.packing || undefined,
+        status: item.purchaseInvoice?.postingStatus,
+      });
+    }
+
+    history.sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
+
+    return {
+      materialId,
+      materialCode,
+      materialName,
+      baseUom: uomName,
+      totalPurchases: history.length,
+      history,
+    };
   }
 
   /**
@@ -631,20 +865,67 @@ export class CostingService {
   }
 
   /**
-   * Saves a confirmed costing calculation snapshot without modifying stock or requiring a finished product
+   * Saves a confirmed costing calculation snapshot without modifying stock or requiring a finished product.
+   * Completely immutable: records exact purchase rate, date, and vendor metadata selected by the user.
    */
   async saveCostingRecord(dto: SaveCostingRecordInput, user: AuthUser) {
     const companyId = user.companyId;
     const organizationId = user.organizationId;
 
     return this.prisma.$transaction(async (tx) => {
+      const rawMaterial = await tx.rawMaterial.findUnique({
+        where: { id: dto.rawMaterialId },
+        include: { baseUom: true },
+      });
+
+      const costingCode = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'COSTING',
+      });
+
+      const rmUnitCost = dto.rawMaterialQuantity > 0 ? dto.rawMaterialCost / dto.rawMaterialQuantity : Number(dto.rawMaterialCost);
+
+      const snapshotData = {
+        costingCode,
+        costingDate: dto.costingDate || new Date().toISOString(),
+        sourcePoId: dto.sourcePoId || null,
+        sourcePoNumber: dto.sourcePoNumber || null,
+        purchaseDate: dto.purchaseDate || null,
+        vendorName: dto.sourceVendorName || null,
+        vendorCode: dto.sourceVendorCode || null,
+        rawMaterialId: dto.rawMaterialId,
+        rawMaterialName: rawMaterial?.materialName || 'Raw Material',
+        rawMaterialCode: rawMaterial?.materialCode || '',
+        rawMaterialUnitCost: rmUnitCost,
+        rawMaterialQuantity: dto.rawMaterialQuantity,
+        rawMaterialTotalCost: dto.totalRawMaterialCost,
+        packSize: dto.packSize,
+        packSizeUnit: dto.packSizeUnit || 'Liter',
+        finishedQuantity: dto.finishedQuantity,
+        totalPackagingCost: dto.totalPackagingCost,
+        totalBatchCost: dto.totalBatchCost,
+        costPerUnit: dto.costPerUnit,
+        packagingMaterials: dto.packagingMaterials,
+        userNotes: dto.notes || 'Product Costing calculation confirmed',
+      };
+
+      let nextVersion = 1;
+      if (dto.finishedProductId) {
+        const latestCosting = await tx.productCosting.findFirst({
+          where: { companyId, finishedProductId: dto.finishedProductId },
+          orderBy: { version: 'desc' },
+        });
+        nextVersion = (latestCosting?.version ?? 0) + 1;
+      }
+
       const costingRecord = await tx.productCosting.create({
         data: {
           id: uuidv7(),
           organizationId,
           companyId,
-          finishedProductId: null,
-          version: 1,
+          finishedProductId: dto.finishedProductId || null,
+          version: nextVersion,
           batchOutputQuantity: dto.finishedQuantity,
           packSize: dto.packSize,
           packSizeUnit: dto.packSizeUnit || 'Liter',
@@ -653,17 +934,18 @@ export class CostingService {
           totalPackagingCost: dto.totalPackagingCost,
           totalBatchCost: dto.totalBatchCost,
           costPerUnit: dto.costPerUnit,
-          notes: dto.notes || 'Product Costing calculation confirmed',
+          notes: JSON.stringify(snapshotData),
           status: 'ACTIVE',
           createdById: user.id || null,
+          createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
             create: [
               {
                 id: uuidv7(),
                 rawMaterialId: dto.rawMaterialId,
                 quantity: dto.rawMaterialQuantity,
-                unitCost: dto.rawMaterialQuantity > 0 ? dto.rawMaterialCost / dto.rawMaterialQuantity : 0,
-                totalCost: dto.rawMaterialCost,
+                unitCost: rmUnitCost,
+                totalCost: dto.totalRawMaterialCost,
                 uomName: dto.packSizeUnit || 'Liter',
               },
             ],
@@ -687,23 +969,45 @@ export class CostingService {
 
       return {
         success: true,
+        costingCode,
         costing: costingRecord,
-        message: `Costing record saved successfully: PKR ${Number(dto.costPerUnit).toLocaleString()} per unit`,
+        message: `Costing record ${costingCode} saved successfully: PKR ${Number(dto.costPerUnit).toLocaleString()} per unit`,
       };
     });
   }
 
   /**
-   * Retrieves overall costing calculation history
+   * Retrieves overall costing calculation history with date filtering and snapshot metadata
    */
-  async getAllCostingHistory(companyId?: string) {
+  async getAllCostingHistory(options?: {
+    companyId?: string;
+    startDate?: string;
+    endDate?: string;
+    finishedProductId?: string;
+    search?: string;
+  }) {
     const where: any = {};
-    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+    if (options?.companyId && options.companyId !== 'ALL') {
+      where.companyId = options.companyId;
+    }
+    if (options?.finishedProductId) {
+      where.finishedProductId = options.finishedProductId;
+    }
+    if (options?.startDate || options?.endDate) {
+      const dateFilter: any = {};
+      if (options.startDate) dateFilter.gte = new Date(options.startDate);
+      if (options.endDate) {
+        const end = new Date(options.endDate);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
+      where.createdAt = dateFilter;
+    }
 
-    return this.prisma.productCosting.findMany({
+    const records = await this.prisma.productCosting.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 100,
       include: {
         materialLines: {
           include: {
@@ -720,5 +1024,57 @@ export class CostingService {
         },
       },
     });
+
+    const enriched = records.map((record) => {
+      let snapshot: any = null;
+      if (record.notes && record.notes.trim().startsWith('{')) {
+        try {
+          snapshot = JSON.parse(record.notes);
+        } catch {
+          snapshot = null;
+        }
+      }
+
+      const costingCode = snapshot?.costingCode || `CST-${String(record.version).padStart(6, '0')}`;
+      const costingDate = snapshot?.costingDate || record.createdAt.toISOString();
+      const sourcePoNumber = snapshot?.sourcePoNumber || null;
+      const purchaseDate = snapshot?.purchaseDate || null;
+      const vendorName = snapshot?.vendorName || null;
+      const rawMaterialName =
+        snapshot?.rawMaterialName ||
+        record.materialLines[0]?.rawMaterial?.materialName ||
+        'Raw Material';
+      const rawMaterialCostPerUnit =
+        snapshot?.rawMaterialUnitCost !== undefined
+          ? Number(snapshot.rawMaterialUnitCost)
+          : Number(record.materialLines[0]?.unitCost || 0);
+
+      return {
+        ...record,
+        costingCode,
+        costingDate,
+        sourcePoNumber,
+        purchaseDate,
+        vendorName,
+        rawMaterialName,
+        rawMaterialCostPerUnit,
+        snapshotMetadata: snapshot,
+      };
+    });
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim().toLowerCase();
+      return enriched.filter((item) => {
+        return (
+          item.costingCode.toLowerCase().includes(q) ||
+          item.finishedProduct?.productName?.toLowerCase().includes(q) ||
+          item.rawMaterialName.toLowerCase().includes(q) ||
+          (item.sourcePoNumber && item.sourcePoNumber.toLowerCase().includes(q)) ||
+          (item.vendorName && item.vendorName.toLowerCase().includes(q))
+        );
+      });
+    }
+
+    return enriched;
   }
 }

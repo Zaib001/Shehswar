@@ -3,17 +3,19 @@
 /**
  * SHEHSWAR ONE360 - Product Costing Engine
  *
- * One purpose only:
- * Calculate the actual cost of producing one finished unit/bottle
- * from a selected Raw Material and selected Packaging Materials.
- *
- * Rules:
- * 1. Raw Material cost is automatically fetched from real Procurement/Stock records.
- * 2. Packaging Material costs are automatically fetched from Packing Material Master.
- * 3. User enters: Raw Material, Pack Size, Number of Bottles, and selects Packaging Materials.
- * 4. Formula: (Raw Material Cost + Total Packaging Cost) ÷ Number of Bottles = Cost Per Bottle.
- * 5. Validates raw material stock availability before allowing confirmation.
- * 6. Product Creation and Product Costing remain completely separate.
+ * Core Mandates:
+ * 1. Date-Wise Purchase Cost History:
+ *    A product can be purchased multiple times on different dates at completely different rates.
+ *    The system NEVER treats a product as having only one permanent purchase cost.
+ *    Every purchase transaction retains its own date, quantity, amount, and calculated unit cost.
+ * 2. Immutable Costing Snapshot:
+ *    Every Product Costing calculation is saved permanently using the actual purchase rate selected at that time.
+ *    A subsequent purchase NEVER overwrites or recalculates an existing confirmed costing record.
+ * 3. Purchase Cost Selection:
+ *    Selecting a material fetches and displays all date-wise PO transactions.
+ *    The user selects which purchase transaction to base the costing on (e.g. 1-Nov @ 800/KG vs 1-Dec @ 1,600/KG).
+ * 4. Transparent Arithmetic:
+ *    (Raw Material Cost + Total Packaging Cost) ÷ Output Bottles = Cost Per Bottle.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -33,12 +35,12 @@ import {
 import {
   IconFlask,
   IconPlus,
-  IconRefresh,
   IconCheck,
   IconTrash,
   IconFileText,
   IconEye,
   IconAlertTriangle,
+  IconFilter,
 } from '../icons';
 
 interface RawMaterialItem {
@@ -71,6 +73,26 @@ interface PackingMaterialItem {
   category?: { code: string; name: string };
 }
 
+interface PurchaseTransaction {
+  id: string;
+  sourceType: 'PURCHASE_ORDER' | 'PURCHASE_INVOICE';
+  documentId: string;
+  documentNumber: string;
+  purchaseDate: string;
+  vendorId?: string;
+  vendorName: string;
+  vendorCode?: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalAmount: number;
+  specification?: string;
+  numberOfPacks?: number;
+  costPerPack?: number;
+  packSize?: string;
+  status?: string;
+}
+
 interface PackagingLine {
   id: string;
   packingMaterialId: string;
@@ -81,7 +103,10 @@ interface PackagingLine {
 
 interface CostingHistoryRecord {
   id: string;
+  costingCode?: string;
+  costingDate?: string;
   createdAt: string;
+  version?: number;
   packSize: number;
   packSizeUnit?: string;
   batchOutputQuantity: number;
@@ -89,7 +114,14 @@ interface CostingHistoryRecord {
   totalPackagingCost: number;
   totalBatchCost: number;
   costPerUnit: number;
+  status?: string;
   notes?: string;
+  sourcePoNumber?: string;
+  purchaseDate?: string;
+  vendorName?: string;
+  rawMaterialName?: string;
+  rawMaterialCostPerUnit?: number;
+  snapshotMetadata?: any;
   materialLines?: {
     rawMaterial?: { materialCode: string; materialName: string };
     quantity: number;
@@ -125,10 +157,19 @@ export const ProductCostingView: React.FC = () => {
 
   // Section 1: Raw Material Selection & Pricing Mode
   const [selectedRawMaterialId, setSelectedRawMaterialId] = useState<string>('');
-  const [costMode, setCostMode] = useState<'BATCH_TOTAL' | 'PER_UNIT'>('BATCH_TOTAL');
+  const [costMode, setCostMode] = useState<'PER_UNIT' | 'BATCH_TOTAL'>('PER_UNIT');
   const [customRawMaterialCost, setCustomRawMaterialCost] = useState<number | ''>('');
 
-  // Section 2: Production Output
+  // Purchase History for Selected Material
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseTransaction[]>([]);
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
+  const [selectedPurchase, setSelectedPurchase] = useState<PurchaseTransaction | null>(null);
+  const [isLoadingPurchaseHistory, setIsLoadingPurchaseHistory] = useState(false);
+  const [purchaseFilterStart, setPurchaseFilterStart] = useState<string>('');
+  const [purchaseFilterEnd, setPurchaseFilterEnd] = useState<string>('');
+
+  // Section 2: Production Parameters & Costing Date
+  const [costingDate, setCostingDate] = useState<string>(() => new Date().toISOString().split('T')[0] ?? '');
   const [packSize, setPackSize] = useState<number>(2);
   const [packSizeUnit, setPackSizeUnit] = useState<string>('Liter');
   const [outputBottles, setOutputBottles] = useState<number>(50);
@@ -136,9 +177,12 @@ export const ProductCostingView: React.FC = () => {
   // Section 3: Packaging Materials
   const [packagingLines, setPackagingLines] = useState<PackagingLine[]>([]);
 
-  // Section 4: History & Modals
+  // Section 4: History Tab & Search/Filters
   const [costingHistory, setCostingHistory] = useState<CostingHistoryRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyFilterStart, setHistoryFilterStart] = useState<string>('');
+  const [historyFilterEnd, setHistoryFilterEnd] = useState<string>('');
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<CostingHistoryRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -256,10 +300,53 @@ export const ProductCostingView: React.FC = () => {
     }
   }, [showToast]);
 
-  const loadCostingHistory = useCallback(async () => {
+  // Load Date-Wise Purchase Cost History for Selected Material
+  const loadPurchaseHistory = useCallback(async (matId: string, start?: string, end?: string) => {
+    if (!matId) {
+      setPurchaseHistory([]);
+      setSelectedPurchaseId(null);
+      setSelectedPurchase(null);
+      return;
+    }
+    setIsLoadingPurchaseHistory(true);
+    try {
+      const params = new URLSearchParams();
+      if (start) params.set('startDate', start);
+      if (end) params.set('endDate', end);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const res = await ApiClient.get<any>(`/api/v1/costing/materials/${matId}/purchase-history${queryString}`);
+      const list: PurchaseTransaction[] = Array.isArray(res.data?.history) ? res.data.history : [];
+      setPurchaseHistory(list);
+
+      // Auto-select latest purchase if available
+      if (list.length > 0 && list[0]) {
+        const latest = list[0];
+        setSelectedPurchaseId(latest.id);
+        setSelectedPurchase(latest);
+        setCustomRawMaterialCost(latest.unitCost);
+        setCostMode('PER_UNIT');
+      } else {
+        setSelectedPurchaseId(null);
+        setSelectedPurchase(null);
+      }
+    } catch (err: any) {
+      console.warn('Purchase history load warning:', err);
+      setPurchaseHistory([]);
+    } finally {
+      setIsLoadingPurchaseHistory(false);
+    }
+  }, []);
+
+  // Load Costing History Records
+  const loadCostingHistory = useCallback(async (start?: string, end?: string, search?: string) => {
     setIsLoadingHistory(true);
     try {
-      const res = await ApiClient.get<any>('/api/v1/costing/history');
+      const params = new URLSearchParams();
+      if (start) params.set('startDate', start);
+      if (end) params.set('endDate', end);
+      if (search) params.set('search', search);
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+      const res = await ApiClient.get<any>(`/api/v1/costing/history${queryString}`);
       const list = Array.isArray(res.data?.data)
         ? res.data.data
         : Array.isArray(res.data)
@@ -267,7 +354,6 @@ export const ProductCostingView: React.FC = () => {
         : [];
       setCostingHistory(list);
     } catch (err: any) {
-      // Fallback
       console.warn('Costing history load error:', err);
     } finally {
       setIsLoadingHistory(false);
@@ -279,10 +365,16 @@ export const ProductCostingView: React.FC = () => {
   }, [loadMasterData]);
 
   useEffect(() => {
-    if (activeTab === 'history') {
-      loadCostingHistory();
+    if (selectedRawMaterialId) {
+      loadPurchaseHistory(selectedRawMaterialId, purchaseFilterStart, purchaseFilterEnd);
     }
-  }, [activeTab, loadCostingHistory]);
+  }, [selectedRawMaterialId, loadPurchaseHistory, purchaseFilterStart, purchaseFilterEnd]);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery);
+    }
+  }, [activeTab, loadCostingHistory, historyFilterStart, historyFilterEnd, historySearchQuery]);
 
   // ==========================================
   // 2. RAW MATERIAL RETRIEVAL & AVAILABILITY
@@ -292,7 +384,7 @@ export const ProductCostingView: React.FC = () => {
     return rawMaterialsList.find((rm) => rm.id === selectedRawMaterialId) || null;
   }, [rawMaterialsList, selectedRawMaterialId]);
 
-  // Available Quantity: real stock on hand from inventory / goods receipts
+  // Available Quantity: real stock on hand
   const availableQuantity = useMemo(() => {
     if (!selectedRawMaterial) return 0;
     if (selectedRawMaterial.availableQuantity !== undefined && selectedRawMaterial.availableQuantity !== null) {
@@ -307,36 +399,29 @@ export const ProductCostingView: React.FC = () => {
     return Number(selectedRawMaterial.maximumStock || 250);
   }, [selectedRawMaterial]);
 
-  // Actual Unit Cost (PKR per base unit, e.g. per Liter or per KG)
+  // Baseline Fallback Cost (PKR per base unit)
   const defaultRawMaterialCost = useMemo(() => {
+    if (selectedPurchase && selectedPurchase.unitCost > 0) {
+      return selectedPurchase.unitCost;
+    }
     if (!selectedRawMaterial) return 0;
-    // Prefer costPerBaseUnit (per Liter or per KG) first!
     const cost = Number(
       selectedRawMaterial.costPerBaseUnit ??
-      selectedRawMaterial.standardCost ??
       selectedRawMaterial.lastPurchaseCost ??
+      selectedRawMaterial.standardCost ??
       selectedRawMaterial.unitRate ??
       0
     );
     return cost;
-  }, [selectedRawMaterial]);
+  }, [selectedRawMaterial, selectedPurchase]);
 
   useEffect(() => {
-    if (selectedRawMaterial) {
-      if (costMode === 'BATCH_TOTAL') {
-        const batchVal = Number(
-          selectedRawMaterial.totalPurchasedValue ||
-          ((selectedRawMaterial as any).customFields?.totalPurchaseValue) ||
-          selectedRawMaterial.standardCost ||
-          0
-        );
-        setCustomRawMaterialCost(batchVal > 0 ? batchVal : defaultRawMaterialCost);
-      } else {
-        const val = defaultRawMaterialCost > 0 ? defaultRawMaterialCost : 0;
-        setCustomRawMaterialCost(val);
-      }
+    if (selectedPurchase) {
+      setCustomRawMaterialCost(selectedPurchase.unitCost);
+    } else if (selectedRawMaterial && customRawMaterialCost === '') {
+      setCustomRawMaterialCost(defaultRawMaterialCost);
     }
-  }, [selectedRawMaterialId, selectedRawMaterial, defaultRawMaterialCost, costMode]);
+  }, [selectedPurchase, selectedRawMaterial, defaultRawMaterialCost]);
 
   const rawMaterialUnitCost = useMemo(() => {
     if (customRawMaterialCost !== '' && Number(customRawMaterialCost) >= 0) {
@@ -347,12 +432,26 @@ export const ProductCostingView: React.FC = () => {
 
   const rawMaterialUnitName = useMemo(() => {
     return (
+      selectedPurchase?.unit ||
       selectedRawMaterial?.baseUom?.name ||
       selectedRawMaterial?.purchaseUom?.name ||
       packSizeUnit ||
-      'Liter'
+      'KG'
     );
-  }, [selectedRawMaterial, packSizeUnit]);
+  }, [selectedPurchase, selectedRawMaterial, packSizeUnit]);
+
+  // Handle User Selecting a specific Historical Purchase Record
+  const handleSelectPurchase = (item: PurchaseTransaction) => {
+    setSelectedPurchaseId(item.id);
+    setSelectedPurchase(item);
+    setCostMode('PER_UNIT');
+    setCustomRawMaterialCost(item.unitCost);
+    showToast({
+      title: 'Purchase Rate Selected',
+      message: `Selected PO ${item.documentNumber} (${new Date(item.purchaseDate).toLocaleDateString('en-GB')}) at PKR ${item.unitCost.toLocaleString()}/${item.unit}`,
+      type: 'info',
+    });
+  };
 
   // ==========================================
   // 3. ARITHMETIC & FORMULA ENGINE
@@ -367,13 +466,11 @@ export const ProductCostingView: React.FC = () => {
 
   // Stock Availability Check
   const isStockSufficient = useMemo(() => {
-    if (availableQuantity <= 0) return true; // Don't block calculation if stock hasn't been posted yet
+    if (availableQuantity <= 0) return true; // Don't block calculation if inventory wasn't initialized
     return availableQuantity >= requiredRawMaterial;
   }, [availableQuantity, requiredRawMaterial]);
 
-  // Raw Material Batch Cost:
-  // If BATCH_TOTAL mode: user entered or fetched the total RM value for the batch (e.g. 4,000,000 PKR).
-  // If PER_UNIT mode: user entered rate per Liter/Kg, so total = requiredRawMaterial * rate.
+  // Raw Material Batch Cost
   const rawMaterialTotalCost = useMemo(() => {
     if (costMode === 'BATCH_TOTAL') {
       return rawMaterialUnitCost;
@@ -387,18 +484,17 @@ export const ProductCostingView: React.FC = () => {
     return units > 0 ? rawMaterialTotalCost / units : 0;
   }, [rawMaterialTotalCost, outputBottles]);
 
-  // Total Packaging Cost = Sum of all packaging lines
+  // Total Packaging Cost
   const totalPackagingCost = useMemo(() => {
     return packagingLines.reduce((sum, line) => sum + (Number(line.totalCost) || 0), 0);
   }, [packagingLines]);
 
-  // Total Production Cost = Raw Material Cost + Total Packaging Cost
+  // Total Batch Cost
   const totalProductionCost = useMemo(() => {
     return rawMaterialTotalCost + totalPackagingCost;
   }, [rawMaterialTotalCost, totalPackagingCost]);
 
-  // MANDATORY FORMULA:
-  // Cost Per Bottle = (Raw Material Cost + Total Packaging Cost) ÷ Number of Finished Units
+  // Cost Per Bottle
   const costPerBottle = useMemo(() => {
     const units = Number(outputBottles) || 0;
     if (units <= 0) return 0;
@@ -418,7 +514,6 @@ export const ProductCostingView: React.FC = () => {
       });
       return;
     }
-    // Select first unused PM or default to first
     const usedIds = new Set(packagingLines.map((l) => l.packingMaterialId));
     const nextPm = packingMaterialsList.find((pm) => !usedIds.has(pm.id)) || packingMaterialsList[0];
     if (!nextPm) return;
@@ -473,7 +568,6 @@ export const ProductCostingView: React.FC = () => {
     setPackagingLines((prev) => prev.filter((l) => l.id !== lineId));
   };
 
-  // Keep bottle/cap packaging quantities synced if user changes output bottles
   const handleOutputBottlesChange = (val: number) => {
     const newQty = Math.max(1, Number(val) || 0);
     setOutputBottles(newQty);
@@ -492,7 +586,7 @@ export const ProductCostingView: React.FC = () => {
   };
 
   // ==========================================
-  // 5. SAVE / CONFIRM COSTING (Requirement 19)
+  // 5. SAVE / CONFIRM COSTING (IMMUTABLE SNAPSHOT)
   // ==========================================
 
   const [isSavingCosting, setIsSavingCosting] = useState(false);
@@ -518,6 +612,12 @@ export const ProductCostingView: React.FC = () => {
     setIsSavingCosting(true);
     try {
       const payload = {
+        costingDate,
+        sourcePoId: selectedPurchase?.documentId,
+        sourcePoNumber: selectedPurchase?.documentNumber,
+        purchaseDate: selectedPurchase?.purchaseDate,
+        sourceVendorName: selectedPurchase?.vendorName,
+        sourceVendorCode: selectedPurchase?.vendorCode,
         rawMaterialId: selectedRawMaterialId,
         rawMaterialQuantity: requiredRawMaterial,
         rawMaterialCost: rawMaterialTotalCost,
@@ -538,19 +638,26 @@ export const ProductCostingView: React.FC = () => {
         totalPackagingCost,
         totalBatchCost: totalProductionCost,
         costPerUnit: costPerBottle,
-        notes: `Cost calculated for ${outputBottles} bottles (${packSize} ${packSizeUnit}) of ${selectedRawMaterial?.materialName}`,
+        notes: `Costing calculated on ${costingDate} for ${outputBottles} units (${packSize} ${packSizeUnit}) of ${selectedRawMaterial?.materialName}${selectedPurchase ? ` based on PO ${selectedPurchase.documentNumber} (${new Date(selectedPurchase.purchaseDate).toLocaleDateString('en-GB')})` : ''}`,
       };
 
-      await ApiClient.post('/api/v1/costing/save', payload);
+      const res = await ApiClient.post<any>('/api/v1/costing/save', payload);
+      const generatedCode = res.data?.costingCode || res.data?.costing?.notes ? (() => {
+        try {
+          return JSON.parse(res.data.costing.notes).costingCode;
+        } catch {
+          return 'CST-CONFIRMED';
+        }
+      })() : 'CST-CONFIRMED';
 
       showToast({
-        title: 'Cost Confirmed & Saved',
-        message: `Official manufacturing cost of PKR ${costPerBottle.toLocaleString()} / bottle recorded in Costing History.`,
+        title: 'Costing Saved Permanently',
+        message: `Snapshot ${generatedCode} recorded successfully at PKR ${costPerBottle.toLocaleString()} / bottle.`,
         type: 'success',
       });
 
       // Reload history if on history tab
-      loadCostingHistory();
+      loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery);
     } catch (err: any) {
       showToast({
         title: 'Error Saving Costing',
@@ -563,7 +670,7 @@ export const ProductCostingView: React.FC = () => {
   };
 
   // ==========================================
-  // 6. OPTIONAL: ADD TO FINISHED PRODUCT (Req 21)
+  // 6. OPTIONAL: ADD TO FINISHED PRODUCT
   // ==========================================
 
   const handleOpenAddToProductModal = () => {
@@ -583,6 +690,12 @@ export const ProductCostingView: React.FC = () => {
     setIsSavingProduct(true);
     try {
       const payload: any = {
+        costingDate,
+        sourcePoId: selectedPurchase?.documentId,
+        sourcePoNumber: selectedPurchase?.documentNumber,
+        purchaseDate: selectedPurchase?.purchaseDate,
+        sourceVendorName: selectedPurchase?.vendorName,
+        sourceVendorCode: selectedPurchase?.vendorCode,
         batchOutputQuantity: outputBottles,
         packSize,
         packSizeUnitName: packSizeUnit,
@@ -590,7 +703,7 @@ export const ProductCostingView: React.FC = () => {
         totalPackagingCost,
         totalBatchCost: totalProductionCost,
         costPerUnit: costPerBottle,
-        notes: `Costing applied: PKR ${costPerBottle}/unit from ${selectedRawMaterial?.materialName}`,
+        notes: `Costing applied on ${costingDate}: PKR ${costPerBottle}/unit from ${selectedRawMaterial?.materialName}${selectedPurchase ? ` (PO: ${selectedPurchase.documentNumber})` : ''}`,
         rawMaterials: [
           {
             rawMaterialId: selectedRawMaterialId,
@@ -641,6 +754,7 @@ export const ProductCostingView: React.FC = () => {
       });
 
       setIsAddToProductModalOpen(false);
+      loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery);
     } catch (err: any) {
       showToast({
         title: 'Failed to Update Product',
@@ -665,16 +779,16 @@ export const ProductCostingView: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto' }}>
       {/* Page Header */}
       <div style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
-              Product Costing
+              Product Costing Engine
             </h1>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
-              Calculate the actual cost of producing one finished unit/bottle from real Raw Material and Packaging procurement records.
+              Date-wise procurement cost tracking and permanent, immutable product costing calculations.
             </p>
           </div>
 
@@ -716,7 +830,7 @@ export const ProductCostingView: React.FC = () => {
                 boxShadow: activeTab === 'history' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
               }}
             >
-              <IconFileText size={14} /> Costing History
+              <IconFileText size={14} /> Product Costing History
             </button>
           </div>
         </div>
@@ -726,112 +840,229 @@ export const ProductCostingView: React.FC = () => {
         // ==========================================
         // COSTING HISTORY TAB
         // ==========================================
-        <Card>
-          <CardHeader>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <CardTitle>Historical Costing Calculations</CardTitle>
-              <Button size="sm" variant="secondary" onClick={loadCostingHistory} isLoading={isLoadingHistory}>
-                <IconRefresh size={14} /> Refresh
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {costingHistory.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
-                <IconFileText size={36} style={{ margin: '0 auto 12px auto', opacity: 0.4 }} />
-                <p style={{ margin: 0, fontWeight: 600 }}>No costing records saved yet</p>
-                <p style={{ fontSize: '12px', marginTop: '4px' }}>
-                  Use the Costing Calculator to calculate and confirm batch manufacturing costs.
-                </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Summary KPI Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+            <Card style={{ padding: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Calculations Recorded</div>
+              <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                {costingHistory.length}
               </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
-                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Date</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left' }}>Raw Material</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Pack Size</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Output Units</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>RM Cost</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Packaging Cost</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total Batch Cost</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right', color: '#047857' }}>Cost Per Bottle</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'center' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {costingHistory.map((item) => {
-                      const rmLine = item.materialLines?.[0];
-                      return (
-                        <tr key={item.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
-                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                            {new Date(item.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                          </td>
-                          <td style={{ padding: '10px 12px', fontWeight: 600 }}>
-                            {rmLine?.rawMaterial?.materialName || 'Raw Material'}
-                            {rmLine?.rawMaterial?.materialCode && (
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginLeft: '6px' }}>
-                                ({rmLine.rawMaterial.materialCode})
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Immutable Historical Snapshots</div>
+            </Card>
+
+            <Card style={{ padding: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Active Production Costings</div>
+              <div style={{ fontSize: '24px', fontWeight: 800, color: '#047857', marginTop: '4px' }}>
+                {costingHistory.filter((c) => c.status === 'ACTIVE').length}
+              </div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Currently Active Formulas</div>
+            </Card>
+
+            <Card style={{ padding: '16px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>Latest Costing Reference</div>
+              <div style={{ fontSize: '24px', fontWeight: 800, color: '#0284c7', marginTop: '4px', fontFamily: 'var(--font-mono)' }}>
+                {costingHistory[0]?.costingCode || (costingHistory.length > 0 && costingHistory[0] ? `CST-${String(costingHistory[0].version || 1).padStart(6, '0')}` : 'None')}
+              </div>
+              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                {costingHistory[0]?.costingDate ? new Date(costingHistory[0].costingDate).toLocaleDateString('en-GB') : 'N/A'}
+              </div>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <CardTitle>Date-Wise Product Costing History</CardTitle>
+                
+                {/* Filters */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>From:</span>
+                    <Input
+                      type="date"
+                      value={historyFilterStart}
+                      onChange={(e) => setHistoryFilterStart(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '11px', width: '130px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>To:</span>
+                    <Input
+                      type="date"
+                      value={historyFilterEnd}
+                      onChange={(e) => setHistoryFilterEnd(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '11px', width: '130px' }}
+                    />
+                  </div>
+
+                  <div style={{ width: '200px' }}>
+                    <Input
+                      placeholder="Search Code, Product, RM, PO#..."
+                      value={historySearchQuery}
+                      onChange={(e) => setHistorySearchQuery(e.target.value)}
+                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                    />
+                  </div>
+
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => loadCostingHistory(historyFilterStart, historyFilterEnd, historySearchQuery)}
+                    isLoading={isLoadingHistory}
+                  >
+                    <IconFilter size={12} /> Filter
+                  </Button>
+
+                  {(historyFilterStart || historyFilterEnd || historySearchQuery) && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setHistoryFilterStart('');
+                        setHistoryFilterEnd('');
+                        setHistorySearchQuery('');
+                        loadCostingHistory('', '', '');
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {costingHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                  <IconFileText size={36} style={{ margin: '0 auto 12px auto', opacity: 0.4 }} />
+                  <p style={{ margin: 0, fontWeight: 600 }}>No costing records match the selected criteria</p>
+                  <p style={{ fontSize: '12px', marginTop: '4px' }}>
+                    Confirmed product costings will appear here permanently with their exact source purchase rates.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
+                        <th style={{ padding: '10px 12px', textAlign: 'left' }}>Costing Ref</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left' }}>Costing Date</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left' }}>Target Product</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left' }}>Raw Material Used & Cost</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left' }}>Source Purchase</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Pack Size / Output</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>Total Batch Cost</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', color: '#047857' }}>Cost Per Bottle</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Status</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {costingHistory.map((item) => {
+                        const rmLine = item.materialLines?.[0];
+                        const code = item.costingCode || `CST-${String(item.version || 1).padStart(6, '0')}`;
+                        const cDate = item.costingDate || item.createdAt;
+
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                            <td style={{ padding: '10px 12px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
+                              {code}
+                            </td>
+                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                              {new Date(cDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+                              {item.finishedProduct?.productName || (item.snapshotMetadata?.productName) || 'Batch Recipe'}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                                {item.rawMaterialName || rmLine?.rawMaterial?.materialName || 'Raw Material'}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#047857', fontFamily: 'var(--font-mono)' }}>
+                                @ PKR {Number(item.rawMaterialCostPerUnit || rmLine?.unitCost || 0).toLocaleString()} / {rmLine?.uomName || 'KG'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '10px 12px', fontSize: '11px' }}>
+                              {item.sourcePoNumber ? (
+                                <div>
+                                  <span style={{ fontWeight: 600, color: '#0369a1' }}>PO: {item.sourcePoNumber}</span>
+                                  {item.purchaseDate && (
+                                    <span style={{ color: '#64748b', marginLeft: '4px' }}>
+                                      ({new Date(item.purchaseDate).toLocaleDateString('en-GB')})
+                                    </span>
+                                  )}
+                                  {item.vendorName && (
+                                    <div style={{ color: '#475569' }}>Vendor: {item.vendorName}</div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>Baseline / Manual</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              {item.batchOutputQuantity} bottles × {item.packSize} {item.packSizeUnit || 'L'}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600 }}>
+                              PKR {Number(item.totalBatchCost || 0).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '13px' }}>
+                              PKR {Number(item.costPerUnit || 0).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  backgroundColor: item.status === 'ACTIVE' ? '#ecfdf5' : '#f1f5f9',
+                                  color: item.status === 'ACTIVE' ? '#047857' : '#64748b',
+                                  border: `1px solid ${item.status === 'ACTIVE' ? '#a7f3d0' : '#cbd5e1'}`,
+                                }}
+                              >
+                                {item.status || 'ACTIVE'}
                               </span>
-                            )}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            {item.packSize} {item.packSizeUnit || 'L'}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 600 }}>
-                            {item.batchOutputQuantity}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                            PKR {Number(item.totalRawMaterialCost || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                            PKR {Number(item.totalPackagingCost || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 600 }}>
-                            PKR {Number(item.totalBatchCost || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '13px' }}>
-                            PKR {Number(item.costPerUnit || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => {
-                                setSelectedHistoryItem(item);
-                                setIsDetailModalOpen(true);
-                              }}
-                              style={{ padding: '4px 8px', fontSize: '11px' }}
-                            >
-                              <IconEye size={12} /> View
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  setSelectedHistoryItem(item);
+                                  setIsDetailModalOpen(true);
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '11px' }}
+                              >
+                                <IconEye size={12} /> Breakdown
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       ) : (
         // ==========================================
-        // COSTING CALCULATOR TAB (THE SIMPLE 4-SECTION FORM)
+        // COSTING CALCULATOR TAB
         // ==========================================
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '20px', alignItems: 'start' }}>
           {/* Left Column: Sections 1, 2, 3 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            {/* SECTION 1: RAW MATERIAL */}
+            {/* SECTION 1: RAW MATERIAL & DATE-WISE PURCHASE HISTORY */}
             <Card>
               <CardHeader>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
                     1
                   </div>
-                  <CardTitle>Raw Material Selection</CardTitle>
+                  <CardTitle>Raw Material Selection & Purchase Cost History</CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
@@ -843,7 +1074,7 @@ export const ProductCostingView: React.FC = () => {
                     value={selectedRawMaterialId}
                     onChange={(e) => setSelectedRawMaterialId(e.target.value)}
                     options={[
-                      { value: '', label: '-- Choose Raw Material from Procurement Master --' },
+                      { value: '', label: '-- Choose Raw Material from Catalog --' },
                       ...rawMaterialsList.map((rm) => ({
                         value: rm.id,
                         label: `${rm.materialCode} - ${rm.materialName}`,
@@ -853,66 +1084,170 @@ export const ProductCostingView: React.FC = () => {
                 </div>
 
                 {selectedRawMaterial && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {/* Procurement & Packaging Insight */}
-                    <div style={{ background: '#f0f9ff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #bae6fd', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#0369a1' }}>
-                          📦 Procurement Master Data:
-                        </span>
-                        <span style={{ fontSize: '12.5px', color: '#0c4a6e' }}>
-                          {selectedRawMaterial.bulkPacking || (selectedRawMaterial as any).customFields?.containerType ? `${(selectedRawMaterial as any).customFields?.packageCount ? `${(selectedRawMaterial as any).customFields.packageCount} × ` : ''}${(selectedRawMaterial as any).customFields?.containerType || selectedRawMaterial.bulkPacking} · ` : ''}
-                          Total Volume: <strong>{Number(selectedRawMaterial.totalBulkVolume || (selectedRawMaterial as any).customFields?.totalPurchasedVolume || availableQuantity || 0).toLocaleString()} {rawMaterialUnitName}</strong>
-                        </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    
+                    {/* Active Selected Purchase Indicator */}
+                    {selectedPurchase ? (
+                      <div style={{ background: '#ecfdf5', border: '1px solid #10b981', padding: '12px 16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#065f46', fontWeight: 800, letterSpacing: '0.04em' }}>
+                            ✓ Active Purchase Cost Selected
+                          </div>
+                          <div style={{ fontSize: '13px', color: '#047857', marginTop: '2px' }}>
+                            <strong>PO #{selectedPurchase.documentNumber}</strong> (Purchased on {new Date(selectedPurchase.purchaseDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} from <strong>{selectedPurchase.vendorName}</strong>)
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '11px', color: '#065f46' }}>Procurement Unit Cost:</div>
+                          <div style={{ fontSize: '18px', fontWeight: 900, color: '#047857', fontFamily: 'var(--font-mono)' }}>
+                            PKR {selectedPurchase.unitCost.toLocaleString()} / {selectedPurchase.unit}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={{ fontSize: '12px', color: '#0369a1' }}>
-                          Base Rate: <strong style={{ color: '#047857', fontFamily: 'var(--font-mono)' }}>PKR {Number(defaultRawMaterialCost).toLocaleString()}/{rawMaterialUnitName}</strong>
-                        </span>
-                        {Number(selectedRawMaterial.totalPurchasedValue || (selectedRawMaterial as any).customFields?.totalPurchaseValue || 0) > 0 && (
-                          <span style={{ fontSize: '12px', color: '#475569' }}>
-                            Total Paid: <strong style={{ fontFamily: 'var(--font-mono)' }}>PKR {Number(selectedRawMaterial.totalPurchasedValue || (selectedRawMaterial as any).customFields?.totalPurchaseValue).toLocaleString()}</strong>
+                    ) : (
+                      <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', padding: '10px 14px', borderRadius: '8px', color: '#64748b', fontSize: '12px' }}>
+                        ℹ Using Master Default Baseline rate (PKR {Number(defaultRawMaterialCost).toLocaleString()}/{rawMaterialUnitName}). Select a historical purchase below or enter a rate manually.
+                      </div>
+                    )}
+
+                    {/* SUB-SECTION: DATE-WISE PURCHASE HISTORY TABLE */}
+                    <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                            📅 Purchase Cost History for {selectedRawMaterial.materialName}
                           </span>
-                        )}
+                          <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '6px' }}>
+                            ({purchaseHistory.length} transaction{purchaseHistory.length === 1 ? '' : 's'} found)
+                          </span>
+                        </div>
+
+                        {/* Date Filter for Purchase History */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>Date Range:</span>
+                          <Input
+                            type="date"
+                            value={purchaseFilterStart}
+                            onChange={(e) => setPurchaseFilterStart(e.target.value)}
+                            style={{ padding: '2px 6px', fontSize: '11px', width: '120px' }}
+                          />
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>to</span>
+                          <Input
+                            type="date"
+                            value={purchaseFilterEnd}
+                            onChange={(e) => setPurchaseFilterEnd(e.target.value)}
+                            style={{ padding: '2px 6px', fontSize: '11px', width: '120px' }}
+                          />
+                          {(purchaseFilterStart || purchaseFilterEnd) && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                setPurchaseFilterStart('');
+                                setPurchaseFilterEnd('');
+                              }}
+                              style={{ padding: '2px 6px', fontSize: '10px' }}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
                       </div>
+
+                      {isLoadingPurchaseHistory ? (
+                        <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '12px' }}>
+                          Loading procurement history...
+                        </div>
+                      ) : purchaseHistory.length === 0 ? (
+                        <div style={{ padding: '16px', textAlign: 'center', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                          <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+                            No Purchase Orders recorded for <strong>{selectedRawMaterial.materialName}</strong> in this date range.
+                          </p>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#94a3b8' }}>
+                            When you create POs on different dates, they will automatically appear here with their exact purchase rate.
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ padding: '8px 10px', textAlign: 'left' }}>Purchase Date</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'left' }}>PO #</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'left' }}>Vendor</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'right' }}>Purchased Qty</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Amount</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'right', color: '#047857' }}>Unit Cost</th>
+                                <th style={{ padding: '8px 10px', textAlign: 'center' }}>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {purchaseHistory.map((item) => {
+                                const isSelected = selectedPurchaseId === item.id;
+                                return (
+                                  <tr
+                                    key={item.id}
+                                    style={{
+                                      borderBottom: '1px solid #e2e8f0',
+                                      backgroundColor: isSelected ? '#ecfdf5' : '#ffffff',
+                                    }}
+                                  >
+                                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                                      {new Date(item.purchaseDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
+                                      {item.documentNumber}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', color: '#334155' }}>
+                                      {item.vendorName}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                      {item.numberOfPacks ? `${item.numberOfPacks} Packs (${item.quantity} ${item.unit})` : `${item.quantity} ${item.unit}`}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                                      PKR {item.totalAmount.toLocaleString()}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#047857', fontFamily: 'var(--font-mono)' }}>
+                                      PKR {item.unitCost.toLocaleString()} / {item.unit}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                      {isSelected ? (
+                                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 8px', borderRadius: '4px', backgroundColor: '#059669', color: '#ffffff' }}>
+                                          ✓ Active
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleSelectPurchase(item)}
+                                          style={{
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            padding: '3px 8px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #059669',
+                                            backgroundColor: '#ffffff',
+                                            color: '#059669',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          Use This Cost
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
 
                     {/* Valuation / Pricing Mode Selector */}
                     <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '8px' }}>
-                        Raw Material Cost Valuation Method:
+                        Cost Valuation Method & Custom Rate Override:
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                        <label
-                          onClick={() => setCostMode('BATCH_TOTAL')}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: '10px',
-                            padding: '10px 12px',
-                            borderRadius: '6px',
-                            border: `2px solid ${costMode === 'BATCH_TOTAL' ? '#059669' : '#cbd5e1'}`,
-                            background: costMode === 'BATCH_TOTAL' ? '#ecfdf5' : '#ffffff',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <input
-                            type="radio"
-                            name="costMode"
-                            checked={costMode === 'BATCH_TOTAL'}
-                            onChange={() => setCostMode('BATCH_TOTAL')}
-                            style={{ marginTop: '2px', accentColor: '#059669' }}
-                          />
-                          <div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
-                              Total Batch Raw Material Value (PKR)
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                              Total invoice / consumed bulk amount (e.g. 4,000,000 PKR). Single bottle RM = Total Value ÷ Output Bottles.
-                            </div>
-                          </div>
-                        </label>
-
                         <label
                           onClick={() => setCostMode('PER_UNIT')}
                           style={{
@@ -938,7 +1273,37 @@ export const ProductCostingView: React.FC = () => {
                               Rate Per Unit (PKR / {rawMaterialUnitName})
                             </div>
                             <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                              Specific rate per Liter or Kg. Total RM = Required Volume × Rate.
+                              Standard calculation: Required Volume × Unit Rate.
+                            </div>
+                          </div>
+                        </label>
+
+                        <label
+                          onClick={() => setCostMode('BATCH_TOTAL')}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: `2px solid ${costMode === 'BATCH_TOTAL' ? '#059669' : '#cbd5e1'}`,
+                            background: costMode === 'BATCH_TOTAL' ? '#ecfdf5' : '#ffffff',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="costMode"
+                            checked={costMode === 'BATCH_TOTAL'}
+                            onChange={() => setCostMode('BATCH_TOTAL')}
+                            style={{ marginTop: '2px', accentColor: '#059669' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                              Total Batch Raw Material Value (PKR)
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                              Flat bulk amount. Single unit RM = Total Amount ÷ Output Bottles.
                             </div>
                           </div>
                         </label>
@@ -948,9 +1313,9 @@ export const ProductCostingView: React.FC = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
                         <div>
                           <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                            {costMode === 'BATCH_TOTAL'
-                              ? 'Enter Total Batch RM Value (PKR) *'
-                              : `Enter Rate Per ${rawMaterialUnitName} (PKR) *`}
+                            {costMode === 'PER_UNIT'
+                              ? `Applied Rate Per ${rawMaterialUnitName} (PKR) *`
+                              : 'Applied Total Batch RM Value (PKR) *'}
                           </label>
                           <Input
                             type="number"
@@ -958,18 +1323,18 @@ export const ProductCostingView: React.FC = () => {
                             step={costMode === 'BATCH_TOTAL' ? 1000 : 1}
                             value={customRawMaterialCost}
                             onChange={(e) => setCustomRawMaterialCost(e.target.value === '' ? '' : Number(e.target.value))}
-                            placeholder={costMode === 'BATCH_TOTAL' ? 'e.g. 4000000' : 'e.g. 2000'}
+                            placeholder={costMode === 'PER_UNIT' ? 'e.g. 800' : 'e.g. 200000'}
                           />
                         </div>
 
                         <div style={{ fontSize: '11px', color: '#047857', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px' }}>
-                          {costMode === 'BATCH_TOTAL' ? (
+                          {costMode === 'PER_UNIT' ? (
                             <span>
-                              <strong>Arithmetic:</strong> PKR {Number(rawMaterialTotalCost).toLocaleString()} total bulk ÷ {outputBottles} units = <strong>PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()}</strong> RM per bottle.
+                              <strong>Arithmetic:</strong> {requiredRawMaterial} {rawMaterialUnitName} × PKR {rawMaterialUnitCost.toLocaleString()} = <strong>PKR {rawMaterialTotalCost.toLocaleString()}</strong> total RM.
                             </span>
                           ) : (
                             <span>
-                              <strong>Arithmetic:</strong> {requiredRawMaterial} {rawMaterialUnitName} × PKR {rawMaterialUnitCost.toLocaleString()} = <strong>PKR {rawMaterialTotalCost.toLocaleString()}</strong> total RM.
+                              <strong>Arithmetic:</strong> PKR {Number(rawMaterialTotalCost).toLocaleString()} total bulk ÷ {outputBottles} units = <strong>PKR {Math.round(rawMaterialCostPerBottle).toLocaleString()}</strong> RM per bottle.
                             </span>
                           )}
                         </div>
@@ -1031,18 +1396,32 @@ export const ProductCostingView: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* SECTION 2: PRODUCTION OUTPUT & AVAILABILITY CHECK */}
+            {/* SECTION 2: PRODUCTION OUTPUT & COSTING DATE */}
             <Card>
               <CardHeader>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#ecfdf5', color: '#047857', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700 }}>
                     2
                   </div>
-                  <CardTitle>Production Output Parameters</CardTitle>
+                  <CardTitle>Production Output & Costing Date</CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Costing Calculation Date *
+                    </label>
+                    <Input
+                      type="date"
+                      value={costingDate}
+                      onChange={(e) => setCostingDate(e.target.value)}
+                    />
+                    <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                      Permanent historical timestamp
+                    </div>
+                  </div>
+
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
                       Commercial Pack Size *
@@ -1056,7 +1435,7 @@ export const ProductCostingView: React.FC = () => {
                         onChange={(e) => setPackSize(Number(e.target.value) || 0)}
                         style={{ flex: 1 }}
                       />
-                      <div style={{ width: '110px' }}>
+                      <div style={{ width: '100px' }}>
                         <Select
                           value={packSizeUnit}
                           onChange={(e) => setPackSizeUnit(e.target.value)}
@@ -1116,7 +1495,7 @@ export const ProductCostingView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Stock Availability Indicator (Requirement 6) */}
+                {/* Stock Availability Indicator */}
                 {isStockSufficient ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px', color: '#065f46', fontSize: '12px', fontWeight: 600 }}>
                     <IconCheck size={16} />
@@ -1188,7 +1567,7 @@ export const ProductCostingView: React.FC = () => {
                             </td>
                             <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-secondary)' }}>
                               PKR {line.unitCost.toLocaleString()}
-                              <div style={{ fontSize: '10px', color: '#64748b' }}>Auto-fetched</div>
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>Master rate</div>
                             </td>
                             <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                               PKR {line.totalCost.toLocaleString()}
@@ -1230,7 +1609,7 @@ export const ProductCostingView: React.FC = () => {
 
           </div>
 
-          {/* Right Column: Section 4 — Result Card (Requirement 14) */}
+          {/* Right Column: Section 4 — Result Card */}
           <div style={{ position: 'sticky', top: '24px' }}>
             <Card style={{ border: '2px solid #059669', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.1)' }}>
               <div style={{ backgroundColor: '#059669', color: '#ffffff', padding: '14px 18px', borderTopLeftRadius: '10px', borderTopRightRadius: '10px' }}>
@@ -1244,6 +1623,20 @@ export const ProductCostingView: React.FC = () => {
 
               <CardContent style={{ padding: '20px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                    <span>Costing Date:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {costingDate ? new Date(costingDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Today'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
+                    <span>Selected PO:</span>
+                    <span style={{ fontWeight: 600, color: '#0284c7' }}>
+                      {selectedPurchase ? selectedPurchase.documentNumber : 'Baseline Catalog'}
+                    </span>
+                  </div>
+
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
                     <span>Raw Material Cost:</span>
                     <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -1277,7 +1670,7 @@ export const ProductCostingView: React.FC = () => {
                     <span style={{ fontWeight: 600 }}>{packSize} {packSizeUnit}</span>
                   </div>
 
-                  {/* Prominent Cost Per Bottle Metric (Requirement 14) */}
+                  {/* Prominent Cost Per Bottle Metric */}
                   <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '16px', textAlign: 'center', marginTop: '12px' }}>
                     <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#065f46', fontWeight: 800, letterSpacing: '0.05em' }}>
                       COST PER BOTTLE
@@ -1299,7 +1692,7 @@ export const ProductCostingView: React.FC = () => {
                       isLoading={isSavingCosting}
                       style={{ width: '100%', justifyContent: 'center', backgroundColor: '#059669', borderColor: '#059669' }}
                     >
-                      <IconCheck size={16} /> Confirm & Save Costing
+                      <IconCheck size={16} /> Confirm & Save Costing Permanently
                     </Button>
 
                     <Button
@@ -1324,27 +1717,55 @@ export const ProductCostingView: React.FC = () => {
         <Modal
           isOpen={isDetailModalOpen}
           onClose={() => setIsDetailModalOpen(false)}
-          title={`Costing Record Details`}
+          title={`Costing Snapshot: ${selectedHistoryItem.costingCode || `CST-${String(selectedHistoryItem.version || 1).padStart(6, '0')}`}`}
         >
           <div style={{ padding: '8px 0', fontSize: '13px' }}>
-            <div style={{ background: 'var(--bg-subtle)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                <div><strong>Date:</strong> {new Date(selectedHistoryItem.createdAt).toLocaleString()}</div>
-                <div><strong>Pack Size:</strong> {selectedHistoryItem.packSize} {selectedHistoryItem.packSizeUnit || 'L'}</div>
-                <div><strong>Finished Quantity:</strong> {selectedHistoryItem.batchOutputQuantity} bottles</div>
-                <div><strong>Cost Per Bottle:</strong> <span style={{ color: '#047857', fontWeight: 800 }}>PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span></div>
+            <div style={{ background: 'var(--bg-subtle)', padding: '14px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-default)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                <div>
+                  <strong>Costing Date:</strong> {new Date(selectedHistoryItem.costingDate || selectedHistoryItem.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </div>
+                <div>
+                  <strong>Version:</strong> V{selectedHistoryItem.version || 1} ({selectedHistoryItem.status || 'ACTIVE'})
+                </div>
+                <div>
+                  <strong>Finished Product:</strong> {selectedHistoryItem.finishedProduct?.productName || selectedHistoryItem.snapshotMetadata?.productName || 'Batch Recipe'}
+                </div>
+                <div>
+                  <strong>Output Quantity:</strong> {selectedHistoryItem.batchOutputQuantity} bottles × {selectedHistoryItem.packSize} {selectedHistoryItem.packSizeUnit || 'L'}
+                </div>
+                <div>
+                  <strong>Total Batch Cost:</strong> <span style={{ fontWeight: 700 }}>PKR {Number(selectedHistoryItem.totalBatchCost).toLocaleString()}</span>
+                </div>
+                <div>
+                  <strong>Cost Per Bottle:</strong> <span style={{ color: '#047857', fontWeight: 800 }}>PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span>
+                </div>
               </div>
             </div>
 
-            {/* Raw Material Line */}
+            {/* Source Purchase Order Information */}
+            {selectedHistoryItem.sourcePoNumber && (
+              <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', padding: '10px 14px', borderRadius: '8px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#0369a1', fontWeight: 700 }}>
+                  📦 Source Procurement Document
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#0c4a6e', marginTop: '2px' }}>
+                  Purchase Order: <strong>{selectedHistoryItem.sourcePoNumber}</strong>
+                  {selectedHistoryItem.purchaseDate && ` · Purchased on: ${new Date(selectedHistoryItem.purchaseDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                  {selectedHistoryItem.vendorName && ` · Vendor: ${selectedHistoryItem.vendorName}`}
+                </div>
+              </div>
+            )}
+
+            {/* Raw Material Lines */}
             <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 8px 0' }}>Raw Material</h4>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
                   <th style={{ padding: '6px 8px', textAlign: 'left' }}>Material</th>
                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Quantity</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate (PKR)</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total (PKR)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1366,8 +1787,8 @@ export const ProductCostingView: React.FC = () => {
                 <tr style={{ backgroundColor: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-default)' }}>
                   <th style={{ padding: '6px 8px', textAlign: 'left' }}>Packaging Material</th>
                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Quantity</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rate (PKR)</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total (PKR)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1382,15 +1803,15 @@ export const ProductCostingView: React.FC = () => {
               </tbody>
             </table>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', background: '#ecfdf5', borderRadius: '6px', fontWeight: 700, color: '#065f46' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: '#ecfdf5', borderRadius: '6px', fontWeight: 700, color: '#065f46' }}>
               <span>Total Batch Cost: PKR {Number(selectedHistoryItem.totalBatchCost).toLocaleString()}</span>
-              <span>Cost Per Bottle: PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span>
+              <span>Final Cost Per Bottle: PKR {Number(selectedHistoryItem.costPerUnit).toLocaleString()}</span>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Optional: Add to Finished Product Modal (Requirement 21) */}
+      {/* Optional: Add to Finished Product Modal */}
       <Modal
         isOpen={isAddToProductModalOpen}
         onClose={() => setIsAddToProductModalOpen(false)}

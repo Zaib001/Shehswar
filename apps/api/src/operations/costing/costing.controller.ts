@@ -43,11 +43,37 @@ export class CostingController {
 
   @Get('history')
   async getAllCostingHistory(
-    @CurrentUser() user: AuthUser,
-    @CurrentContext() ctx: SecurityContext,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('finishedProductId') finishedProductId?: string,
+    @Query('search') search?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
     const companyId = ctx?.companyId || user?.companyId;
-    return this.costingService.getAllCostingHistory(companyId);
+    return this.costingService.getAllCostingHistory({
+      companyId,
+      startDate,
+      endDate,
+      finishedProductId,
+      search,
+    });
+  }
+
+  @Get('materials/:materialId/purchase-history')
+  async getMaterialPurchaseHistory(
+    @Param('materialId') materialId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+  ) {
+    const companyId = ctx?.companyId || user?.companyId;
+    return this.costingService.getMaterialPurchaseHistory(materialId, {
+      startDate,
+      endDate,
+      companyId,
+    });
   }
 
   @Post('apply-to-product')

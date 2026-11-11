@@ -281,6 +281,7 @@ export class OperationalPoService {
     let subtotal = 0;
     let taxTotal = 0;
     let discountTotal = 0;
+    const creationDate = dto.poDate ? new Date(dto.poDate) : new Date();
 
     const itemsData = await Promise.all(
       dto.items.map(async (item: any) => {
@@ -436,6 +437,7 @@ export class OperationalPoService {
             : item.packSize
             ? `Pack Size: ${item.packSize}`
             : null,
+          createdAt: creationDate,
         };
       }),
     );
@@ -470,6 +472,7 @@ export class OperationalPoService {
         totalAmount,
         status: dto.status || 'CONFIRMED',
         notes: finalNotes || null,
+        createdAt: creationDate,
         createdById: user.id || null,
         items: {
           create: itemsData,

@@ -24,7 +24,8 @@ export type EntityCodeType =
   | 'WAREHOUSE'
   | 'REGION'
   | 'ZONE'
-  | 'TERRITORY';
+  | 'TERRITORY'
+  | 'COSTING';
 
 @Injectable()
 export class CodeGenerationService {
@@ -57,6 +58,7 @@ export class CodeGenerationService {
       REGION: { prefix: 'REG', pad: 6 },
       ZONE: { prefix: 'ZONE', pad: 6 },
       TERRITORY: { prefix: 'TER', pad: 6 },
+      COSTING: { prefix: 'CST', pad: 6 },
     };
 
     const config = prefixMap[entityType as Exclude<EntityCodeType, 'CATEGORY'>];
@@ -359,6 +361,7 @@ export class CodeGenerationService {
       REGION: { prefix: 'REG', pad: 6 },
       ZONE: { prefix: 'ZONE', pad: 6 },
       TERRITORY: { prefix: 'TER', pad: 6 },
+      COSTING: { prefix: 'CST', pad: 6 },
     };
     const config = prefixMap[params.entityType];
     const seq = await this.prisma.documentSequence.findUnique({
