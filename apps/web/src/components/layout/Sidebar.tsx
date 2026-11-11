@@ -62,6 +62,7 @@ function isRoutePermitted(routeId: string, user: any): boolean {
     case 'departments':
     case 'warehouses':
     case 'employees':
+    case 'all-products':
     case 'uoms':
     case 'material-categories':
     case 'raw-materials':
@@ -154,12 +155,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       },
       {
         id: 'products-master',
-        label: 'Product Management',
+        label: 'Products & Items',
         icon: <IconFlask size={18} />,
         color: '#10B981',
         gradient: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
         children: [
-          { id: 'finished-products', label: 'All Products & Items' },
+          { id: 'all-products', label: 'All Products & Items' },
+          { id: 'finished-products', label: 'Finished Products' },
           { id: 'raw-materials', label: 'Raw Materials' },
           { id: 'packing-materials', label: 'Packing Materials' },
           { id: 'product-categories', label: 'Product Categories' },

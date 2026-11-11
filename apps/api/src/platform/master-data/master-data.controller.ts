@@ -1041,6 +1041,27 @@ export class MasterDataController {
     return this.masterDataService.deletePackSize(id);
   }
 
+  // 17.0. ALL PRODUCTS & ITEMS (Unified Aggregated View)
+  @Get('all-products')
+  async getAllProducts(
+    @CurrentContext() ctx: SecurityContext,
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') companyId?: string,
+    @Query('organizationId') orgId?: string,
+    @Query('tab') tab?: string,
+    @Query('search') search?: string,
+    @Query('all') all?: string,
+  ) {
+    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const organizationId = orgId || ctx?.organizationId;
+    const canViewCost =
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.permissions?.some((p) => p.includes('view_cost') || p.includes('view_product_cost'));
+
+    return this.masterDataService.findAllProducts(filterCompany, organizationId, tab, search, canViewCost);
+  }
+
   // 17. FINISHED PRODUCTS (With Cost RBAC Check - Part 33)
   @Get('finished-products')
   async getFinishedProducts(

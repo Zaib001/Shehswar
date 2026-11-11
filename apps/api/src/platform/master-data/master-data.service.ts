@@ -1762,6 +1762,11 @@ export class MasterDataService {
   }
 
   async createUom(dto: any, _actor: { id: string; email?: string }) {
+    let organizationId = dto.organizationId;
+    if (!organizationId) {
+      const org = await this.prisma.organization.findFirst();
+      organizationId = org?.id;
+    }
     let category = (dto.category || dto.type || 'WEIGHT').toUpperCase();
     if (category === 'MASS') category = 'WEIGHT';
     const isBaseUnit = dto.isBaseUnit !== undefined
@@ -1777,7 +1782,7 @@ export class MasterDataService {
     const created = await this.prisma.unitOfMeasure.create({
       data: {
         id: uuidv7(),
-        organizationId: dto.organizationId,
+        organizationId: organizationId!,
         code: uomCode,
         name: dto.name.trim(),
         category,
@@ -2880,6 +2885,172 @@ export class MasterDataService {
     const prods = await this.prisma.finishedProduct.findMany({ where, select: { id: true } });
     const ids = prods.map((p: any) => p.id);
     return this.deleteBulkFinishedProducts(ids);
+  }
+
+  // 17.5. ALL PRODUCTS & ITEMS (Unified Aggregated View - No Duplication)
+  async findAllProducts(
+    companyId?: string,
+    organizationId?: string,
+    tab?: string,
+    search?: string,
+    canViewCost = true,
+  ) {
+    const activeTab = (tab || 'ALL').toUpperCase();
+    const query = (search || '').trim().toLowerCase();
+
+    const fetchRaw = activeTab === 'ALL' || activeTab === 'RAW_MATERIAL' || activeTab === 'RAW_MATERIALS';
+    const fetchPacking = activeTab === 'ALL' || activeTab === 'PACKING_MATERIAL' || activeTab === 'PACKING_MATERIALS';
+    const fetchFinished = activeTab === 'ALL' || activeTab === 'FINISHED_PRODUCT' || activeTab === 'FINISHED_PRODUCTS';
+    const fetchOther = activeTab === 'ALL' || activeTab === 'OTHER' || activeTab === 'OTHERS';
+
+    const [rawMaterials, packingMaterials, finishedProducts] = await Promise.all([
+      fetchRaw || fetchOther ? this.findRawMaterials(companyId, organizationId, canViewCost) : Promise.resolve([]),
+      fetchPacking || fetchOther ? this.findPackingMaterials(companyId, organizationId) : Promise.resolve([]),
+      fetchFinished || fetchOther ? this.findFinishedProducts(companyId, organizationId, canViewCost) : Promise.resolve([]),
+    ]);
+
+    const unifiedList: any[] = [];
+
+    // 1. Raw Materials
+    for (const rm of rawMaterials as any[]) {
+      const isOther = (rm.category?.name || '').toLowerCase().includes('other') || (rm.category?.code || '').toLowerCase().includes('other');
+      const itemType = isOther ? 'OTHER' : 'RAW_MATERIAL';
+      const itemTypeLabel = isOther ? 'Other Item' : 'Raw Material';
+      const baseCost = canViewCost ? Number(rm.costPerBaseUnit ?? rm.unitRate ?? rm.standardCost ?? 0) : null;
+
+      unifiedList.push({
+        id: rm.id,
+        code: rm.materialCode || rm.code,
+        name: rm.materialName || rm.name,
+        urduName: rm.urduName || null,
+        itemType,
+        itemTypeLabel,
+        categoryName: rm.category?.name || 'Raw Material',
+        categoryCode: rm.category?.code || null,
+        categoryId: rm.categoryId || null,
+        baseUomName: rm.baseUom?.name || rm.uom?.name || 'KG',
+        baseUomSymbol: rm.baseUom?.symbol || rm.baseUom?.code || rm.uom?.symbol || 'KG',
+        rate: baseCost,
+        standardCost: baseCost,
+        sellingPrice: null,
+        packSize: rm.bulkPacking || (rm.purchaseConversionFactor && Number(rm.purchaseConversionFactor) > 1 ? `${rm.purchaseConversionFactor} ${rm.baseUom?.symbol || 'KG'}` : 'Bulk'),
+        grade: rm.grade || null,
+        specifications: rm.specifications || null,
+        storageRequirements: rm.storageRequirements || null,
+        isHazardous: Boolean(rm.isHazardous),
+        batchesCount: 0,
+        status: rm.status || (rm.isActive ? 'ACTIVE' : 'INACTIVE'),
+        isActive: rm.status === 'ACTIVE' || rm.isActive === true,
+        createdAt: rm.createdAt,
+        updatedAt: rm.updatedAt,
+        rawRecord: rm,
+      });
+    }
+
+    // 2. Packing Materials
+    for (const pm of packingMaterials as any[]) {
+      const isOther = (pm.category?.name || '').toLowerCase().includes('other');
+      const itemType = isOther ? 'OTHER' : 'PACKING_MATERIAL';
+      const itemTypeLabel = isOther ? 'Other Item' : 'Packing Material';
+      const pmCost = canViewCost ? Number(pm.lastPurchaseCost ?? pm.standardCost ?? 0) : null;
+
+      unifiedList.push({
+        id: pm.id,
+        code: pm.materialCode || pm.code,
+        name: pm.materialName || pm.name,
+        urduName: pm.urduName || null,
+        itemType,
+        itemTypeLabel,
+        categoryName: pm.category?.name || 'Packing Material',
+        categoryCode: pm.category?.code || null,
+        categoryId: pm.categoryId || null,
+        baseUomName: pm.baseUom?.name || pm.uom?.name || 'PCS',
+        baseUomSymbol: pm.baseUom?.symbol || pm.baseUom?.code || pm.uom?.symbol || 'PCS',
+        rate: pmCost,
+        standardCost: pmCost,
+        sellingPrice: null,
+        packSize: pm.packCompatibility || 'Item',
+        grade: null,
+        specifications: pm.description || pm.packCompatibility || null,
+        storageRequirements: null,
+        isHazardous: false,
+        batchesCount: 0,
+        status: pm.status || (pm.isActive ? 'ACTIVE' : 'INACTIVE'),
+        isActive: pm.status === 'ACTIVE' || pm.isActive === true,
+        createdAt: pm.createdAt,
+        updatedAt: pm.updatedAt,
+        rawRecord: pm,
+      });
+    }
+
+    // 3. Finished Products
+    for (const fp of finishedProducts) {
+      const packLabel = fp.packSize?.name || (fp.packingQuantity ? `${fp.packingQuantity} ${fp.packingUnit || 'L'}` : null);
+      const fpPrice = fp.defaultSellingPrice !== null && fp.defaultSellingPrice !== undefined ? Number(fp.defaultSellingPrice) : null;
+      const fpCost = canViewCost && fp.standardCost !== null && fp.standardCost !== undefined ? Number(fp.standardCost) : null;
+
+      unifiedList.push({
+        id: fp.id,
+        code: fp.productCode,
+        name: fp.productName,
+        urduName: fp.urduName || null,
+        itemType: 'FINISHED_PRODUCT',
+        itemTypeLabel: 'Finished Product',
+        categoryName: fp.category?.name || fp.productType || 'Finished Goods',
+        categoryCode: fp.category?.code || null,
+        categoryId: fp.categoryId || null,
+        baseUomName: fp.baseUom?.name || fp.packingUnit || 'PCS',
+        baseUomSymbol: fp.baseUom?.symbol || fp.baseUom?.code || fp.packingUnit || 'PCS',
+        rate: fpPrice,
+        standardCost: fpCost,
+        sellingPrice: fpPrice,
+        packSize: packLabel,
+        grade: fp.grade || null,
+        specifications: fp.productType ? `${fp.productType} · PPC: ${fp.ppc || 1}` : null,
+        storageRequirements: null,
+        isHazardous: false,
+        batchesCount: Array.isArray(fp.batches) ? fp.batches.length : 0,
+        status: fp.status || 'ACTIVE',
+        isActive: fp.status === 'ACTIVE',
+        createdAt: fp.createdAt,
+        updatedAt: fp.updatedAt,
+        rawRecord: fp,
+      });
+    }
+
+    // Tab filter
+    let filtered = unifiedList;
+    if (activeTab === 'RAW_MATERIAL' || activeTab === 'RAW_MATERIALS') {
+      filtered = unifiedList.filter((it) => it.itemType === 'RAW_MATERIAL');
+    } else if (activeTab === 'PACKING_MATERIAL' || activeTab === 'PACKING_MATERIALS') {
+      filtered = unifiedList.filter((it) => it.itemType === 'PACKING_MATERIAL');
+    } else if (activeTab === 'FINISHED_PRODUCT' || activeTab === 'FINISHED_PRODUCTS') {
+      filtered = unifiedList.filter((it) => it.itemType === 'FINISHED_PRODUCT');
+    } else if (activeTab === 'OTHER' || activeTab === 'OTHERS') {
+      filtered = unifiedList.filter((it) => it.itemType === 'OTHER');
+    }
+
+    // Search query
+    if (query) {
+      filtered = filtered.filter((it) => {
+        return (
+          it.code.toLowerCase().includes(query) ||
+          it.name.toLowerCase().includes(query) ||
+          (it.urduName && it.urduName.toLowerCase().includes(query)) ||
+          it.itemTypeLabel.toLowerCase().includes(query) ||
+          (it.categoryName && it.categoryName.toLowerCase().includes(query)) ||
+          (it.baseUomName && it.baseUomName.toLowerCase().includes(query)) ||
+          (it.baseUomSymbol && it.baseUomSymbol.toLowerCase().includes(query)) ||
+          (it.packSize && it.packSize.toLowerCase().includes(query)) ||
+          (it.grade && it.grade.toLowerCase().includes(query))
+        );
+      });
+    }
+
+    // Sort by code asc
+    filtered.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }));
+
+    return filtered;
   }
 
   // 18. WAREHOUSE LOCATIONS (Hierarchy: Zone > Rack > Bin)

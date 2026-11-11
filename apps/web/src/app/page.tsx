@@ -87,13 +87,11 @@ import {
   ApprovalRulesView,
   NotificationCenterView,
   MarketManagementView,
+  AllProductsAndItemsView,
   UomView,
   MaterialCategoriesView,
-  RawMaterialsView,
-  PackingMaterialsView,
   ProductCategoriesView,
   PackSizesView,
-  FinishedProductsView,
   WarehouseLocationsView,
   ProductionLinesView,
   ShiftsView,
@@ -582,16 +580,17 @@ export default function ShowroomPage() {
           {currentRoute === 'approvals' && <ApprovalRulesView />}
           {currentRoute === 'notifications' && <NotificationCenterView />}
 
-          {/* Phase 4.5 — Materials Master */}
+          {/* Phase 4.5 — Products & Items Master (Unified Workspace) */}
+          {currentRoute === 'all-products' && <AllProductsAndItemsView defaultTab="ALL" />}
+          {currentRoute === 'finished-products' && <AllProductsAndItemsView defaultTab="FINISHED_PRODUCT" />}
+          {currentRoute === 'raw-materials' && <AllProductsAndItemsView defaultTab="RAW_MATERIAL" />}
+          {currentRoute === 'packing-materials' && <AllProductsAndItemsView defaultTab="PACKING_MATERIAL" />}
+
+          {/* Phase 4.5 — Category & Attribute Masters */}
           {currentRoute === 'uoms' && <UomView />}
           {currentRoute === 'material-categories' && <MaterialCategoriesView />}
-          {currentRoute === 'raw-materials' && <RawMaterialsView />}
-          {currentRoute === 'packing-materials' && <PackingMaterialsView />}
-
-          {/* Phase 4.5 — Products Master */}
           {currentRoute === 'product-categories' && <ProductCategoriesView />}
           {currentRoute === 'pack-sizes' && <PackSizesView />}
-          {currentRoute === 'finished-products' && <FinishedProductsView />}
           {currentRoute === 'formula-boms' && <FormulaBomsView />}
           {currentRoute === 'qc-specifications' && <QcSpecificationsView />}
 

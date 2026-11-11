@@ -2442,6 +2442,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
+                                document.getElementById(`field-po-item-${idx}-input`)?.focus() || document.getElementById(`field-po-item-${idx}`)?.focus();
                                 document.getElementById(`field-po-item-${idx}`)?.focus();
                               }
                             }}
