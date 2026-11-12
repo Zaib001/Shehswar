@@ -123,6 +123,39 @@ export class CostingController {
     return this.costingService.getProductCostingHistory(id);
   }
 
+  @Get('product/:id/latest-recipe')
+  async getLatestRecipe(@Param('id') id: string) {
+    return this.costingService.getLatestRecipe(id);
+  }
+
+  @Get('product/:id/cost-history')
+  async getProductCostHistory(@Param('id') id: string) {
+    return this.costingService.getProductCostHistory(id);
+  }
+
+  @Get('batches/check')
+  async checkBatch(
+    @Query('finishedProductId') finishedProductId: string,
+    @Query('batchNumber') batchNumber: string,
+  ) {
+    return this.costingService.checkProductBatch(finishedProductId, batchNumber);
+  }
+
+  @Post('batches/create')
+  async createBatch(
+    @Body() dto: {
+      finishedProductId: string;
+      batchNumber: string;
+      manufacturingDate?: string;
+      expiryDate?: string;
+      initialQuantity?: number;
+      notes?: string;
+    },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.costingService.createProductBatch(dto, user);
+  }
+
   @Get('finished-products/:id/calculate')
   async calculateCost(
     @Param('id') id: string,

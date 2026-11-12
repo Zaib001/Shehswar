@@ -11,6 +11,7 @@
  * - Action: "Create Purchase" -> Seamlessly transfers data into Purchase Form
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ListPageTemplate, FormPageTemplate } from '../templates';
 import {
   DataTable,
@@ -98,10 +99,21 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
   const [isFocused, setIsFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState(value || '');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const [menuCoords, setMenuCoords] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    placement: 'top' | 'bottom';
+  } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Sync searchQuery when external value changes and input is not focused
   useEffect(() => {
@@ -109,6 +121,49 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       setSearchQuery(value || '');
     }
   }, [value, isFocused]);
+
+  // Dynamic floating position calculation immune to table overflow or footers
+  const updatePosition = useCallback(() => {
+    if (!inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const menuEstimatedHeight = 260;
+
+    // Flip upwards only if not enough space below AND more space above
+    const openUpwards = spaceBelow < menuEstimatedHeight && rect.top > spaceBelow;
+
+    // Keep comfortably inside horizontal viewport
+    const menuWidth = Math.max(rect.width, 420);
+    let left = rect.left;
+    if (left + menuWidth > window.innerWidth - 16) {
+      left = Math.max(16, window.innerWidth - menuWidth - 16);
+    }
+
+    setMenuCoords({
+      top: openUpwards ? rect.top - 6 : rect.bottom + 6,
+      left,
+      width: menuWidth,
+      placement: openUpwards ? 'top' : 'bottom',
+    });
+  }, []);
+
+  // Update floating position on open, scroll, or resize
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+
+    const handleScrollOrResize = () => {
+      updatePosition();
+    };
+
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, [isOpen, updatePosition]);
 
   // Filter options based on query
   const filtered = React.useMemo(() => {
@@ -140,6 +195,23 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
     }
   }, [highlightedIndex, isOpen]);
 
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        containerRef.current && !containerRef.current.contains(target) &&
+        listRef.current && !listRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+        setIsFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isOpen]);
+
   const handleSelect = (option: ProductOption) => {
     const display = option.code ? `[${option.code}] ${option.name}` : option.name;
     setSearchQuery(display);
@@ -164,6 +236,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       e.preventDefault();
       e.stopPropagation();
       if (!isOpen) {
+        updatePosition();
         setIsOpen(true);
         return;
       }
@@ -172,6 +245,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       e.preventDefault();
       e.stopPropagation();
       if (!isOpen) {
+        updatePosition();
         setIsOpen(true);
         return;
       }
@@ -219,19 +293,15 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
         onChange={(e) => {
           const val = e.target.value;
           setSearchQuery(val);
+          updatePosition();
           setIsOpen(true);
           onCustomTextChange(val);
         }}
         onFocus={() => {
           setIsFocused(true);
+          updatePosition();
           setIsOpen(true);
           inputRef.current?.select();
-        }}
-        onBlur={() => {
-          setTimeout(() => {
-            setIsFocused(false);
-            setIsOpen(false);
-          }, 180);
         }}
         onKeyDown={handleKeyDown}
         style={{
@@ -251,23 +321,28 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
         }}
       />
 
-      {isOpen && (
+      {/* RENDERED IN PORTAL DIRECTLY TO DOCUMENT.BODY: IMMUNE TO PARENT OVERFLOW, SCROLLBARS, AND FOOTER DOCKS */}
+      {mounted && isOpen && menuCoords && typeof document !== 'undefined' && createPortal(
         <div
           ref={listRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            width: '100%',
-            minWidth: '360px',
-            maxWidth: '520px',
-            maxHeight: '240px',
+            position: 'fixed',
+            top: menuCoords.placement === 'top' ? undefined : `${menuCoords.top}px`,
+            bottom: menuCoords.placement === 'top' ? `${window.innerHeight - menuCoords.top}px` : undefined,
+            left: `${menuCoords.left}px`,
+            width: `${menuCoords.width}px`,
+            maxWidth: 'calc(100vw - 32px)',
+            maxHeight: '260px',
             overflowY: 'auto',
             backgroundColor: '#ffffff',
-            border: '1.5px solid #059669',
-            borderRadius: '8px',
-            boxShadow: '0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-            zIndex: 99999,
+            border: '2px solid #059669',
+            borderRadius: '10px',
+            boxShadow: '0 20px 45px -6px rgba(15, 23, 42, 0.28), 0 10px 18px -4px rgba(15, 23, 42, 0.14)',
+            zIndex: 9999999, // Super high z-index: NOTHING can ever cover it!
+          }}
+          onMouseDown={(e) => {
+            // Prevent input from losing focus when clicking inside dropdown
+            e.stopPropagation();
           }}
         >
           {filtered.length > 0 ? (
@@ -280,6 +355,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
                   data-product-option
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     handleSelect(opt);
                   }}
                   onMouseEnter={() => setHighlightedIndex(oIdx)}
@@ -287,7 +363,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
                     padding: '8px 12px',
                     cursor: 'pointer',
                     backgroundColor: isHighlighted ? '#ecfdf5' : isSelected ? '#f0fdf4' : 'transparent',
-                    borderLeft: isHighlighted ? '3px solid #059669' : '3px solid transparent',
+                    borderLeft: isHighlighted ? '3.5px solid #059669' : '3.5px solid transparent',
                     borderBottom: '1px solid #f1f5f9',
                     display: 'flex',
                     alignItems: 'center',
@@ -358,6 +434,8 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
           <div
             onMouseDown={(e) => {
               e.preventDefault();
+              e.stopPropagation();
+              setIsOpen(false);
               onAddNewProduct();
             }}
             style={{
@@ -375,7 +453,8 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
           >
             <IconPlus size={14} /> + Add New Product to Master
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

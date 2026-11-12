@@ -95,6 +95,29 @@ export const FinishedProductsView: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [batchModalProduct, setBatchModalProduct] = useState<any | null>(null);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productCostHistory, setProductCostHistory] = useState<any | null>(null);
+  const [isLoadingProductCostHistory, setIsLoadingProductCostHistory] = useState(false);
+  const [viewingRecipeRecord, setViewingRecipeRecord] = useState<any | null>(null);
+
+  // Fetch live product cost history and latest batches whenever a product is viewed (Requirement 14)
+  useEffect(() => {
+    if (viewingProduct?.id) {
+      setIsLoadingProductCostHistory(true);
+      ApiClient.get<any>(`/api/v1/costing/product/${viewingProduct.id}/cost-history`)
+        .then((res) => {
+          setProductCostHistory(res.data || res);
+        })
+        .catch((err) => {
+          console.error('Failed to load cost history for product:', err);
+          setProductCostHistory(null);
+        })
+        .finally(() => {
+          setIsLoadingProductCostHistory(false);
+        });
+    } else {
+      setProductCostHistory(null);
+    }
+  }, [viewingProduct]);
 
   // Load Products
   const loadData = useCallback(async () => {
@@ -863,10 +886,13 @@ export const FinishedProductsView: React.FC = () => {
       {viewingProduct && (
         <Modal
           isOpen={!!viewingProduct}
-          onClose={() => setViewingProduct(null)}
-          title="Product Master Specification"
-          description={`Identity and technical packaging details for ${viewingProduct.productCode}`}
-          size="lg"
+          onClose={() => {
+            setViewingProduct(null);
+            setViewingRecipeRecord(null);
+          }}
+          title="Product Master & Costing Specification"
+          description={`Identity, technical packaging, live cost history, and recipe snapshots for ${viewingProduct.productCode}`}
+          size="xl"
           footer={
             <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
               <Button
@@ -913,75 +939,218 @@ export const FinishedProductsView: React.FC = () => {
             </div>
           }
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '0.85rem' }}>
-            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Product Identity
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '0.85rem' }}>
+            {/* Top Metric Strip: Current Cost, Current Batch, Production Quantity (Requirement 14) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <div style={{ padding: '14px', background: '#ECFDF5', borderRadius: '10px', border: '1.5px solid #A7F3D0' }}>
+                <div style={{ fontSize: '11px', color: '#047857', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Current Active Cost
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '1.4rem', fontWeight: 900, color: '#065F46', fontFamily: 'var(--font-mono, monospace)' }}>
+                  PKR {Number(productCostHistory?.currentCost ?? viewingProduct.standardCost ?? 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px' }}>
+                  Standard active unit cost
+                </div>
               </div>
-              <div style={{ marginTop: '8px', fontWeight: 700, fontSize: '1rem', color: '#0F172A' }}>
-                {viewingProduct.productName}
+
+              <div style={{ padding: '14px', background: '#EFF6FF', borderRadius: '10px', border: '1.5px solid #BFDBFE' }}>
+                <div style={{ fontSize: '11px', color: '#1E40AF', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Current Batch
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '1.4rem', fontWeight: 900, color: '#1D4ED8', fontFamily: 'var(--font-mono, monospace)' }}>
+                  {productCostHistory?.history?.[0]?.batchNumber || '—'}
+                </div>
+                <div style={{ fontSize: '11px', color: '#2563EB', marginTop: '4px' }}>
+                  Active batch number
+                </div>
               </div>
-              {viewingProduct.urduName && (
-                <div style={{ color: '#475569', marginTop: '4px', fontSize: '0.9rem' }} dir="rtl">
-                  {viewingProduct.urduName}
+
+              <div style={{ padding: '14px', background: '#F8FAFC', borderRadius: '10px', border: '1.5px solid #E2E8F0' }}>
+                <div style={{ fontSize: '11px', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Batch Quantity Output
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '1.4rem', fontWeight: 900, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
+                  {productCostHistory?.history?.[0]?.batchOutputQuantity
+                    ? `${Number(productCostHistory.history[0].batchOutputQuantity).toLocaleString()} Units`
+                    : '—'}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748B', marginTop: '4px' }}>
+                  Quantity from latest finalized costing
+                </div>
+              </div>
+            </div>
+
+            {/* Specifications Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Product Identity
+                </div>
+                <div style={{ marginTop: '8px', fontWeight: 700, fontSize: '1rem', color: '#0F172A' }}>
+                  {viewingProduct.productName}
+                </div>
+                {viewingProduct.urduName && (
+                  <div style={{ color: '#475569', marginTop: '4px', fontSize: '0.9rem' }} dir="rtl">
+                    {viewingProduct.urduName}
+                  </div>
+                )}
+                <div style={{ marginTop: '8px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: '#2563EB' }}>
+                  Code: {viewingProduct.productCode}
+                </div>
+                <div style={{ marginTop: '4px', color: '#64748B' }}>
+                  Classification: <strong>{viewingProduct.mType || 'Insecticides'}</strong>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Packaging & Carton Logistics
+                </div>
+                <div style={{ marginTop: '8px', fontWeight: 600, color: '#0F172A' }}>
+                  Pack Size: {viewingProduct.packingQuantity ? `${viewingProduct.packingQuantity} ${viewingProduct.packingUnit || 'Liter'}` : 'Not Specified'}
+                </div>
+                <div style={{ marginTop: '4px', color: '#475569' }}>
+                  PPC (Pack Per Carton): <strong>{viewingProduct.ppc || 1} units/box</strong>
+                </div>
+                <div style={{ marginTop: '4px', color: '#475569' }}>
+                  Packaging Material: <strong>{viewingProduct.packagingMaterial?.materialName || 'None Assigned'}</strong>
+                </div>
+                {viewingProduct.packagingMaterial?.materialCode && (
+                  <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.75rem', color: '#64748B' }}>
+                    Material Code: {viewingProduct.packagingMaterial.materialCode}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* COST HISTORY TABLE (Requirement 14) */}
+            <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Cost History
+                </h4>
+                <span style={{ fontSize: '11px', color: '#64748B' }}>
+                  {(productCostHistory?.history || []).length} Recorded cost change(s)
+                </span>
+              </div>
+
+              {isLoadingProductCostHistory ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading cost history...</div>
+              ) : (productCostHistory?.history || []).length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
+                  No historical cost transitions recorded yet. Costings finalized with &ldquo;Add Cost to Product&rdquo; will show here.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead>
+                      <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #E2E8F0' }}>
+                        <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Date</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Batch</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Previous Cost</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>New Cost</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Difference</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productCostHistory.history.map((h: any, idx: number) => (
+                        <tr key={h.id || idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                          <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                            {h.date ? h.date.split('T')[0] : ''}
+                          </td>
+                          <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: '#1D4ED8' }}>
+                            {h.batchNumber || '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                            {h.previousCost !== null ? `PKR ${Number(h.previousCost).toFixed(2)}` : '—'}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 800, color: '#059669' }}>
+                            PKR {Number(h.newCost).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>
+                            {h.costDifference !== null ? (
+                              <span style={{ color: h.costDifference > 0 ? '#DC2626' : h.costDifference < 0 ? '#059669' : '#64748B' }}>
+                                {h.costDifference > 0 ? `+PKR ${Number(h.costDifference).toFixed(2)}` : `PKR ${Number(h.costDifference).toFixed(2)}`}
+                                {h.costDifferencePct !== null && ` (${h.costDifferencePct}%)`}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94A3B8' }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
-              <div style={{ marginTop: '8px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: '#2563EB' }}>
-                Code: {viewingProduct.productCode}
-              </div>
-              <div style={{ marginTop: '4px', color: '#64748B' }}>
-                Classification: <strong>{viewingProduct.mType || 'Insecticides'}</strong>
-              </div>
             </div>
 
-            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Packaging & Carton Logistics
+            {/* RECIPE HISTORY SECTION (Requirement 14) */}
+            <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Recipe History
+                </h4>
+                <span style={{ fontSize: '11px', color: '#64748B' }}>
+                  Immutable Production Compositions
+                </span>
               </div>
-              <div style={{ marginTop: '8px', fontWeight: 600, color: '#0F172A' }}>
-                Pack Size: {viewingProduct.packingQuantity ? `${viewingProduct.packingQuantity} ${viewingProduct.packingUnit || 'Liter'}` : 'Not Specified'}
-              </div>
-              <div style={{ marginTop: '4px', color: '#475569' }}>
-                PPC (Pack Per Carton): <strong>{viewingProduct.ppc || 1} units/box</strong>
-              </div>
-              <div style={{ marginTop: '4px', color: '#475569' }}>
-                Packaging Material: <strong>{viewingProduct.packagingMaterial?.materialName || 'None Assigned'}</strong>
-              </div>
-              {viewingProduct.packagingMaterial?.materialCode && (
-                <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '0.75rem', color: '#64748B' }}>
-                  Material Code: {viewingProduct.packagingMaterial.materialCode}
+
+              {isLoadingProductCostHistory ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading recipes...</div>
+              ) : (productCostHistory?.history || []).length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
+                  No saved costing recipes found for this product. Cost this product in the Costing Engine to generate recipes.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                  {productCostHistory.history.map((h: any, idx: number) => (
+                    <div
+                      key={h.id || idx}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: '1px solid #E2E8F0',
+                        background: '#F8FAFC',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                          {h.date ? h.date.split('T')[0] : ''}
+                        </span>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#0F766E', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {h.costingCode}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Batch: {h.batchNumber}</span>
+                        <span style={{ fontSize: '13px', fontWeight: 800, color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
+                          PKR {Number(h.newCost).toFixed(2)}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '4px' }}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewingRecipeRecord(h)}
+                          style={{ width: '100%', justifyContent: 'center', fontSize: '11.5px', height: '28px' }}
+                        >
+                          <IconEye size={12} style={{ marginRight: '4px' }} />
+                          View Recipe
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-            </div>
-
-            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Commercial Pricing
-              </div>
-              <div style={{ marginTop: '8px', fontSize: '1.1rem', fontWeight: 700, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
-                {viewingProduct.defaultSellingPrice ? `PKR ${Number(viewingProduct.defaultSellingPrice).toLocaleString()}` : 'Not Set'}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
-                Base commercial rate for sales orders and rate lists.
-              </div>
-            </div>
-
-            <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>
-                Authoritative Costing Status
-              </div>
-              <div style={{ marginTop: '8px', fontSize: '1.1rem', fontWeight: 700, color: Number(viewingProduct.standardCost || 0) > 0 ? '#059669' : '#D97706', fontFamily: 'var(--font-mono, monospace)' }}>
-                {Number(viewingProduct.standardCost || 0) > 0
-                  ? `PKR ${Number(viewingProduct.standardCost).toLocaleString()} / Pack`
-                  : 'NOT CONFIGURED'}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '4px' }}>
-                Applied via Product Costing Engine snapshot.
-              </div>
             </div>
 
             {viewingProduct.customFields && Object.keys(viewingProduct.customFields).length > 0 && (
-              <div style={{ gridColumn: '1 / -1', padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                 <div style={{ fontSize: '0.72rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase', marginBottom: '8px' }}>
                   Dynamic File Import Fields (customFields)
                 </div>
@@ -995,6 +1164,113 @@ export const FinishedProductsView: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Viewing Specific Recipe Snapshot Modal */}
+      {viewingRecipeRecord && (
+        <Modal
+          isOpen={true}
+          onClose={() => setViewingRecipeRecord(null)}
+          title={`Recipe Snapshot — ${viewingRecipeRecord.costingCode}`}
+          description={`Immutable formulation recipe for Batch ${viewingRecipeRecord.batchNumber}`}
+          size="lg"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748B', textTransform: 'uppercase' }}>Date:</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 700 }}>{viewingRecipeRecord.date ? viewingRecipeRecord.date.split('T')[0] : ''}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748B', textTransform: 'uppercase' }}>Batch Number:</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 800, color: '#1D4ED8', fontFamily: 'var(--font-mono, monospace)' }}>
+                  {viewingRecipeRecord.batchNumber}
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748B', textTransform: 'uppercase' }}>Batch Output:</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 800, fontFamily: 'var(--font-mono, monospace)' }}>
+                  {Number(viewingRecipeRecord.batchOutputQuantity).toLocaleString()} units
+                </p>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748B', textTransform: 'uppercase' }}>Unit Cost:</span>
+                <p style={{ margin: '2px 0 0', fontWeight: 900, color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
+                  PKR {Number(viewingRecipeRecord.newCost).toFixed(2)}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                <thead>
+                  <tr style={{ background: '#F1F5F9', borderBottom: '1px solid #CBD5E1' }}>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', width: '35px' }}>#</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'left' }}>Component Name</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', width: '60px' }}>Type</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', width: '80px' }}>Qty</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', width: '60px' }}>UoM</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', width: '100px' }}>Rate (PKR)</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right', width: '110px' }}>Cost (PKR)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(viewingRecipeRecord.lines || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#94A3B8' }}>
+                        No individual line items detailed in this voucher snapshot.
+                      </td>
+                    </tr>
+                  ) : (
+                    viewingRecipeRecord.lines.map((l: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94A3B8' }}>{i + 1}</td>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0F172A' }}>
+                          {l.materialName}
+                          {l.sourcePoNumber && (
+                            <span style={{ display: 'block', fontSize: '10.5px', color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
+                              PO: {l.sourcePoNumber} ({l.vendorName || ''})
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                          <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, backgroundColor: '#F1F5F9' }}>
+                            {l.type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {Number(l.quantity).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'center', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {l.uom || 'LTR'}
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {Number(l.rate).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>
+                          {Number(l.cost).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ECFDF5', padding: '12px 16px', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#065F46' }}>TOTAL BATCH COST:</span>
+              <strong style={{ fontSize: '16px', fontFamily: 'var(--font-mono, monospace)', color: '#047857' }}>
+                PKR {Number(viewingRecipeRecord.totalBatchCost).toLocaleString()}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '6px' }}>
+              <Button variant="outline" size="sm" onClick={() => setViewingRecipeRecord(null)}>
+                Close Recipe
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

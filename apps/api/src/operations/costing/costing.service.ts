@@ -65,8 +65,11 @@ export interface SaveCostingRecordInput {
   expectedOutput?: number;
   actualOutput?: number;
   batchNumber?: string;
+  manufacturingDate?: string;
+  expiryDate?: string;
+  costingId?: string;
   postProduction?: boolean;
-  action?: 'POST' | 'DRAFT';
+  action?: 'POST' | 'DRAFT' | 'APPLY_COST';
   lines?: CostingTableLineDto[];
   sourcePoId?: string;
   sourcePoNumber?: string;
@@ -1009,6 +1012,33 @@ export class CostingService {
         availableQty = stockByName.get(matName.toLowerCase()) ?? 0;
       }
 
+      let parsedUom = 'Nos';
+      const cleanUnit = (it.unit || '').trim();
+      const unitMatch = cleanUnit.match(/(?:^|\s)(LTR|LITER|LITRE|ML|MILLILITER|KG|KILOGRAM|GM|GRAM|NOS|PCS|UNITS?|DRUMS?|BAGS?)$/i);
+      if (unitMatch && unitMatch[1]) {
+        parsedUom = unitMatch[1].toUpperCase();
+      } else if (cleanUnit.toLowerCase().includes('ltr') || cleanUnit.toLowerCase().includes('liter')) {
+        parsedUom = 'LTR';
+      } else if (cleanUnit.toLowerCase().includes('ml')) {
+        parsedUom = 'ML';
+      } else if (cleanUnit.toLowerCase().includes('kg')) {
+        parsedUom = 'KG';
+      } else if (cleanUnit.toLowerCase().includes('gm') || cleanUnit.toLowerCase().includes('gram')) {
+        parsedUom = 'GM';
+      }
+
+      // Check pack size:
+      // If it.unit repeats total PO quantity (e.g. "4,000 LTR" where quantity is 4000), individual pack is "1 LTR"
+      // If it.unit is the drum/bag capacity (e.g. "200 LTR" where quantity is 5 drums), pack is "200 LTR"
+      let resolvedPack = it.unit || '1 Nos';
+      const parsedUnitNum = cleanUnit.replace(/,/g, '').match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+      if (parsedUnitNum && parsedUnitNum[1]) {
+        const uNum = parseFloat(parsedUnitNum[1]);
+        if (Math.abs(uNum - qty) < 0.01 && qty > 10) {
+          resolvedPack = `1 ${parsedUom}`;
+        }
+      }
+
       return {
         id: it.id,
         purchaseOrderId: it.order.id,
@@ -1023,7 +1053,8 @@ export class CostingService {
         materialType: (it.materialType as 'RAW_MATERIAL' | 'PACKING_MATERIAL') || 'RAW_MATERIAL',
         materialCode: it.materialCodeSnapshot || '',
         materialName: matName,
-        pack: it.unit || '1 Nos',
+        pack: resolvedPack,
+        uom: parsedUom,
         purchaseQuantity: qty,
         purchaseRate: rate,
         lineTotal: total,
@@ -1039,6 +1070,7 @@ export class CostingService {
       materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL';
       latestRate: number;
       latestPack: string;
+      latestUom: string;
       availableStock: number;
       purchases: typeof flatPurchases;
     }>();
@@ -1055,6 +1087,7 @@ export class CostingService {
           materialType: p.materialType,
           latestRate: p.purchaseRate,
           latestPack: p.pack,
+          latestUom: p.uom,
           availableStock: p.availableStock,
           purchases: [],
         });
@@ -1091,6 +1124,274 @@ export class CostingService {
         },
       },
     });
+  }
+
+  /**
+   * Retrieves the latest formulation recipe for a Finished Product along with latest and previous costing metadata.
+   */
+  async getLatestRecipe(finishedProductId: string) {
+    const costings = await this.prisma.productCosting.findMany({
+      where: { finishedProductId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    if (!costings || costings.length === 0) {
+      return {
+        hasPreviousCosting: false,
+        latestCosting: null,
+        previousCosting: null,
+        recipeLines: [],
+        costingsCount: 0,
+      };
+    }
+
+    const parseSnapshot = (c: any) => {
+      try {
+        if (!c.notes) return {};
+        return typeof c.notes === 'string' ? JSON.parse(c.notes) : c.notes;
+      } catch {
+        return {};
+      }
+    };
+
+    const latest = costings[0];
+    if (!latest) {
+      return {
+        hasPreviousCosting: false,
+        latestCosting: null,
+        previousCosting: null,
+        recipeLines: [],
+        costingsCount: 0,
+      };
+    }
+    const latestSnap = parseSnapshot(latest);
+
+    const prev = costings.length > 1 ? costings[1] : null;
+    const prevSnap = prev ? parseSnapshot(prev) : null;
+
+    const latestCosting = {
+      id: latest.id,
+      version: latest.version,
+      date: latestSnap.costingDate || latest.createdAt,
+      costingCode: latestSnap.costingCode || latestSnap.serialNumber || `CST-v${latest.version}`,
+      batchNumber: latestSnap.batchNumber || null,
+      unitCost: Number(latest.costPerUnit),
+      totalBatchCost: Number(latest.totalBatchCost),
+      packSize: Number(latest.packSize),
+      packSizeUnit: latest.packSizeUnit || 'Liter',
+      batchVolume: Number(latest.totalVolume),
+      expectedOutput: Number(latestSnap.expectedOutput || latestSnap.estimatedQuantity || 0),
+      actualOutput: Number(latest.batchOutputQuantity),
+    };
+
+    const previousCosting = prev ? {
+      id: prev.id,
+      version: prev.version,
+      date: prevSnap?.costingDate || prev.createdAt,
+      costingCode: prevSnap?.costingCode || prevSnap?.serialNumber || `CST-v${prev.version}`,
+      batchNumber: prevSnap?.batchNumber || null,
+      unitCost: Number(prev.costPerUnit),
+      totalBatchCost: Number(prev.totalBatchCost),
+    } : null;
+
+    // Component recipe structure from latest costing
+    // lines contains: [{ materialId, materialName, materialCode, type, pack, quantity, ... }]
+    const rawLines = latestSnap.lines || [];
+    const recipeLines = rawLines.map((l: any, idx: number) => ({
+      id: `line-${Date.now()}-${idx}`,
+      materialId: l.materialId || undefined,
+      materialName: l.materialName || '',
+      materialCode: l.materialCode || '',
+      type: (l.type || 'RM') as 'RM' | 'PM' | 'FP' | 'OT' | 'OTHER',
+      pack: l.pack || (l.type === 'RM' ? 'LTR' : '1 Nos'),
+      quantity: Number(l.quantity || 0),
+      rate: 0, // CRITICAL: Never copy old rates!
+      cost: 0,
+      sourcePoId: undefined,
+      sourcePoNumber: undefined,
+      purchaseDate: undefined,
+      vendorName: undefined,
+      vendorCode: undefined,
+    }));
+
+    return {
+      hasPreviousCosting: true,
+      latestCosting,
+      previousCosting,
+      recipeLines,
+      costingsCount: costings.length,
+    };
+  }
+
+  /**
+   * Retrieves complete price & cost transition history for a Finished Product
+   */
+  async getProductCostHistory(finishedProductId: string) {
+    const costings = await this.prisma.productCosting.findMany({
+      where: { finishedProductId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const product = await this.prisma.finishedProduct.findUnique({
+      where: { id: finishedProductId },
+      select: { id: true, productCode: true, productName: true, standardCost: true },
+    });
+
+    const history = costings.map((c, idx) => {
+      let snap: any = {};
+      try {
+        snap = c.notes ? JSON.parse(c.notes) : {};
+      } catch {
+        snap = {};
+      }
+
+      // Next older costing in array (since ordered desc)
+      const olderCosting = costings[idx + 1];
+      const prevCost = c.previousCost !== null && c.previousCost !== undefined
+        ? Number(c.previousCost)
+        : (olderCosting ? Number(olderCosting.costPerUnit) : null);
+
+      const newCost = Number(c.costPerUnit);
+      const diff = prevCost !== null ? newCost - prevCost : null;
+      const diffPct = prevCost !== null && prevCost > 0 ? (diff! / prevCost) * 100 : null;
+
+      return {
+        id: c.id,
+        version: c.version,
+        date: snap.costingDate || c.createdAt,
+        costingCode: snap.costingCode || snap.serialNumber || `CST-v${c.version}`,
+        batchNumber: snap.batchNumber || '-',
+        previousCost: prevCost,
+        newCost,
+        costDifference: diff,
+        costDifferencePct: diffPct !== null ? Math.round(diffPct * 100) / 100 : null,
+        status: c.status,
+        userNotes: snap.userNotes || null,
+        batchOutputQuantity: Number(c.batchOutputQuantity),
+        totalBatchCost: Number(c.totalBatchCost),
+        packSize: Number(c.packSize),
+        packSizeUnit: c.packSizeUnit || 'Liter',
+        linesCount: Array.isArray(snap.lines) ? snap.lines.length : 0,
+        lines: Array.isArray(snap.lines) ? snap.lines : [],
+      };
+    });
+
+    return {
+      product,
+      currentCost: product?.standardCost ? Number(product.standardCost) : (costings[0] ? Number(costings[0].costPerUnit) : 0),
+      history,
+    };
+  }
+
+  /**
+   * Checks whether a batch number exists for a Finished Product
+   */
+  async checkProductBatch(finishedProductId: string, batchNumber: string) {
+    if (!isValidUuid(finishedProductId) || !batchNumber || !batchNumber.trim()) {
+      return { exists: false, batch: null };
+    }
+    const cleanNum = batchNumber.trim();
+    const batch = await this.prisma.productBatch.findFirst({
+      where: {
+        finishedProductId,
+        batchNumber: { equals: cleanNum, mode: 'insensitive' },
+      },
+    });
+
+    if (!batch) {
+      return { exists: false, batch: null };
+    }
+
+    return {
+      exists: true,
+      batch: {
+        id: batch.id,
+        batchNumber: batch.batchNumber,
+        manufacturingDate: batch.manufacturingDate,
+        expiryDate: batch.expiryDate,
+        initialQuantity: Number(batch.initialQuantity),
+        availableQuantity: Number(batch.availableQuantity),
+        allocatedQuantity: Number(batch.allocatedQuantity),
+        status: batch.status,
+        isActive: batch.isActive,
+      },
+    };
+  }
+
+  /**
+   * Creates a new ProductBatch record
+   */
+  async createProductBatch(dto: {
+    finishedProductId: string;
+    batchNumber: string;
+    manufacturingDate?: string;
+    expiryDate?: string;
+    initialQuantity?: number;
+    notes?: string;
+  }, _user?: AuthUser) {
+    if (!isValidUuid(dto.finishedProductId)) {
+      throw new BadRequestException('A valid Finished Product is required.');
+    }
+    if (!dto.batchNumber || !dto.batchNumber.trim()) {
+      throw new BadRequestException('Batch number is required.');
+    }
+
+    const cleanBatch = dto.batchNumber.trim();
+
+    const existing = await this.prisma.productBatch.findFirst({
+      where: {
+        finishedProductId: dto.finishedProductId,
+        batchNumber: { equals: cleanBatch, mode: 'insensitive' },
+      },
+    });
+
+    if (existing) {
+      return {
+        success: true,
+        isExisting: true,
+        batch: existing,
+        message: `Batch ${cleanBatch} already exists with ${Number(existing.availableQuantity)} units available.`,
+      };
+    }
+
+    const product = await this.prisma.finishedProduct.findUnique({
+      where: { id: dto.finishedProductId },
+      select: { organizationId: true, companyId: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Finished product not found.');
+    }
+
+    const qty = Number(dto.initialQuantity || 0);
+    const mfgDate = dto.manufacturingDate ? new Date(dto.manufacturingDate) : new Date();
+    const expDate = dto.expiryDate ? new Date(dto.expiryDate) : null;
+
+    const newBatch = await this.prisma.productBatch.create({
+      data: {
+        organizationId: product.organizationId,
+        companyId: product.companyId,
+        finishedProductId: dto.finishedProductId,
+        batchNumber: cleanBatch,
+        manufacturingDate: mfgDate,
+        expiryDate: expDate,
+        initialQuantity: qty,
+        availableQuantity: qty,
+        allocatedQuantity: 0,
+        isActive: true,
+        status: 'RELEASED',
+        notes: dto.notes || `Batch ${cleanBatch} created manually from Product Costing`,
+      },
+    });
+
+    return {
+      success: true,
+      isExisting: false,
+      batch: newBatch,
+      message: `Batch ${cleanBatch} created successfully.`,
+    };
   }
 
   /**
@@ -1294,22 +1595,44 @@ export class CostingService {
           });
         }
 
-        // Create ProductBatch record
-        await tx.productBatch.create({
-          data: {
-            organizationId,
-            companyId,
+        // Check if ProductBatch record already exists for this finished product
+        const existingBatch = await tx.productBatch.findFirst({
+          where: {
             finishedProductId: validFinishedProductId,
             batchNumber: autoBatchNumber,
-            manufacturingDate: dto.costingDate ? new Date(dto.costingDate) : new Date(),
-            initialQuantity: actualOut,
-            availableQuantity: actualOut,
-            allocatedQuantity: 0,
-            isActive: true,
-            status: 'RELEASED',
-            notes: `Manufactured via Costing Voucher ${dto.serialNumber || costingCode}. Unit Cost: PKR ${dto.costPerUnit}`,
           },
         });
+
+        if (existingBatch) {
+          // Increment existing batch quantity (Rule 6: Do not create duplicate batch)
+          await tx.productBatch.update({
+            where: { id: existingBatch.id },
+            data: {
+              initialQuantity: { increment: actualOut },
+              availableQuantity: { increment: actualOut },
+              isActive: true,
+              notes: `${existingBatch.notes || ''}\n[${new Date().toISOString().slice(0, 10)}] Added ${actualOut} units via Costing ${dto.serialNumber || costingCode}`.trim(),
+            },
+          });
+        } else {
+          // Create new ProductBatch record (Rule 7 & 8: Auto add costing output quantity)
+          await tx.productBatch.create({
+            data: {
+              organizationId,
+              companyId,
+              finishedProductId: validFinishedProductId,
+              batchNumber: autoBatchNumber,
+              manufacturingDate: dto.manufacturingDate ? new Date(dto.manufacturingDate) : (dto.costingDate ? new Date(dto.costingDate) : new Date()),
+              expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+              initialQuantity: actualOut,
+              availableQuantity: actualOut,
+              allocatedQuantity: 0,
+              isActive: true,
+              status: 'RELEASED',
+              notes: `Manufactured via Costing Voucher ${dto.serialNumber || costingCode}. Unit Cost: PKR ${dto.costPerUnit}`,
+            },
+          });
+        }
 
         // Add finished product output to inventory
         await this.inventoryService.applyMovement(tx, {
@@ -1331,7 +1654,18 @@ export class CostingService {
           where: { id: validFinishedProductId },
           data: { standardCost: Number(dto.costPerUnit || 0) },
         });
+      } else if (dto.action === 'APPLY_COST' && validFinishedProductId) {
+        // Rule 10: "Add Cost to Product" ONLY updates standardCost; NEVER duplicate stock
+        await tx.finishedProduct.update({
+          where: { id: validFinishedProductId },
+          data: { standardCost: Number(dto.costPerUnit || 0) },
+        });
       }
+
+      const previousCost = finishedProduct && finishedProduct.standardCost !== null ? Number(finishedProduct.standardCost) : null;
+      const newCost = Number(dto.costPerUnit || 0);
+      const costDiff = previousCost !== null && previousCost > 0 ? newCost - previousCost : null;
+      const costDiffPct = previousCost !== null && previousCost > 0 ? (costDiff! / previousCost) * 100 : null;
 
       const snapshotData = {
         costingCode,
@@ -1373,6 +1707,9 @@ export class CostingService {
         totalPackagingCost: dto.totalPackagingCost || 0,
         totalBatchCost: dto.totalBatchCost,
         costPerUnit: dto.costPerUnit,
+        previousCost,
+        costDifference: costDiff,
+        costDifferencePct: costDiffPct !== null ? Math.round(costDiffPct * 100) / 100 : null,
         status: recordStatus,
         userNotes: dto.notes || (isPost ? `Batch ${autoBatchNumber} confirmed & posted to stock` : 'Costing draft saved'),
       };
@@ -1430,6 +1767,9 @@ export class CostingService {
           totalPackagingCost: dto.totalPackagingCost || 0,
           totalBatchCost: dto.totalBatchCost,
           costPerUnit: dto.costPerUnit,
+          previousCost: previousCost !== null && previousCost > 0 ? previousCost : null,
+          costDifference: costDiff,
+          costDifferencePct: costDiffPct !== null ? Math.round(costDiffPct * 100) / 100 : null,
           notes: JSON.stringify(snapshotData),
           status: recordStatus,
           createdById: user.id && isValidUuid(user.id) ? user.id : null,
