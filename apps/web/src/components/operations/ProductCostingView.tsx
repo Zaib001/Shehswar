@@ -254,8 +254,6 @@ export function ProductCostingView() {
     recipeLines: CostingLineItem[];
     costingsCount: number;
   } | null>(null);
-  const [isLoadingLatestRecipe, setIsLoadingLatestRecipe] = useState<boolean>(false);
-
   // Batch Validation & Creation State
   const [batchCheckStatus, setBatchCheckStatus] = useState<{
     checked: boolean;
@@ -294,8 +292,6 @@ export function ProductCostingView() {
 
   // History Sub-Tab: 'RECIPES' | 'PRICE_HISTORY'
   const [historySubTab, setHistorySubTab] = useState<'RECIPES' | 'PRICE_HISTORY'>('RECIPES');
-  const [priceHistoryRecords, setPriceHistoryRecords] = useState<any[]>([]);
-  const [isLoadingPriceHistory, setIsLoadingPriceHistory] = useState<boolean>(false);
 
   // ==========================================
   // 1. DATA INITIALIZATION & REAL PO QUERY
@@ -508,7 +504,6 @@ export function ProductCostingView() {
     setSelectedFinishedProductId(productId);
 
     if (productId) {
-      setIsLoadingLatestRecipe(true);
       try {
         const res = await ApiClient.get<any>(`/api/v1/costing/product/${productId}/latest-recipe`);
         const data = res.data || res;
@@ -517,7 +512,6 @@ export function ProductCostingView() {
         console.error('Failed to fetch latest recipe:', err);
         setLatestRecipeData(null);
       } finally {
-        setIsLoadingLatestRecipe(false);
       }
 
       if (customBatchNumber.trim()) {
@@ -974,7 +968,7 @@ export function ProductCostingView() {
         notes: `Costing Draft ${serialNumber} saved without inventory deduction.`,
       };
 
-      await ApiClient.post<any>('/api/v1/costing/save', payload);
+      const res = await ApiClient.post<any>('/api/v1/costing/save', payload);
       const savedCode = res.data?.costingCode || serialNumber;
 
       showToast({
@@ -1061,7 +1055,7 @@ export function ProductCostingView() {
         notes: `Production Batch posted via Costing Voucher ${serialNumber}.`,
       };
 
-      await ApiClient.post<any>('/api/v1/costing/save', payload);
+      const res = await ApiClient.post<any>('/api/v1/costing/save', payload);
       const postedBatch = res.data?.batchNumber || 'BATCH';
       const postedCode = res.data?.costingCode || serialNumber;
 
@@ -2824,7 +2818,7 @@ export function ProductCostingView() {
                           const code = snap.serialNumber || snap.costingCode || rec.costingCode || `CST-v${rec.version}`;
                           const batchNum = snap.batchNumber || rec.batchNumber || '-';
                           const dateStr = snap.costingDate ? snap.costingDate.split('T')[0] : rec.createdAt ? rec.createdAt.split('T')[0] : '';
-                          const prevCost = snap.previousCost !== undefined && snap.previousCost !== null ? Number(snap.previousCost) : (rec.previousCost !== undefined && rec.previousCost !== null ? Number(rec.previousCost) : null);
+                          const prevCost = snap.previousCost !== undefined && snap.previousCost !== null ? Number(snap.previousCost) : ((rec as any).previousCost !== undefined && (rec as any).previousCost !== null ? Number((rec as any).previousCost) : null);
                           const newCost = Number(rec.costPerUnit);
                           const diff = prevCost !== null ? newCost - prevCost : null;
                           const diffPct = prevCost !== null && prevCost > 0 ? (diff! / prevCost) * 100 : null;
@@ -3154,7 +3148,7 @@ export function ProductCostingView() {
             <div style={{ padding: '12px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: 600 }}>Production Output Quantity:</span>
               <strong style={{ fontSize: '14px', fontFamily: 'monospace', color: '#1d4ed8' }}>
-                {Number(actualQuantity || batchVolumeCalc.actualOutputBottles).toLocaleString()} Units
+                {Number(actualQuantity || expectedOutput || 0).toLocaleString()} Units
               </strong>
             </div>
 
