@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../core/database/prisma.service';
 import { DocumentNumberingService } from '../../platform/document-numbering/document-numbering.service';
 import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { uuidv7 } from '@shehswar/shared';
 import { AuthUser } from '@shehswar/types';
 
@@ -57,6 +58,7 @@ export class OperationalPoService {
     private readonly prisma: PrismaService,
     private readonly documentNumbering: DocumentNumberingService,
     private readonly codeGen: CodeGenerationService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   async findAll(companyId?: string, filters?: { status?: string; vendorId?: string; search?: string }) {
@@ -486,6 +488,32 @@ export class OperationalPoService {
     });
 
     this.logger.log(`Purchase Order ${po.poNumber} created structurally in DB`);
+
+    // Automatically receive items into warehouse inventory if confirmed with warehouse
+    if (po.warehouseId && (po.status === 'CONFIRMED' || !dto.status)) {
+      for (const item of po.items) {
+        if (Number(item.quantity) > 0) {
+          await this.inventoryService.applyMovement(this.prisma, {
+            organizationId: po.organizationId,
+            companyId: po.companyId,
+            warehouseId: po.warehouseId,
+            itemType: (item.materialType as any) || 'RAW_MATERIAL',
+            rawMaterialId: item.materialType === 'RAW_MATERIAL' ? item.materialId ?? undefined : undefined,
+            packingMaterialId: item.materialType === 'PACKING_MATERIAL' ? item.materialId ?? undefined : undefined,
+            finishedProductId: item.materialType === 'FINISHED_PRODUCT' ? item.materialId ?? undefined : undefined,
+            quantityChange: Number(item.quantity),
+            unitCost: Number(item.unitRate) || 0,
+            transactionType: 'PURCHASE',
+            referenceId: po.id,
+            referenceNumber: po.poNumber,
+            notes: `Purchase Order receipt from ${po.vendor?.name || 'Vendor'}`,
+          }).catch((err) => {
+            this.logger.warn(`Could not apply inventory movement for PO item ${item.itemName}: ${err.message}`);
+          });
+        }
+      }
+    }
+
     return po;
   }
 

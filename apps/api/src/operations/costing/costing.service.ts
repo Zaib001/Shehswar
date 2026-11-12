@@ -17,6 +17,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@shehswar/database';
 import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { AuthUser } from '@shehswar/types';
 import { v7 as uuidv7 } from 'uuid';
 
@@ -32,8 +33,9 @@ export interface CostingTableLineDto {
   materialId?: string;
   materialName: string;
   materialCode?: string;
-  type: 'RM' | 'PM' | 'OTHER';
+  type: 'RM' | 'PM' | 'FP' | 'OT';
   pack: string;
+  availableQuantity?: number;
   quantity: number;
   rate: number;
   cost: number;
@@ -59,6 +61,12 @@ export interface SaveCostingRecordInput {
   estimatedQuantity?: number;
   actualQuantity?: number;
   finishedQuantity: number;
+  batchVolume?: number;
+  expectedOutput?: number;
+  actualOutput?: number;
+  batchNumber?: string;
+  postProduction?: boolean;
+  action?: 'POST' | 'DRAFT';
   lines?: CostingTableLineDto[];
   sourcePoId?: string;
   sourcePoNumber?: string;
@@ -144,6 +152,7 @@ export class CostingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly codeGen: CodeGenerationService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   /**
@@ -890,13 +899,58 @@ export class CostingService {
 
   /**
    * Retrieves real purchased materials directly from confirmed Purchase Orders
-   * Supports filtering by RAW_MATERIAL, PACKING_MATERIAL, and search query
+   * and enriches them with live WarehouseStock for the selected warehouse.
    */
   async getPurchasedMaterials(options?: {
     companyId?: string;
-    type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'ALL';
+    warehouseId?: string;
+    type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'FINISHED_PRODUCT' | 'OTHER' | 'ALL' | string;
     search?: string;
   }) {
+    // 1. Build live stock lookup for the selected warehouse
+    const stockByRawMaterialId = new Map<string, number>();
+    const stockByPackingMaterialId = new Map<string, number>();
+    const stockByFinishedProductId = new Map<string, number>();
+    const stockByName = new Map<string, number>();
+    const stockMap: Record<string, number> = {};
+
+    if (options?.warehouseId && isValidUuid(options.warehouseId)) {
+      const warehouseStocks = await this.prisma.warehouseStock.findMany({
+        where: { warehouseId: options.warehouseId },
+        include: {
+          rawMaterial: { select: { id: true, materialName: true, materialCode: true } },
+          packingMaterial: { select: { id: true, materialName: true, materialCode: true } },
+          finishedProduct: { select: { id: true, productName: true, productCode: true } },
+        },
+      });
+
+      for (const st of warehouseStocks) {
+        const qty = Number(st.quantityOnHand) || 0;
+        if (st.rawMaterialId) {
+          stockByRawMaterialId.set(st.rawMaterialId, qty);
+          stockMap[st.rawMaterialId] = qty;
+        }
+        if (st.packingMaterialId) {
+          stockByPackingMaterialId.set(st.packingMaterialId, qty);
+          stockMap[st.packingMaterialId] = qty;
+        }
+        if (st.finishedProductId) {
+          stockByFinishedProductId.set(st.finishedProductId, qty);
+          stockMap[st.finishedProductId] = qty;
+        }
+        if (st.rawMaterial?.materialName) {
+          stockByName.set(st.rawMaterial.materialName.toLowerCase().trim(), qty);
+        }
+        if (st.packingMaterial?.materialName) {
+          stockByName.set(st.packingMaterial.materialName.toLowerCase().trim(), qty);
+        }
+        if (st.finishedProduct?.productName) {
+          stockByName.set(st.finishedProduct.productName.toLowerCase().trim(), qty);
+        }
+      }
+    }
+
+    // 2. Query Purchase Order Items
     const where: any = {
       order: {
         status: { notIn: ['CANCELLED'] },
@@ -905,7 +959,11 @@ export class CostingService {
     };
 
     if (options?.type && options.type !== 'ALL') {
-      where.materialType = options.type;
+      if (options.type === 'RAW_MATERIAL' || options.type === 'RM') {
+        where.materialType = 'RAW_MATERIAL';
+      } else if (options.type === 'PACKING_MATERIAL' || options.type === 'PM') {
+        where.materialType = 'PACKING_MATERIAL';
+      }
     }
 
     if (options?.search && options.search.trim()) {
@@ -937,6 +995,19 @@ export class CostingService {
       const qty = Number(it.quantity) || 0;
       const rate = Number(it.unitRate) || 0;
       const total = Number(it.lineTotal) || qty * rate;
+      const matName = (it.itemName || it.materialNameSnapshot || '').trim();
+
+      let availableQty = 0;
+      if (it.materialId) {
+        if (it.materialType === 'PACKING_MATERIAL') {
+          availableQty = stockByPackingMaterialId.get(it.materialId) ?? 0;
+        } else {
+          availableQty = stockByRawMaterialId.get(it.materialId) ?? 0;
+        }
+      }
+      if (!availableQty && matName) {
+        availableQty = stockByName.get(matName.toLowerCase()) ?? 0;
+      }
 
       return {
         id: it.id,
@@ -951,11 +1022,12 @@ export class CostingService {
         materialId: it.materialId,
         materialType: (it.materialType as 'RAW_MATERIAL' | 'PACKING_MATERIAL') || 'RAW_MATERIAL',
         materialCode: it.materialCodeSnapshot || '',
-        materialName: it.itemName || it.materialNameSnapshot || '',
+        materialName: matName,
         pack: it.unit || '1 Nos',
         purchaseQuantity: qty,
         purchaseRate: rate,
         lineTotal: total,
+        availableStock: availableQty,
       };
     });
 
@@ -967,6 +1039,7 @@ export class CostingService {
       materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL';
       latestRate: number;
       latestPack: string;
+      availableStock: number;
       purchases: typeof flatPurchases;
     }>();
 
@@ -982,6 +1055,7 @@ export class CostingService {
           materialType: p.materialType,
           latestRate: p.purchaseRate,
           latestPack: p.pack,
+          availableStock: p.availableStock,
           purchases: [],
         });
       }
@@ -993,6 +1067,7 @@ export class CostingService {
       total: flatPurchases.length,
       materials: Array.from(groupedMap.values()),
       purchases: flatPurchases,
+      stockMap,
     };
   }
 
@@ -1021,6 +1096,17 @@ export class CostingService {
   /**
    * Saves a confirmed costing calculation snapshot without modifying stock or requiring a finished product.
    * Completely immutable: records exact purchase rate, date, and vendor metadata selected by the user.
+   */
+  /**
+   * Saves a confirmed costing calculation snapshot or confirms and posts production.
+   * If postProduction is true:
+   *  - Atomically validates inventory and deducts RM, PM, FP, and OT components from WarehouseStock
+   *  - Creates ProductBatch record
+   *  - Credits FinishedProduct output to WarehouseStock
+   *  - Updates FinishedProduct standardCost
+   *  - Records immutable ProductCosting snapshot with status 'POSTED'
+   * If postProduction is false:
+   *  - Records costing voucher as 'DRAFT' without modifying warehouse inventory
    */
   async saveCostingRecord(dto: SaveCostingRecordInput, user: AuthUser) {
     let companyId: string = (user.companyId || dto.companyId || '').trim();
@@ -1058,7 +1144,7 @@ export class CostingService {
       if (isValidUuid(dto.finishedProductId)) {
         finishedProduct = await tx.finishedProduct.findUnique({
           where: { id: dto.finishedProductId },
-          select: { id: true, productCode: true, productName: true },
+          select: { id: true, productCode: true, productName: true, standardCost: true },
         });
         if (finishedProduct) {
           validFinishedProductId = finishedProduct.id;
@@ -1091,6 +1177,162 @@ export class CostingService {
             },
           ] : [];
 
+      const isPost = dto.postProduction === true || dto.action === 'POST';
+      const recordStatus = isPost ? 'POSTED' : 'DRAFT';
+      let autoBatchNumber = dto.batchNumber;
+
+      // ==============================================================
+      // PRODUCTION EXECUTION & WAREHOUSE INVENTORY MOVEMENTS (POST)
+      // ==============================================================
+      if (isPost) {
+        if (!dto.warehouseId || !isValidUuid(dto.warehouseId)) {
+          throw new BadRequestException('A valid Warehouse is required to confirm & post production.');
+        }
+
+        const warehouse = await tx.warehouse.findUnique({
+          where: { id: dto.warehouseId },
+        });
+        if (!warehouse) {
+          throw new BadRequestException('Selected warehouse was not found.');
+        }
+
+        if (!validFinishedProductId) {
+          throw new BadRequestException('An End Product from the Product Master is required to post production.');
+        }
+
+        const actualOut = Number(dto.actualOutput || dto.actualQuantity || dto.finishedQuantity || 0);
+        if (actualOut <= 0) {
+          throw new BadRequestException('Actual Output quantity must be greater than zero to post production.');
+        }
+
+        // Generate batch number if not manually provided
+        const batchCount = await tx.productBatch.count({
+          where: { finishedProductId: validFinishedProductId },
+        });
+        const currentYear = new Date().getFullYear();
+        autoBatchNumber = dto.batchNumber && dto.batchNumber.trim()
+          ? dto.batchNumber.trim()
+          : `BATCH-${currentYear}-${String(batchCount + 1).padStart(4, '0')}`;
+
+        // Deduct consumed components
+        const linesToConsume = dto.lines && dto.lines.length > 0 ? dto.lines : [];
+        for (const line of linesToConsume) {
+          const usedQty = Number(line.quantity || 0);
+          if (usedQty <= 0) continue;
+
+          const lType = (line.type || 'RM').toUpperCase();
+          let itemType: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'FINISHED_PRODUCT' = 'RAW_MATERIAL';
+          let rmId: string | undefined = undefined;
+          let pmId: string | undefined = undefined;
+          let fpId: string | undefined = undefined;
+
+          if (lType === 'RM' || lType === 'RAW_MATERIAL') {
+            itemType = 'RAW_MATERIAL';
+            if (isValidUuid(line.materialId)) {
+              rmId = line.materialId;
+            } else {
+              const m = await tx.rawMaterial.findFirst({
+                where: {
+                  OR: [
+                    { materialName: { equals: line.materialName, mode: 'insensitive' } },
+                    { materialCode: { equals: line.materialCode || '', mode: 'insensitive' } },
+                  ],
+                },
+              });
+              rmId = m?.id;
+            }
+          } else if (lType === 'FP' || lType === 'FINISHED_PRODUCT') {
+            itemType = 'FINISHED_PRODUCT';
+            if (isValidUuid(line.materialId)) {
+              fpId = line.materialId;
+            } else {
+              const m = await tx.finishedProduct.findFirst({
+                where: {
+                  OR: [
+                    { productName: { equals: line.materialName, mode: 'insensitive' } },
+                    { productCode: { equals: line.materialCode || '', mode: 'insensitive' } },
+                  ],
+                },
+              });
+              fpId = m?.id;
+            }
+          } else {
+            // PM or OT
+            itemType = 'PACKING_MATERIAL';
+            if (isValidUuid(line.materialId)) {
+              pmId = line.materialId;
+            } else {
+              const m = await tx.packingMaterial.findFirst({
+                where: {
+                  OR: [
+                    { materialName: { equals: line.materialName, mode: 'insensitive' } },
+                    { materialCode: { equals: line.materialCode || '', mode: 'insensitive' } },
+                  ],
+                },
+              });
+              pmId = m?.id;
+            }
+          }
+
+          // Apply consumption movement
+          // Centralized validation: throws BadRequestException if stock is insufficient,
+          // atomically rolling back the entire Prisma transaction.
+          await this.inventoryService.applyMovement(tx, {
+            organizationId,
+            companyId,
+            warehouseId: dto.warehouseId,
+            itemType,
+            rawMaterialId: rmId,
+            packingMaterialId: pmId,
+            finishedProductId: fpId,
+            quantityChange: -usedQty,
+            unitCost: Number(line.rate || 0),
+            transactionType: 'PRODUCTION_CONSUMPTION',
+            referenceId: costingCode,
+            referenceNumber: dto.serialNumber || costingCode,
+            notes: `Consumed for batch ${autoBatchNumber} of ${finishedProduct?.productName || 'Finished Product'}`,
+          });
+        }
+
+        // Create ProductBatch record
+        await tx.productBatch.create({
+          data: {
+            organizationId,
+            companyId,
+            finishedProductId: validFinishedProductId,
+            batchNumber: autoBatchNumber,
+            manufacturingDate: dto.costingDate ? new Date(dto.costingDate) : new Date(),
+            initialQuantity: actualOut,
+            availableQuantity: actualOut,
+            allocatedQuantity: 0,
+            isActive: true,
+            status: 'RELEASED',
+            notes: `Manufactured via Costing Voucher ${dto.serialNumber || costingCode}. Unit Cost: PKR ${dto.costPerUnit}`,
+          },
+        });
+
+        // Add finished product output to inventory
+        await this.inventoryService.applyMovement(tx, {
+          organizationId,
+          companyId,
+          warehouseId: dto.warehouseId,
+          itemType: 'FINISHED_PRODUCT',
+          finishedProductId: validFinishedProductId,
+          quantityChange: actualOut,
+          unitCost: Number(dto.costPerUnit || 0),
+          transactionType: 'PRODUCTION_OUTPUT',
+          referenceId: costingCode,
+          referenceNumber: dto.serialNumber || costingCode,
+          notes: `Production output for batch ${autoBatchNumber}`,
+        });
+
+        // Update FinishedProduct standardCost
+        await tx.finishedProduct.update({
+          where: { id: validFinishedProductId },
+          data: { standardCost: Number(dto.costPerUnit || 0) },
+        });
+      }
+
       const snapshotData = {
         costingCode,
         serialNumber: dto.serialNumber || costingCode,
@@ -1107,6 +1349,10 @@ export class CostingService {
         purchaseDate: dto.purchaseDate || null,
         vendorName: dto.sourceVendorName || null,
         vendorCode: dto.sourceVendorCode || null,
+        batchNumber: autoBatchNumber || null,
+        batchVolume: dto.batchVolume || 0,
+        expectedOutput: dto.expectedOutput || dto.estimatedQuantity || 0,
+        actualOutput: dto.actualOutput || dto.actualQuantity || dto.finishedQuantity || 0,
         rawMaterialId: primaryRmId || null,
         rawMaterialName: rawMaterialsList[0]?.rawMaterialName || rawMaterial?.materialName || 'Raw Material',
         rawMaterialCode: rawMaterialsList[0]?.rawMaterialCode || rawMaterial?.materialCode || '',
@@ -1116,9 +1362,9 @@ export class CostingService {
         rawMaterials: rawMaterialsList,
         packSize: dto.packSize,
         packSizeUnit: dto.packSizeUnit || 'Liter',
-        finishedQuantity: dto.actualQuantity || dto.finishedQuantity,
-        actualQuantity: dto.actualQuantity || dto.finishedQuantity,
-        estimatedQuantity: dto.estimatedQuantity || null,
+        finishedQuantity: dto.actualOutput || dto.actualQuantity || dto.finishedQuantity,
+        actualQuantity: dto.actualOutput || dto.actualQuantity || dto.finishedQuantity,
+        estimatedQuantity: dto.expectedOutput || dto.estimatedQuantity || null,
         lines: dto.lines || [],
         packagingMaterials: dto.packagingMaterials || [],
         otherCost: dto.otherCost || 0,
@@ -1127,7 +1373,8 @@ export class CostingService {
         totalPackagingCost: dto.totalPackagingCost || 0,
         totalBatchCost: dto.totalBatchCost,
         costPerUnit: dto.costPerUnit,
-        userNotes: dto.notes || 'Product Costing calculation confirmed',
+        status: recordStatus,
+        userNotes: dto.notes || (isPost ? `Batch ${autoBatchNumber} confirmed & posted to stock` : 'Costing draft saved'),
       };
 
       let nextVersion = 1;
@@ -1175,16 +1422,16 @@ export class CostingService {
           companyId,
           finishedProductId: validFinishedProductId,
           version: nextVersion,
-          batchOutputQuantity: dto.actualQuantity || dto.finishedQuantity,
+          batchOutputQuantity: dto.actualOutput || dto.actualQuantity || dto.finishedQuantity,
           packSize: dto.packSize,
           packSizeUnit: dto.packSizeUnit || 'Liter',
-          totalVolume: Number(dto.actualQuantity || dto.finishedQuantity) * Number(dto.packSize),
+          totalVolume: Number(dto.batchVolume || (Number(dto.actualOutput || dto.actualQuantity || dto.finishedQuantity) * Number(dto.packSize))),
           totalRawMaterialCost: dto.totalRawMaterialCost || 0,
           totalPackagingCost: dto.totalPackagingCost || 0,
           totalBatchCost: dto.totalBatchCost,
           costPerUnit: dto.costPerUnit,
           notes: JSON.stringify(snapshotData),
-          status: 'ACTIVE',
+          status: recordStatus,
           createdById: user.id && isValidUuid(user.id) ? user.id : null,
           createdAt: dto.costingDate ? new Date(dto.costingDate) : new Date(),
           materialLines: {
@@ -1217,8 +1464,12 @@ export class CostingService {
       return {
         success: true,
         costingCode,
+        batchNumber: autoBatchNumber,
+        status: recordStatus,
         costing: costingRecord,
-        message: `Costing record ${costingCode} saved successfully: PKR ${Number(dto.costPerUnit).toLocaleString()} per unit`,
+        message: isPost
+          ? `Batch ${autoBatchNumber} confirmed & posted: ${dto.actualOutput || dto.actualQuantity} units added to stock at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`
+          : `Costing draft ${costingCode} saved successfully (PKR ${Number(dto.costPerUnit).toLocaleString()}/unit)`,
       };
     });
   }
@@ -1292,8 +1543,15 @@ export class CostingService {
         }
       }
 
-      const costingCode = snapshot?.costingCode || `CST-${String(record.version).padStart(6, '0')}`;
+      const costingCode = snapshot?.costingCode || snapshot?.serialNumber || `CST-${String(record.version).padStart(6, '0')}`;
       const costingDate = snapshot?.costingDate || record.createdAt.toISOString();
+      const batchNumber = snapshot?.batchNumber || null;
+      const status = snapshot?.status || record.status || 'DRAFT';
+      const batchVolume = snapshot?.batchVolume || Number(record.totalVolume) || 0;
+      const expectedOutput = snapshot?.expectedOutput || snapshot?.estimatedQuantity || 0;
+      const actualOutput = snapshot?.actualOutput || snapshot?.actualQuantity || Number(record.batchOutputQuantity);
+      const warehouseName = snapshot?.warehouseName || 'Standard Warehouse';
+      const contractorName = snapshot?.contractorVendorName || snapshot?.vendorName || null;
       const sourcePoNumber = snapshot?.sourcePoNumber || null;
       const purchaseDate = snapshot?.purchaseDate || null;
       const vendorName = snapshot?.vendorName || null;
@@ -1310,6 +1568,13 @@ export class CostingService {
         ...record,
         costingCode,
         costingDate,
+        batchNumber,
+        status,
+        batchVolume,
+        expectedOutput,
+        actualOutput,
+        warehouseName,
+        contractorName,
         sourcePoNumber,
         purchaseDate,
         vendorName,
@@ -1324,10 +1589,12 @@ export class CostingService {
       return enriched.filter((item) => {
         return (
           item.costingCode.toLowerCase().includes(q) ||
+          (item.batchNumber && item.batchNumber.toLowerCase().includes(q)) ||
           item.finishedProduct?.productName?.toLowerCase().includes(q) ||
           item.rawMaterialName.toLowerCase().includes(q) ||
           (item.sourcePoNumber && item.sourcePoNumber.toLowerCase().includes(q)) ||
-          (item.vendorName && item.vendorName.toLowerCase().includes(q))
+          (item.vendorName && item.vendorName.toLowerCase().includes(q)) ||
+          (item.contractorName && item.contractorName.toLowerCase().includes(q))
         );
       });
     }

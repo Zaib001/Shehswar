@@ -2965,14 +2965,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       <th style={{ padding: '10px 6px', width: '85px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
                         Packs *
                       </th>
+                      <th style={{ padding: '10px 6px', width: '135px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
+                        Rate Per Pack (PKR) *
+                      </th>
                       <th style={{ padding: '10px 6px', width: '115px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
                         Total Qty
                       </th>
-                      <th style={{ padding: '10px 6px', width: '135px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
-                        Total Amount (PKR) *
-                      </th>
                       <th style={{ padding: '10px 6px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
-                        Derived Rates
+                        Total Amount (PKR)
                       </th>
                       <th style={{ padding: '10px 4px', width: '38px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
                         
@@ -3102,7 +3102,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                const nextEl = document.getElementById(`field-po-amount-${idx}`) as HTMLInputElement | null;
+                                const nextEl = document.getElementById(`field-po-cost-per-pack-${idx}`) as HTMLInputElement | null;
                                 if (nextEl) {
                                   nextEl.focus();
                                   if (typeof nextEl.select === 'function') {
@@ -3138,41 +3138,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           />
                         </td>
 
-                        {/* Total Quantity (Calculated) */}
-                        <td style={{ padding: '6px 4px', verticalAlign: 'middle', width: '115px' }}>
-                          <div
-                            style={{
-                              height: '36px',
-                              padding: '2px 8px',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'center',
-                              alignItems: 'flex-end',
-                              backgroundColor: '#f0f9ff',
-                              borderRadius: '6px',
-                              border: '1px solid #bae6fd',
-                              boxSizing: 'border-box',
-                              lineHeight: 1.2,
-                            }}
-                          >
-                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '12.5px', color: '#0369a1', whiteSpace: 'nowrap' }}>
-                              {Number(item.quantity || 0).toLocaleString()} {item.unit || 'KG'}
-                            </span>
-                            <span style={{ fontSize: '9px', color: '#0284c7', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                              {item.numberOfPacks || 0} &times; {item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Total Purchase Amount (PKR) */}
+                        {/* Rate Per Pack (PKR) - Single Authoritative Pack Rate */}
                         <td style={{ padding: '6px 4px', verticalAlign: 'middle', width: '135px' }}>
                           <input
-                            id={`field-po-amount-${idx}`}
+                            id={`field-po-cost-per-pack-${idx}`}
                             type="number"
                             min="0"
                             step="any"
-                            value={item.totalPurchaseAmount === 0 ? '' : item.totalPurchaseAmount}
-                            onChange={(e) => updateItem(idx, 'totalPurchaseAmount', e.target.value)}
+                            value={item.costPerPack === 0 ? '' : item.costPerPack}
+                            onChange={(e) => updateItem(idx, 'costPerPack', e.target.value)}
                             onFocus={(e) => e.target.select()}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
@@ -3200,7 +3174,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                 }
                               }
                             }}
-                            placeholder="e.g. 200000"
+                            placeholder="e.g. 20000"
                             style={{
                               width: '100%',
                               height: '36px',
@@ -3211,7 +3185,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               textAlign: 'right',
                               fontFamily: 'var(--font-mono)',
                               border: '1.5px solid #0284c7',
-                              backgroundColor: '#f8fafc',
+                              backgroundColor: '#ffffff',
                               color: '#0c4a6e',
                               boxSizing: 'border-box',
                               outline: 'none',
@@ -3227,7 +3201,33 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           />
                         </td>
 
-                        {/* Derived Rates (Stacked Cost/Pack + Unit Rate) */}
+                        {/* Total Quantity = Packs × Pack Capacity */}
+                        <td style={{ padding: '6px 4px', verticalAlign: 'middle', width: '115px' }}>
+                          <div
+                            style={{
+                              height: '36px',
+                              padding: '2px 8px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'flex-end',
+                              backgroundColor: '#f0f9ff',
+                              borderRadius: '6px',
+                              border: '1px solid #bae6fd',
+                              boxSizing: 'border-box',
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '12.5px', color: '#0369a1', whiteSpace: 'nowrap' }}>
+                              {Number(item.quantity || 0).toLocaleString()} {item.unit || 'KG'}
+                            </span>
+                            <span style={{ fontSize: '9px', color: '#0284c7', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                              {item.numberOfPacks || 0} &times; {item.packSize || `${item.packCapacity || 1} ${item.unit || 'KG'}`}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Total Amount = Packs × Rate Per Pack */}
                         <td style={{ padding: '6px 4px', verticalAlign: 'middle', width: '130px' }}>
                           <div
                             style={{
@@ -3244,11 +3244,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               lineHeight: 1.2,
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0f172a' }}>
-                              <span>{Number(item.costPerPack || 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}</span>
-                              <span style={{ fontSize: '9px', color: '#64748b', fontWeight: 500 }}>/pack</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontFamily: 'var(--font-mono)', fontWeight: 800, color: '#0f172a' }}>
+                              <span>PKR {Number(item.totalPurchaseAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#059669' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#059669' }}>
                               <span>PKR {Number(item.unitRate || 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}</span>
                               <span style={{ fontSize: '9px', color: '#059669', fontWeight: 500 }}>/{item.unit || 'KG'}</span>
                             </div>

@@ -73,7 +73,8 @@ export class CostingController {
 
   @Get('purchased-materials')
   async getPurchasedMaterials(
-    @Query('type') type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'ALL',
+    @Query('type') type?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'FINISHED_PRODUCT' | 'OTHER' | 'ALL',
+    @Query('warehouseId') warehouseId?: string,
     @Query('search') search?: string,
     @CurrentUser() user?: AuthUser,
     @CurrentContext() ctx?: SecurityContext,
@@ -81,6 +82,7 @@ export class CostingController {
     const companyId = ctx?.companyId || user?.companyId;
     return this.costingService.getPurchasedMaterials({
       companyId,
+      warehouseId,
       type,
       search,
     });
