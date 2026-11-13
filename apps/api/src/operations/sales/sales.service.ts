@@ -2752,7 +2752,15 @@ export class SalesService {
   async getWarehouseStockReport(companyId?: string, warehouseId?: string) {
     const where: any = {};
     if (companyId && companyId !== 'ALL') where.companyId = companyId;
-    if (warehouseId && warehouseId !== 'ALL') where.warehouseId = warehouseId;
+    if (warehouseId && warehouseId !== 'ALL') {
+      if (companyId && companyId !== 'ALL') {
+        const wh = await this.prisma.warehouse.findUnique({ where: { id: warehouseId } });
+        if (wh && wh.companyId !== companyId) {
+          return []; // Isolated: warehouse belongs to a different company context
+        }
+      }
+      where.warehouseId = warehouseId;
+    }
     where.quantityOnHand = { gt: 0 };
 
     return this.prisma.warehouseStock.findMany({

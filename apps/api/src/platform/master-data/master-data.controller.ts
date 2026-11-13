@@ -517,16 +517,19 @@ export class MasterDataController {
     @CurrentContext() ctx?: SecurityContext,
     @CurrentUser() user?: AuthUser,
   ) {
-    const isSuperAdmin = user?.isSuperAdmin === true;
-    const filterCompany = isSuperAdmin
-      ? (all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId))
-      : (user?.companyId || ctx?.companyId);
+    const requestedCompany = companyId && companyId !== 'ALL' ? companyId : ctx?.companyId;
+    const filterCompany = requestedCompany || (all === 'true' && user?.isSuperAdmin ? undefined : user?.companyId);
     return this.masterDataService.findWarehouses(filterCompany);
   }
 
   @Get('warehouses/:id')
-  async getWarehouse(@Param('id') id: string) {
-    return this.masterDataService.findOneWarehouse(id);
+  async getWarehouse(
+    @Param('id') id: string,
+    @CurrentContext() ctx?: SecurityContext,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    const effectiveCompanyId = ctx?.companyId || user?.companyId;
+    return this.masterDataService.findOneWarehouse(id, effectiveCompanyId);
   }
 
   @Post('warehouses')

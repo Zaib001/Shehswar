@@ -24,11 +24,13 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentContext } from '../../core/decorators/current-context.decorator';
 import { SalesService } from './sales.service';
 import { DealerLedgerService } from '../ledger/dealer-ledger.service';
 import { VendorLedgerService } from '../ledger/vendor-ledger.service';
 import {
   AuthUser,
+  SecurityContext,
   CreateSalesOrderDto,
   ApproveSalesOrderDto,
   CreateSalesInvoiceDto,
@@ -416,10 +418,11 @@ export class WarehouseStockController {
   @Get('report')
   async getReport(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
     @Query('warehouseId') warehouseId?: string,
     @Query('companyId') companyId?: string,
   ) {
-    const effectiveCompanyId = companyId || user?.companyId;
+    const effectiveCompanyId = companyId || ctx?.companyId || user?.companyId;
     return this.salesService.getWarehouseStockReport(effectiveCompanyId, warehouseId);
   }
 

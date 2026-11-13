@@ -10,16 +10,15 @@ export const CurrentContext = createParamDecorator(
     const user = request.user;
     const headers = request.headers;
 
-    const isSuperAdmin = user?.isSuperAdmin === true;
-    const requestedCompanyId = headers['x-company-id'] as string | undefined;
+    // Read activeCompanyId set by DataScopeGuard or header
+    const requestedCompanyId =
+      request.activeCompanyId || (headers['x-company-id'] as string | undefined);
 
     let effectiveCompanyId = user?.companyId;
-    if (isSuperAdmin) {
-      if (requestedCompanyId && requestedCompanyId !== 'ALL' && requestedCompanyId !== 'all') {
-        effectiveCompanyId = requestedCompanyId;
-      } else {
-        effectiveCompanyId = undefined;
-      }
+    if (requestedCompanyId && requestedCompanyId !== 'ALL' && requestedCompanyId !== 'all') {
+      effectiveCompanyId = requestedCompanyId;
+    } else if (requestedCompanyId === 'ALL' || requestedCompanyId === 'all') {
+      effectiveCompanyId = undefined;
     }
 
     return {

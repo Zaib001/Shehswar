@@ -493,6 +493,26 @@ export class AuthService {
       });
     }
 
+    // Query authorized companies for company context switcher
+    let authorizedCompanies: any[] = [];
+    if (isSuperOrAdmin || permissionsSet.has('company:cross_company_view')) {
+      authorizedCompanies = await this.prisma.company.findMany({
+        where: { organizationId: user.organizationId, status: 'ACTIVE' },
+        select: { id: true, code: true, name: true, isParent: true, companyType: true },
+        orderBy: [{ isParent: 'desc' }, { name: 'asc' }],
+      });
+    } else {
+      const assignedCompIds = user.userRoles.map((ur) => ur.companyId).filter(Boolean) as string[];
+      authorizedCompanies = await this.prisma.company.findMany({
+        where: {
+          id: { in: Array.from(new Set([user.companyId, ...assignedCompIds])) },
+          status: 'ACTIVE',
+        },
+        select: { id: true, code: true, name: true, isParent: true, companyType: true },
+        orderBy: [{ isParent: 'desc' }, { name: 'asc' }],
+      });
+    }
+
     return {
       id: user.id,
       userId: user.id,
@@ -545,6 +565,13 @@ export class AuthService {
       },
       authorizedTerritoryIds: Array.from(authorizedTerritoryIdsSet),
       authorizedDealerIds: authorizedDealers.map((d) => d.id),
+      authorizedCompanies: authorizedCompanies.map((c) => ({
+        id: c.id,
+        code: c.code,
+        name: c.name,
+        isParent: c.isParent,
+      })),
+      authorizedCompanyIds: authorizedCompanies.map((c) => c.id),
       context: {
         organizationId: user.organizationId,
         companyId: user.companyId,

@@ -865,7 +865,7 @@ export class MasterDataService {
     });
   }
 
-  async findOneWarehouse(id: string) {
+  async findOneWarehouse(id: string, expectedCompanyId?: string) {
     const wh = await this.prisma.warehouse.findUnique({
       where: { id },
       include: {
@@ -876,6 +876,11 @@ export class MasterDataService {
     });
     if (!wh) {
       throw new NotFoundException(`Warehouse with ID ${id} not found`);
+    }
+    if (expectedCompanyId && expectedCompanyId !== 'ALL' && wh.companyId !== expectedCompanyId) {
+      throw new ForbiddenException(
+        `Data isolation violation: Warehouse '${wh.name}' belongs to company '${wh.company?.name}' and cannot be accessed under active company context.`,
+      );
     }
     return wh;
   }

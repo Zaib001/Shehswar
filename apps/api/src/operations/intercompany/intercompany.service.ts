@@ -46,6 +46,7 @@ export interface IntercompanyTransferDto {
   defaultMarkupPercent?: number;
   items?: IntercompanyTransferItemDto[];
   notes?: string;
+  status?: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'POSTED' | 'CANCELLED';
 
   // Backward compatibility fields for single-item calls:
   finishedProductId?: string;
@@ -145,6 +146,9 @@ export class IntercompanyService {
       throw new BadRequestException('Source and Destination warehouse IDs are required');
     }
 
+    const transferStatus = dto.status || 'POSTED';
+    const isPosted = transferStatus === 'POSTED';
+
     // Normalize items array (support multi-line and legacy single-product)
     const rawItems: IntercompanyTransferItemDto[] =
       dto.items && dto.items.length > 0
@@ -221,7 +225,7 @@ export class IntercompanyService {
       const availableQty = stock ? Number(stock.quantityOnHand) : 0;
 
       // REQUIREMENT: Strict stock validation
-      if (availableQty < item.quantity) {
+      if (isPosted && availableQty < item.quantity) {
         throw new BadRequestException(
           `Insufficient stock available in Shehswar for ${prod.productName}. Available: ${availableQty}, Requested: ${item.quantity}`,
         );
@@ -361,8 +365,8 @@ export class IntercompanyService {
           taxAmount: 0,
           discountAmount: 0,
           netAmount: totalBatchSales,
-          postingStatus: 'POSTED',
-          postedAt: new Date(),
+          postingStatus: transferStatus,
+          postedAt: isPosted ? new Date() : null,
           notes: structuredNotes,
           items: {
             create: processedItems.map((item) => ({
@@ -380,35 +384,37 @@ export class IntercompanyService {
         },
       });
 
-      // Decrement Parent Stock for each product
-      for (const item of processedItems) {
-        await this.inventoryService.applyMovement(tx, {
-          organizationId: parentCompany.organizationId,
-          companyId: parentCompanyId,
-          warehouseId: parentWarehouseId,
-          itemType: 'FINISHED_PRODUCT',
-          finishedProductId: item.finishedProductId,
-          quantityChange: -item.quantity,
-          unitCost: item.unitCost,
-          transactionType: 'SALE',
-          referenceId: parentInvoice.id,
-          referenceNumber: parentInvoiceNo,
-          notes: `Intercompany dispatch to ${childCompany.name} (Batch: ${item.batchNumber})`,
-        });
-
-        // If batch exists, decrement available quantity
-        if (item.batchNumber && item.batchNumber !== 'STD-BATCH') {
-          const pb = await tx.productBatch.findFirst({
-            where: { finishedProductId: item.finishedProductId, batchNumber: item.batchNumber },
+      // Decrement Parent Stock for each product if POSTED
+      if (isPosted) {
+        for (const item of processedItems) {
+          await this.inventoryService.applyMovement(tx, {
+            organizationId: parentCompany.organizationId,
+            companyId: parentCompanyId,
+            warehouseId: parentWarehouseId,
+            itemType: 'FINISHED_PRODUCT',
+            finishedProductId: item.finishedProductId,
+            quantityChange: -item.quantity,
+            unitCost: item.unitCost,
+            transactionType: 'SALE',
+            referenceId: parentInvoice.id,
+            referenceNumber: parentInvoiceNo,
+            notes: `Intercompany dispatch to ${childCompany.name} (Batch: ${item.batchNumber})`,
           });
-          if (pb) {
-            const currentAvail = Number(pb.availableQuantity);
-            await tx.productBatch.update({
-              where: { id: pb.id },
-              data: {
-                availableQuantity: Math.max(0, currentAvail - item.quantity),
-              },
+
+          // If batch exists, decrement available quantity
+          if (item.batchNumber && item.batchNumber !== 'STD-BATCH') {
+            const pb = await tx.productBatch.findFirst({
+              where: { finishedProductId: item.finishedProductId, batchNumber: item.batchNumber },
             });
+            if (pb) {
+              const currentAvail = Number(pb.availableQuantity);
+              await tx.productBatch.update({
+                where: { id: pb.id },
+                data: {
+                  availableQuantity: Math.max(0, currentAvail - item.quantity),
+                },
+              });
+            }
           }
         }
       }
@@ -424,8 +430,8 @@ export class IntercompanyService {
           receivedOn: new Date(),
           reference: transferTxId,
           vendorInvoiceNo: parentInvoiceNo,
-          postingStatus: 'POSTED',
-          isComplete: true,
+          postingStatus: transferStatus,
+          isComplete: isPosted,
           vendorId: parentVendor.id,
           warehouseId: childWarehouseId,
           grossAmount: totalBatchSales,
@@ -433,7 +439,7 @@ export class IntercompanyService {
           discountAmount: 0,
           netAmount: totalBatchSales,
           notes: structuredNotes,
-          postedAt: new Date(),
+          postedAt: isPosted ? new Date() : null,
           postedById: actor.id,
           items: {
             create: processedItems.map((item) => ({
@@ -453,21 +459,23 @@ export class IntercompanyService {
         },
       });
 
-      // Increment Child Stock for each product (referencing SAME FinishedProduct ID)
-      for (const item of processedItems) {
-        await this.inventoryService.applyMovement(tx, {
-          organizationId: childCompany.organizationId,
-          companyId: childCompanyId,
-          warehouseId: childWarehouseId,
-          itemType: 'FINISHED_PRODUCT',
-          finishedProductId: item.finishedProductId,
-          quantityChange: item.quantity,
-          unitCost: item.sellingPrice,
-          transactionType: 'PURCHASE',
-          referenceId: childPurchase.id,
-          referenceNumber: childVoucherNo,
-          notes: `Intercompany stock receipt from ${parentCompany.name} (Batch: ${item.batchNumber})`,
-        });
+      // Increment Child Stock for each product if POSTED (referencing SAME FinishedProduct ID)
+      if (isPosted) {
+        for (const item of processedItems) {
+          await this.inventoryService.applyMovement(tx, {
+            organizationId: childCompany.organizationId,
+            companyId: childCompanyId,
+            warehouseId: childWarehouseId,
+            itemType: 'FINISHED_PRODUCT',
+            finishedProductId: item.finishedProductId,
+            quantityChange: item.quantity,
+            unitCost: item.sellingPrice,
+            transactionType: 'PURCHASE',
+            referenceId: childPurchase.id,
+            referenceNumber: childVoucherNo,
+            notes: `Intercompany stock receipt from ${parentCompany.name} (Batch: ${item.batchNumber})`,
+          });
+        }
       }
 
       this.logger.log(
@@ -815,6 +823,7 @@ export class IntercompanyService {
         cost: parsedMeta?.totalCost || 0,
         profit: parsedMeta?.totalProfit || 0,
         markupPercent: parsedMeta?.markupPercent || 0,
+        status: t.postingStatus || 'POSTED',
         itemsCount: t.items.length,
         items: t.items.map((i) => ({
           productName: i.productName,

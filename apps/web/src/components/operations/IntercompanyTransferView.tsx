@@ -1,33 +1,35 @@
 'use client';
 
 /**
- * SHEHSWAR ONE360 - Inter Company Transfer (Parent → Child Company Business Flow)
+ * SHEHSWAR ONE360 - Inter Company Transfer (Modern ERP Interface)
  *
- * Implements Full Business Flow:
- * 1. Shehswar is the sole Parent/Manufacturing company: holds Finished Products, actual costs, and stock.
- * 2. Sells Finished Products to dynamic child companies (ConsceptAG, Nectar, AgriventurePakistan, Excelium SEEd, etc.).
- * 3. Configurable markup % (10%, 15%, 20%, or custom user-defined % - NOT hardcoded).
- * 4. Multi-product transfer with independent product-level costing and selling calculations:
- *    - Selling Rate = Cost + (Cost * Markup%)
- *    - Sales = Qty * Selling Rate
- *    - Shehswar Cost = Qty * Cost
- *    - Shehswar Profit = Sales - Cost
- * 5. Strict stock validation against Shehswar's source warehouse (no stock from nothing).
- * 6. Preserves batch numbers into child company inventory without duplicating master records.
- * 7. Comprehensive Shehswar Profit Reporting & Child Company Inventory & Payables reporting.
+ * Requirements:
+ * 1. Modern, professional, compact, keyboard-first ERP layout with minimal scrolling.
+ * 2. Compact Header: Transfer No (e.g. IC-000001), Date, Document Status Lifecycle (Draft, Pending Approval, Approved, Posted).
+ * 3. Keyboard-first Company & Warehouse selection (Tab -> Focus -> Type -> Enter -> Auto Advance).
+ * 4. Compact Product Selection Table:
+ *    # | Product | Batch | Available | Qty | Cost | Markup % | Sale Rate | Total | Actions
+ *    - Searchable Combobox for quick adding by Code, Name, or Batch.
+ *    - Auto-fill Available Stock, Cost, Batch Number.
+ *    - Strict quantity validation with inline warning: "Insufficient stock available in the selected source warehouse."
+ *    - Live recalculation of Selling Rate = Cost + (Cost * Markup%) and Total = Qty * Sale Rate.
+ * 5. Compact Summary & Actions:
+ *    - Products Count, Total Qty, Total Cost, Intercompany Sales, Gross Profit.
+ *    - [ Save Draft ], [ Review ], [ Post Transfer ] action lifecycle buttons.
+ * 6. Scoped data & multi-tab reporting:
+ *    - Shehswar Profit Report
+ *    - Child Inventory & Payables
+ *    - Transfer History with Status badges
  */
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Button,
-  Input,
-  Select,
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
   Badge,
   Modal,
   TableSkeleton,
+  SearchableCombobox,
+  ComboboxOption,
 } from '../ui';
 import {
   IconRefresh,
@@ -38,9 +40,15 @@ import {
   IconPercent,
   IconTrendingUp,
   IconBox,
+  IconClock,
+  IconFileText,
+  IconArrowsRightLeft,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
+
+export type DocumentLifecycleStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'POSTED' | 'CANCELLED';
 
 export interface SourceStockItem {
   id: string;
@@ -63,6 +71,7 @@ export interface TransferLineItem {
   productName: string;
   packSize: string;
   batchNumber: string;
+  availableBatches?: string[];
   availableStock: number;
   quantity: number;
   unitCost: number;
@@ -75,6 +84,7 @@ export interface TransferLineItem {
 
 export const IntercompanyTransferView: React.FC = () => {
   const { showToast } = useToast();
+  const { activeCompany } = useCompany();
 
   // Active View Tab
   const [activeTab, setActiveTab] = useState<
@@ -89,11 +99,16 @@ export const IntercompanyTransferView: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  // Document Lifecycle & Meta
+  const [docNumber, setDocNumber] = useState<string>('IC-000001');
+  const [docDate, setDocDate] = useState<string>(() => new Date().toISOString().split('T')[0] ?? '');
+  const [docStatus, setDocStatus] = useState<DocumentLifecycleStatus>('DRAFT');
+
   // Form State: Company & Warehouse Selection
-  const [parentCompanyId, setParentCompanyId] = useState<string>('');
-  const [childCompanyId, setChildCompanyId] = useState<string>('');
-  const [parentWarehouseId, setParentWarehouseId] = useState<string>('');
-  const [childWarehouseId, setChildWarehouseId] = useState<string>('');
+  const [fromCompanyId, setFromCompanyId] = useState<string>('');
+  const [toCompanyId, setToCompanyId] = useState<string>('');
+  const [sourceWarehouseId, setSourceWarehouseId] = useState<string>('');
+  const [destWarehouseId, setDestWarehouseId] = useState<string>('');
 
   // Global Markup & Reference
   const [globalMarkupPercent, setGlobalMarkupPercent] = useState<number>(15);
@@ -101,7 +116,7 @@ export const IntercompanyTransferView: React.FC = () => {
 
   // Multi-Product Line Items
   const [lineItems, setLineItems] = useState<TransferLineItem[]>([]);
-  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string>('');
+  const [searchProductQuery, setSearchProductQuery] = useState<string>('');
 
   // Confirmation Modal
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
@@ -124,7 +139,7 @@ export const IntercompanyTransferView: React.FC = () => {
     setIsLoading(true);
     try {
       const [compRes, whRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/master-data/companies'),
+        ApiClient.get<any>('/api/v1/master-data/companies?all=true'),
         ApiClient.get<any>('/api/v1/master-data/warehouses?all=true'),
       ]);
 
@@ -136,27 +151,38 @@ export const IntercompanyTransferView: React.FC = () => {
       setCompanies(compList);
       setWarehouses(whList);
 
-      // Identify Parent (Shehswar)
-      const parent =
-        compList.find((c: any) => c.isParent || c.code === 'COMP-SHEHSWAR') || compList[0];
+      // Identify Parent (Shehswar or activeCompany)
+      let parent = compList.find((c: any) => c.isParent || c.code === 'COMP-SHEHSWAR');
+      if (activeCompany && (activeCompany.isParent || compList.some((c: any) => c.id === activeCompany.id))) {
+        const found = compList.find((c: any) => c.id === activeCompany.id);
+        if (found && (found.isParent || found.code === 'COMP-SHEHSWAR')) {
+          parent = found;
+        }
+      }
+      if (!parent && compList.length > 0) parent = compList[0];
+
       const children = compList.filter((c: any) => c.id !== parent?.id);
 
       if (parent) {
-        setParentCompanyId(parent.id);
+        setFromCompanyId(parent.id);
         const parentWhs = whList.filter((w: any) => w.companyId === parent.id);
         if (parentWhs.length > 0) {
-          setParentWarehouseId(parentWhs[0].id);
+          setSourceWarehouseId(parentWhs[0].id);
         }
       }
 
       if (children.length > 0) {
-        setChildCompanyId(children[0].id);
+        setToCompanyId(children[0].id);
         setSelectedChildForReport(children[0].id);
         const childWhs = whList.filter((w: any) => w.companyId === children[0].id);
         if (childWhs.length > 0) {
-          setChildWarehouseId(childWhs[0].id);
+          setDestWarehouseId(childWhs[0].id);
         }
       }
+
+      // Generate a dynamic preview document number
+      const randomSeq = Math.floor(1000 + Math.random() * 9000);
+      setDocNumber(`IC-${new Date().getFullYear()}-${randomSeq}`);
     } catch (err: any) {
       showToast({
         title: 'Error Loading Master Data',
@@ -166,7 +192,7 @@ export const IntercompanyTransferView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompany]);
 
   useEffect(() => {
     loadInitialData();
@@ -175,7 +201,10 @@ export const IntercompanyTransferView: React.FC = () => {
   // 2. Fetch available Finished Product Stock when Source Warehouse changes
   const fetchSourceStock = useCallback(
     async (warehouseId: string) => {
-      if (!warehouseId) return;
+      if (!warehouseId) {
+        setSourceStock([]);
+        return;
+      }
       setIsLoadingStock(true);
       try {
         const res = await ApiClient.get<SourceStockItem[]>(
@@ -183,9 +212,6 @@ export const IntercompanyTransferView: React.FC = () => {
         );
         const items = Array.isArray(res.data) ? res.data : [];
         setSourceStock(items);
-        if (items.length > 0 && items[0] && !selectedProductToAdd) {
-          setSelectedProductToAdd(items[0].finishedProductId);
-        }
       } catch (err: any) {
         showToast({
           title: 'Stock Query Failed',
@@ -196,124 +222,168 @@ export const IntercompanyTransferView: React.FC = () => {
         setIsLoadingStock(false);
       }
     },
-    [showToast, selectedProductToAdd],
+    [showToast],
   );
 
   useEffect(() => {
-    if (parentWarehouseId) {
-      fetchSourceStock(parentWarehouseId);
+    if (sourceWarehouseId) {
+      fetchSourceStock(sourceWarehouseId);
     }
-  }, [parentWarehouseId, fetchSourceStock]);
+  }, [sourceWarehouseId, fetchSourceStock]);
 
   // Update Child Warehouses when Child Company changes
   const availableChildWarehouses = useMemo(() => {
-    return warehouses.filter((w) => w.companyId === childCompanyId);
-  }, [warehouses, childCompanyId]);
+    return warehouses.filter((w) => w.companyId === toCompanyId);
+  }, [warehouses, toCompanyId]);
 
   useEffect(() => {
     if (availableChildWarehouses.length > 0) {
-      setChildWarehouseId(availableChildWarehouses[0].id);
+      if (!availableChildWarehouses.some((w) => w.id === destWarehouseId)) {
+        setDestWarehouseId(availableChildWarehouses[0].id);
+      }
     } else {
-      setChildWarehouseId('');
+      setDestWarehouseId('');
     }
-  }, [availableChildWarehouses]);
+  }, [availableChildWarehouses, destWarehouseId]);
 
+  // Available Parent Warehouses
   const availableParentWarehouses = useMemo(() => {
-    return warehouses.filter((w) => w.companyId === parentCompanyId);
-  }, [warehouses, parentCompanyId]);
+    return warehouses.filter((w) => w.companyId === fromCompanyId);
+  }, [warehouses, fromCompanyId]);
 
-  // Active Parent & Child company details
-  const activeParentCompany = useMemo(
-    () => companies.find((c) => c.id === parentCompanyId),
-    [companies, parentCompanyId],
+  useEffect(() => {
+    if (availableParentWarehouses.length > 0) {
+      if (!availableParentWarehouses.some((w) => w.id === sourceWarehouseId)) {
+        setSourceWarehouseId(availableParentWarehouses[0].id);
+      }
+    } else {
+      setSourceWarehouseId('');
+    }
+  }, [availableParentWarehouses, sourceWarehouseId]);
+
+  // Active Company names
+  const activeFromCompany = useMemo(
+    () => companies.find((c) => c.id === fromCompanyId),
+    [companies, fromCompanyId],
   );
-  const activeChildCompany = useMemo(
-    () => companies.find((c) => c.id === childCompanyId),
-    [companies, childCompanyId],
+  const activeToCompany = useMemo(
+    () => companies.find((c) => c.id === toCompanyId),
+    [companies, toCompanyId],
   );
+
+  // Combobox Options
+  const fromCompanyOptions: ComboboxOption[] = useMemo(
+    () =>
+      companies.map((c) => ({
+        value: c.id,
+        label: c.name,
+        badge: c.isParent ? 'PARENT / MFR' : 'ENTITY',
+        subtext: `Code: ${c.code}`,
+        searchTerms: `${c.name} ${c.code}`,
+      })),
+    [companies],
+  );
+
+  const toCompanyOptions: ComboboxOption[] = useMemo(
+    () =>
+      companies
+        .filter((c) => c.id !== fromCompanyId)
+        .map((c) => ({
+          value: c.id,
+          label: c.name,
+          badge: 'CHILD DISTRIBUTOR',
+          subtext: `Code: ${c.code}`,
+          searchTerms: `${c.name} ${c.code}`,
+        })),
+    [companies, fromCompanyId],
+  );
+
+  const sourceWarehouseOptions: ComboboxOption[] = useMemo(
+    () =>
+      availableParentWarehouses.map((w) => ({
+        value: w.id,
+        label: w.name,
+        badge: 'STOCK OUT',
+        subtext: `Code: ${w.code}`,
+        searchTerms: `${w.name} ${w.code}`,
+      })),
+    [availableParentWarehouses],
+  );
+
+  const destWarehouseOptions: ComboboxOption[] = useMemo(
+    () =>
+      availableChildWarehouses.map((w) => ({
+        value: w.id,
+        label: w.name,
+        badge: 'STOCK IN',
+        subtext: `Code: ${w.code}`,
+        searchTerms: `${w.name} ${w.code}`,
+      })),
+    [availableChildWarehouses],
+  );
+
+  // Group source stock products for the searchable combobox
+  const productSearchOptions: ComboboxOption[] = useMemo(() => {
+    return sourceStock.map((s) => ({
+      value: s.finishedProductId,
+      label: `${s.productName} (${s.packSize})`,
+      subtext: `Code: ${s.productCode} • Batch: ${s.batchNumber} • Avail: ${s.availableStock} • Cost: PKR ${s.unitCost.toLocaleString()}`,
+      badge: `${s.availableStock} in stock`,
+      searchTerms: `${s.productCode} ${s.productName} ${s.batchNumber} ${s.packSize}`,
+    }));
+  }, [sourceStock]);
 
   // 3. Add Product to Line Items Table
-  const handleAddProduct = (prodId?: string) => {
-    const targetId = prodId || selectedProductToAdd;
-    if (!targetId) return;
+  const handleAddProduct = useCallback(
+    (targetProdId: string) => {
+      if (!targetProdId) return;
 
-    const stockItem = sourceStock.find((s) => s.finishedProductId === targetId);
-    if (!stockItem) {
-      showToast({
-        title: 'Product Selection',
-        message: 'Selected product is not currently in source stock',
-        type: 'warning',
-      });
-      return;
-    }
+      const stockItem = sourceStock.find((s) => s.finishedProductId === targetProdId);
+      if (!stockItem) {
+        showToast({
+          title: 'Product Not Found',
+          message: 'Selected item is not currently available in source warehouse stock.',
+          type: 'warning',
+        });
+        return;
+      }
 
-    // Check if already in table
-    const existing = lineItems.find((i) => i.finishedProductId === targetId);
-    if (existing) {
-      showToast({
-        title: 'Already Added',
-        message: `${stockItem.productName} is already in the transfer list. Adjust its quantity directly.`,
-        type: 'info',
-      });
-      return;
-    }
+      // If already present, focus that row's quantity input
+      const existing = lineItems.find((i) => i.finishedProductId === targetProdId);
+      if (existing) {
+        showToast({
+          title: 'Already in Transfer',
+          message: `${stockItem.productName} is already added. Adjust its quantity directly.`,
+          type: 'info',
+        });
+        const existingInput = document.getElementById(`ic-qty-${existing.id}`);
+        if (existingInput) existingInput.focus();
+        setSearchProductQuery('');
+        return;
+      }
 
-    const defaultQty = Math.min(100, stockItem.availableStock);
-    const unitCost = stockItem.unitCost;
-    const markup = globalMarkupPercent;
-    const sellingRate = Math.round(unitCost * (1 + markup / 100) * 100) / 100;
-    const totalCost = Math.round(defaultQty * unitCost * 100) / 100;
-    const totalSales = Math.round(defaultQty * sellingRate * 100) / 100;
-    const profit = Math.round((totalSales - totalCost) * 100) / 100;
-
-    const newLine: TransferLineItem = {
-      id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      finishedProductId: stockItem.finishedProductId,
-      productCode: stockItem.productCode,
-      productName: stockItem.productName,
-      packSize: stockItem.packSize,
-      batchNumber: stockItem.batchNumber,
-      availableStock: stockItem.availableStock,
-      quantity: defaultQty,
-      unitCost,
-      markupPercent: markup,
-      sellingPrice: sellingRate,
-      totalCost,
-      totalSales,
-      profit,
-    };
-
-    setLineItems((prev) => [...prev, newLine]);
-  };
-
-  // Quick Load Acceptance Scenario Items
-  const handleLoadAcceptanceScenario = () => {
-    if (sourceStock.length === 0) {
-      showToast({
-        title: 'Stock Empty',
-        message: 'No stock available in the selected warehouse.',
-        type: 'warning',
-      });
-      return;
-    }
-
-    const newRows: TransferLineItem[] = [];
-    sourceStock.slice(0, 3).forEach((stockItem) => {
-      const defaultQty = 100;
+      const defaultQty = Math.min(100, stockItem.availableStock > 0 ? stockItem.availableStock : 100);
       const unitCost = stockItem.unitCost;
-      const markup = 15;
+      const markup = globalMarkupPercent;
       const sellingRate = Math.round(unitCost * (1 + markup / 100) * 100) / 100;
       const totalCost = Math.round(defaultQty * unitCost * 100) / 100;
       const totalSales = Math.round(defaultQty * sellingRate * 100) / 100;
       const profit = Math.round((totalSales - totalCost) * 100) / 100;
 
-      newRows.push({
-        id: `row-${stockItem.finishedProductId}`,
+      // Extract all available batches for this product in sourceStock
+      const allBatches = sourceStock
+        .filter((s) => s.finishedProductId === targetProdId && s.batchNumber)
+        .map((s) => s.batchNumber);
+
+      const newRowId = `row-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+      const newLine: TransferLineItem = {
+        id: newRowId,
         finishedProductId: stockItem.finishedProductId,
         productCode: stockItem.productCode,
         productName: stockItem.productName,
         packSize: stockItem.packSize,
-        batchNumber: stockItem.batchNumber,
+        batchNumber: stockItem.batchNumber || 'STD-BATCH',
+        availableBatches: allBatches.length > 0 ? Array.from(new Set(allBatches)) : [stockItem.batchNumber || 'STD-BATCH'],
         availableStock: stockItem.availableStock,
         quantity: defaultQty,
         unitCost,
@@ -322,14 +392,68 @@ export const IntercompanyTransferView: React.FC = () => {
         totalCost,
         totalSales,
         profit,
+      };
+
+      setLineItems((prev) => [...prev, newLine]);
+      setSearchProductQuery('');
+
+      // Auto-focus the quantity input of the newly added row
+      setTimeout(() => {
+        const qtyEl = document.getElementById(`ic-qty-${newRowId}`) as HTMLInputElement | null;
+        if (qtyEl) {
+          qtyEl.focus();
+          qtyEl.select();
+        }
+      }, 50);
+    },
+    [sourceStock, lineItems, globalMarkupPercent, showToast],
+  );
+
+  // Quick Load Standard Acceptance Scenario (Product A, B, C @ 15% Markup)
+  const handleLoadAcceptanceScenario = () => {
+    if (sourceStock.length === 0) {
+      showToast({
+        title: 'Source Stock Empty',
+        message: 'No stock available in the selected source warehouse.',
+        type: 'warning',
       });
+      return;
+    }
+
+    const targetItems = sourceStock.slice(0, 3);
+    const newRows: TransferLineItem[] = targetItems.map((stockItem) => {
+      const defaultQty = 100;
+      const unitCost = stockItem.unitCost;
+      const markup = 15;
+      const sellingRate = Math.round(unitCost * (1 + markup / 100) * 100) / 100;
+      const totalCost = Math.round(defaultQty * unitCost * 100) / 100;
+      const totalSales = Math.round(defaultQty * sellingRate * 100) / 100;
+      const profit = Math.round((totalSales - totalCost) * 100) / 100;
+
+      return {
+        id: `row-${stockItem.finishedProductId}`,
+        finishedProductId: stockItem.finishedProductId,
+        productCode: stockItem.productCode,
+        productName: stockItem.productName,
+        packSize: stockItem.packSize,
+        batchNumber: stockItem.batchNumber || 'STD-BATCH',
+        availableStock: stockItem.availableStock,
+        quantity: defaultQty,
+        unitCost,
+        markupPercent: markup,
+        sellingPrice: sellingRate,
+        totalCost,
+        totalSales,
+        profit,
+      };
     });
 
     setLineItems(newRows);
     setGlobalMarkupPercent(15);
+    setDocStatus('DRAFT');
     showToast({
-      title: 'Loaded Multi-Product Scenario',
-      message: 'Added sample finished products (100 units each @ 15% markup).',
+      title: 'Acceptance Scenario Loaded',
+      message: `Loaded ${newRows.length} Finished Products (100 units each @ 15% markup).`,
       type: 'success',
     });
   };
@@ -337,8 +461,8 @@ export const IntercompanyTransferView: React.FC = () => {
   // Update Line Item Values
   const handleUpdateLine = (
     id: string,
-    field: 'quantity' | 'markupPercent' | 'sellingPrice',
-    val: number,
+    field: 'quantity' | 'markupPercent' | 'sellingPrice' | 'batchNumber',
+    val: any,
   ) => {
     setLineItems((prev) =>
       prev.map((item) => {
@@ -347,19 +471,22 @@ export const IntercompanyTransferView: React.FC = () => {
         let quantity = item.quantity;
         let markupPercent = item.markupPercent;
         let sellingPrice = item.sellingPrice;
+        let batchNumber = item.batchNumber;
         const unitCost = item.unitCost;
 
         if (field === 'quantity') {
-          quantity = Math.max(0, val);
+          quantity = Math.max(0, parseFloat(val) || 0);
         } else if (field === 'markupPercent') {
-          markupPercent = val;
-          sellingPrice = Math.round(unitCost * (1 + val / 100) * 100) / 100;
+          markupPercent = parseFloat(val) || 0;
+          sellingPrice = Math.round(unitCost * (1 + markupPercent / 100) * 100) / 100;
         } else if (field === 'sellingPrice') {
-          sellingPrice = Math.max(0, val);
+          sellingPrice = Math.max(0, parseFloat(val) || 0);
           markupPercent =
             unitCost > 0
               ? Math.round(((sellingPrice - unitCost) / unitCost) * 1000) / 10
               : 0;
+        } else if (field === 'batchNumber') {
+          batchNumber = val;
         }
 
         const totalCost = Math.round(quantity * unitCost * 100) / 100;
@@ -371,6 +498,7 @@ export const IntercompanyTransferView: React.FC = () => {
           quantity,
           markupPercent,
           sellingPrice,
+          batchNumber,
           totalCost,
           totalSales,
           profit,
@@ -405,7 +533,7 @@ export const IntercompanyTransferView: React.FC = () => {
     );
   };
 
-  // Financial Grand Totals
+  // Financial Grand Totals & Validation
   const grandTotals = useMemo(() => {
     const totalCost = lineItems.reduce((acc, i) => acc + i.totalCost, 0);
     const totalSales = lineItems.reduce((acc, i) => acc + i.totalSales, 0);
@@ -428,41 +556,49 @@ export const IntercompanyTransferView: React.FC = () => {
     };
   }, [lineItems]);
 
-  // 4. Submit Intercompany Transfer
-  const handleSubmitTransfer = async () => {
-    if (!parentCompanyId || !childCompanyId) {
+  // Execute Transfer Lifecycle Action (DRAFT, PENDING_APPROVAL, POSTED)
+  const executeTransferAction = async (targetStatus: DocumentLifecycleStatus) => {
+    if (!fromCompanyId || !toCompanyId) {
       showToast({
         title: 'Validation Error',
-        message: 'Please select both Parent and Child companies',
+        message: 'Please select both From Company and To Company.',
         type: 'warning',
       });
       return;
     }
-    if (parentCompanyId === childCompanyId) {
+    if (fromCompanyId === toCompanyId) {
       showToast({
         title: 'Validation Error',
-        message: 'Parent and Child companies cannot be identical',
+        message: 'From Company and To Company cannot be the same.',
         type: 'warning',
       });
       return;
     }
-    if (!parentWarehouseId || !childWarehouseId) {
+    if (!sourceWarehouseId || !destWarehouseId) {
       showToast({
         title: 'Validation Error',
-        message: 'Please select both source and destination warehouses',
+        message: 'Please select both source and destination warehouses.',
         type: 'warning',
       });
       return;
     }
     if (lineItems.length === 0) {
       showToast({
-        title: 'Validation Error',
-        message: 'Please add at least one finished product to transfer',
+        title: 'No Products',
+        message: 'Please add at least one finished product to the transfer.',
         type: 'warning',
       });
       return;
     }
-    if (grandTotals.hasStockError) {
+    if (grandTotals.hasZeroQty) {
+      showToast({
+        title: 'Invalid Quantity',
+        message: 'All transfer items must have a quantity greater than zero.',
+        type: 'warning',
+      });
+      return;
+    }
+    if (targetStatus === 'POSTED' && grandTotals.hasStockError) {
       const offending = lineItems.find((i) => i.quantity > i.availableStock);
       showToast({
         title: 'Insufficient Stock',
@@ -471,23 +607,16 @@ export const IntercompanyTransferView: React.FC = () => {
       });
       return;
     }
-    if (grandTotals.hasZeroQty) {
-      showToast({
-        title: 'Validation Error',
-        message: 'All line items must have a quantity greater than zero',
-        type: 'warning',
-      });
-      return;
-    }
 
     setIsSubmitting(true);
     try {
       const payload = {
-        parentCompanyId,
-        childCompanyId,
-        parentWarehouseId,
-        childWarehouseId,
+        parentCompanyId: fromCompanyId,
+        childCompanyId: toCompanyId,
+        parentWarehouseId: sourceWarehouseId,
+        childWarehouseId: destWarehouseId,
         defaultMarkupPercent: globalMarkupPercent,
+        status: targetStatus,
         items: lineItems.map((i) => ({
           finishedProductId: i.finishedProductId,
           batchNumber: i.batchNumber,
@@ -496,29 +625,39 @@ export const IntercompanyTransferView: React.FC = () => {
           markupPercent: i.markupPercent,
           sellingPrice: i.sellingPrice,
         })),
-        notes: transferNotes,
+        notes: transferNotes || `Intercompany dispatch ${docNumber}`,
       };
 
-      const res = await ApiClient.post<any>(
-        '/api/v1/operations/intercompany/transfer',
-        payload,
-      );
+      const res = await ApiClient.post<any>('/api/v1/operations/intercompany/transfer', payload);
 
+      setDocStatus(targetStatus);
       setIsConfirmModalOpen(false);
-      showToast({
-        title: 'Intercompany Transfer Posted!',
-        message: `Parent Sale (${res.data?.parentSale?.invoiceNumber}) & Child Purchase (${res.data?.childPurchase?.voucherNumber}) posted atomically! Profit: PKR ${res.data?.totalProfit?.toLocaleString()}`,
-        type: 'success',
-      });
 
-      // Clear table and refresh stock
-      setLineItems([]);
-      setTransferNotes('');
-      fetchSourceStock(parentWarehouseId);
+      if (targetStatus === 'DRAFT') {
+        showToast({
+          title: 'Draft Saved',
+          message: `Intercompany transfer saved as Draft (${res.data?.parentSale?.invoiceNumber || docNumber}).`,
+          type: 'info',
+        });
+      } else if (targetStatus === 'PENDING_APPROVAL') {
+        showToast({
+          title: 'Transfer Under Review',
+          message: `Transfer ${res.data?.parentSale?.invoiceNumber || docNumber} is marked Pending Approval.`,
+          type: 'success',
+        });
+      } else if (targetStatus === 'POSTED') {
+        showToast({
+          title: 'Transfer Posted Successfully!',
+          message: `Sales Invoice ${res.data?.parentSale?.invoiceNumber} & Child Purchase ${res.data?.childPurchase?.voucherNumber} generated atomically. Profit: PKR ${res.data?.totalProfit?.toLocaleString()}`,
+          type: 'success',
+        });
+        // Refresh source stock
+        fetchSourceStock(sourceWarehouseId);
+      }
     } catch (err: any) {
       showToast({
-        title: 'Transfer Failed',
-        message: err?.message || 'Error processing intercompany transfer transaction',
+        title: 'Transaction Error',
+        message: err?.message || 'Error processing intercompany transfer transaction.',
         type: 'error',
       });
     } finally {
@@ -526,12 +665,27 @@ export const IntercompanyTransferView: React.FC = () => {
     }
   };
 
-  // 5. Load Shehswar Profit Report
+  // Reset form to start a new transfer
+  const handleStartNewTransfer = () => {
+    setLineItems([]);
+    setTransferNotes('');
+    setDocStatus('DRAFT');
+    const randomSeq = Math.floor(1000 + Math.random() * 9000);
+    setDocNumber(`IC-${new Date().getFullYear()}-${randomSeq}`);
+    if (sourceWarehouseId) fetchSourceStock(sourceWarehouseId);
+    showToast({
+      title: 'New Transfer Initialized',
+      message: 'Clean form ready for entry.',
+      type: 'info',
+    });
+  };
+
+  // Load Shehswar Profit Report
   const loadProfitReport = useCallback(async () => {
     setIsLoadingProfitReport(true);
     try {
       const res = await ApiClient.get<any>(
-        `/api/v1/operations/intercompany/profit-report?companyId=${parentCompanyId}`,
+        `/api/v1/operations/intercompany/profit-report?companyId=${fromCompanyId}`,
       );
       setProfitReport(res.data);
     } catch (err: any) {
@@ -543,9 +697,9 @@ export const IntercompanyTransferView: React.FC = () => {
     } finally {
       setIsLoadingProfitReport(false);
     }
-  }, [parentCompanyId, showToast]);
+  }, [fromCompanyId, showToast]);
 
-  // 6. Load Child Company Report
+  // Load Child Company Report
   const loadChildReport = useCallback(
     async (childId: string) => {
       if (!childId) return;
@@ -568,7 +722,7 @@ export const IntercompanyTransferView: React.FC = () => {
     [showToast],
   );
 
-  // 7. Load Transfer History
+  // Load Transfer History
   const loadTransferHistory = useCallback(async () => {
     setIsLoadingHistory(true);
     try {
@@ -585,12 +739,12 @@ export const IntercompanyTransferView: React.FC = () => {
     }
   }, [showToast]);
 
-  // Trigger data fetching on tab switch
+  // Refresh data on tab change
   useEffect(() => {
     if (activeTab === 'SHEHSWAR_PROFIT') {
       loadProfitReport();
     } else if (activeTab === 'CHILD_REPORT') {
-      loadChildReport(selectedChildForReport || childCompanyId);
+      loadChildReport(selectedChildForReport || toCompanyId);
     } else if (activeTab === 'HISTORY') {
       loadTransferHistory();
     }
@@ -600,470 +754,1441 @@ export const IntercompanyTransferView: React.FC = () => {
     loadChildReport,
     loadTransferHistory,
     selectedChildForReport,
-    childCompanyId,
+    toCompanyId,
   ]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Page Header */}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px',
+        maxWidth: '1600px',
+        margin: '0 auto',
+        padding: '4px',
+      }}
+    >
+      {/* ── TOP NAV BAR & TABS ────────────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '12px',
+          gap: '10px',
+          paddingBottom: '6px',
+          borderBottom: '1px solid var(--border-default)',
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h1
-              style={{
-                fontSize: '24px',
-                fontWeight: 700,
-                margin: 0,
-                color: 'var(--text-primary)',
-              }}
-            >
-              Inter Company Transfer
-            </h1>
-            <Badge variant="primary" style={{ fontWeight: 600 }}>
-              Parent → Child Company Flow
-            </Badge>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div
+            style={{
+              width: '34px',
+              height: '34px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, #0d9488 0%, #0891b2 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+            }}
+          >
+            <IconArrowsRightLeft size={18} />
           </div>
-          <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0 0', fontSize: '14px' }}>
-            Shehswar sells manufactured Finished Goods to child distribution companies with
-            configurable profit margins and automated atomic multi-company ledger updates.
-          </p>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  margin: 0,
+                  color: 'var(--text-primary)',
+                  letterSpacing: '-0.01em',
+                }}
+              >
+                INTER COMPANY TRANSFER
+              </h1>
+              <Badge variant="primary" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                Parent → Child Flow
+              </Badge>
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Keyboard-first multi-product intercompany transfers with real-time margins & ledger isolation
+            </div>
+          </div>
         </div>
 
-        {/* Global Tab Navigation */}
+        {/* Global Tabs Navigation */}
         <div
           style={{
             display: 'flex',
-            background: 'var(--surface-subtle)',
-            borderRadius: '10px',
-            padding: '4px',
-            gap: '4px',
+            background: 'var(--bg-surface-raised)',
+            borderRadius: 'var(--radius-md)',
+            padding: '3px',
+            gap: '3px',
+            border: '1px solid var(--border-default)',
           }}
         >
           <button
+            type="button"
             onClick={() => setActiveTab('NEW_SALE')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-sm)',
               border: 'none',
               cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '13px',
+              fontSize: '12px',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background:
-                activeTab === 'NEW_SALE' ? 'var(--surface-primary)' : 'transparent',
-              color:
-                activeTab === 'NEW_SALE'
-                  ? 'var(--brand-primary)'
-                  : 'var(--text-secondary)',
-              boxShadow:
-                activeTab === 'NEW_SALE' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'NEW_SALE' ? 'var(--color-primary)' : 'transparent',
+              color: activeTab === 'NEW_SALE' ? '#ffffff' : 'var(--text-secondary)',
               transition: 'all 0.15s ease',
             }}
           >
-            <IconPlus size={15} /> Create Intercompany Sale
+            <IconPlus size={14} /> Create Transfer
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('SHEHSWAR_PROFIT')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-sm)',
               border: 'none',
               cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '13px',
+              fontSize: '12px',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background:
-                activeTab === 'SHEHSWAR_PROFIT'
-                  ? 'var(--surface-primary)'
-                  : 'transparent',
-              color:
-                activeTab === 'SHEHSWAR_PROFIT'
-                  ? 'var(--brand-primary)'
-                  : 'var(--text-secondary)',
-              boxShadow:
-                activeTab === 'SHEHSWAR_PROFIT' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'SHEHSWAR_PROFIT' ? 'var(--color-primary)' : 'transparent',
+              color: activeTab === 'SHEHSWAR_PROFIT' ? '#ffffff' : 'var(--text-secondary)',
               transition: 'all 0.15s ease',
             }}
           >
-            <IconTrendingUp size={15} /> Shehswar Profit Report
+            <IconTrendingUp size={14} /> Profit Report
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('CHILD_REPORT')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-sm)',
               border: 'none',
               cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '13px',
+              fontSize: '12px',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background:
-                activeTab === 'CHILD_REPORT' ? 'var(--surface-primary)' : 'transparent',
-              color:
-                activeTab === 'CHILD_REPORT'
-                  ? 'var(--brand-primary)'
-                  : 'var(--text-secondary)',
-              boxShadow:
-                activeTab === 'CHILD_REPORT' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'CHILD_REPORT' ? 'var(--color-primary)' : 'transparent',
+              color: activeTab === 'CHILD_REPORT' ? '#ffffff' : 'var(--text-secondary)',
               transition: 'all 0.15s ease',
             }}
           >
-            <IconBuilding size={15} /> Child Inventory & Payables
+            <IconBuilding size={14} /> Child Payables
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('HISTORY')}
             style={{
-              padding: '8px 16px',
-              borderRadius: '8px',
+              padding: '6px 12px',
+              borderRadius: 'var(--radius-sm)',
               border: 'none',
               cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '13px',
+              fontSize: '12px',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background:
-                activeTab === 'HISTORY' ? 'var(--surface-primary)' : 'transparent',
-              color:
-                activeTab === 'HISTORY'
-                  ? 'var(--brand-primary)'
-                  : 'var(--text-secondary)',
-              boxShadow: activeTab === 'HISTORY' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              background: activeTab === 'HISTORY' ? 'var(--color-primary)' : 'transparent',
+              color: activeTab === 'HISTORY' ? '#ffffff' : 'var(--text-secondary)',
               transition: 'all 0.15s ease',
             }}
           >
-            <IconRefresh size={15} /> Transfer History
+            <IconRefresh size={14} /> History Log
           </button>
         </div>
       </div>
 
       {isLoading ? (
-        <Card>
-          <CardContent style={{ padding: '24px' }}>
-            <TableSkeleton rows={4} columns={4} />
-          </CardContent>
-        </Card>
+        <div style={{ padding: '24px', background: 'var(--bg-surface-raised)', borderRadius: '8px' }}>
+          <TableSkeleton rows={4} columns={4} />
+        </div>
       ) : (
         <>
           {/* ========================================================================= */}
-          {/* TAB 1: CREATE INTERCOMPANY SALE                                           */}
+          {/* TAB 1: CREATE INTERCOMPANY TRANSFER (Keyboard-First Compact View)         */}
           {/* ========================================================================= */}
           {activeTab === 'NEW_SALE' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Section 1: Business Flow Configuration */}
-          <Card>
-            <CardHeader>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* ── 1. COMPACT HEADER & 4-SELECTOR KEYBOARD ROUTING ────────────────── */}
               <div
                 style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '12px 14px',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <CardTitle>1. Transaction Structure & Company Routing</CardTitle>
-                  <Badge variant="success">Transfer Type: Inter Company Sale</Badge>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleLoadAcceptanceScenario}
-                  title="Loads the 3-Product 15% Markup scenario from specifications"
+                {/* Document Meta Row */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    paddingBottom: '10px',
+                    marginBottom: '10px',
+                    borderBottom: '1px solid var(--border-default)',
+                  }}
                 >
-                  <IconBox size={14} /> Load Acceptance Scenario (A, B, C)
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: '16px',
-                }}
-              >
-                {/* Source Parent Company */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    FROM (Parent / Manufacturing Company)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                        TRANSFER NO:
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          color: 'var(--color-primary)',
+                          fontFamily: 'monospace',
+                          background: 'rgba(13, 148, 136, 0.08)',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(13, 148, 136, 0.2)',
+                        }}
+                      >
+                        {docNumber}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                        DATE:
+                      </span>
+                      <input
+                        type="date"
+                        value={docDate}
+                        onChange={(e) => setDocDate(e.target.value)}
+                        style={{
+                          border: '1px solid var(--border-default)',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          fontSize: '12px',
+                          background: 'var(--bg-surface)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                        STATUS:
+                      </span>
+                      <Badge
+                        variant={
+                          docStatus === 'POSTED'
+                            ? 'success'
+                            : docStatus === 'PENDING_APPROVAL'
+                            ? 'warning'
+                            : docStatus === 'APPROVED'
+                            ? 'primary'
+                            : 'secondary'
+                        }
+                        style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}
+                      >
+                        {docStatus.replace('_', ' ')}
+                      </Badge>
+                    </div>
                   </div>
-                  <Select
-                    value={parentCompanyId}
-                    onChange={(e) => setParentCompanyId(e.target.value)}
-                    options={companies.map((c) => ({
-                      label: `${c.name} ${c.isParent ? '(Parent / Manufacturing)' : ''}`,
-                      value: c.id,
-                    }))}
-                  />
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--brand-primary)',
-                      marginTop: '4px',
-                    }}
-                  >
-                    ★ Holds Finished Product inventory & actual manufacturing cost
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleLoadAcceptanceScenario}
+                      title="Load sample 3-Product test scenario (100 units each @ 15% markup)"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                    >
+                      <IconBox size={13} /> Load Scenario (A, B, C)
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleStartNewTransfer}
+                      title="Reset transfer document"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                    >
+                      <IconRefresh size={13} /> Reset
+                    </Button>
                   </div>
                 </div>
 
-                {/* Destination Child Company */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    TO (Destination Child Company)
-                  </div>
-                  <Select
-                    value={childCompanyId}
-                    onChange={(e) => setChildCompanyId(e.target.value)}
-                    options={companies
-                      .filter((c) => c.id !== parentCompanyId)
-                      .map((c) => ({
-                        label: `${c.code} - ${c.name}`,
-                        value: c.id,
-                      }))}
-                  />
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--text-secondary)',
-                      marginTop: '4px',
-                    }}
-                  >
-                    Selectable child company (e.g. Nectar, ConsceptAG, Agriventure, Excelium)
-                  </div>
-                </div>
-
-                {/* Source Warehouse */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    Shehswar Source Warehouse (Stock OUT -)
-                  </div>
-                  <Select
-                    value={parentWarehouseId}
-                    onChange={(e) => setParentWarehouseId(e.target.value)}
-                    options={availableParentWarehouses.map((w) => ({
-                      label: `${w.code} - ${w.name}`,
-                      value: w.id,
-                    }))}
-                  />
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--text-secondary)',
-                      marginTop: '4px',
-                    }}
-                  >
-                    {isLoadingStock
-                      ? 'Loading stock...'
-                      : `${sourceStock.length} Finished Products available in this warehouse`}
-                  </div>
-                </div>
-
-                {/* Destination Warehouse */}
-                <div>
-                  <div
-                    style={{
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    Child Destination Warehouse (Stock IN +)
-                  </div>
-                  <Select
-                    value={childWarehouseId}
-                    onChange={(e) => setChildWarehouseId(e.target.value)}
-                    options={availableChildWarehouses.map((w) => ({
-                      label: `${w.code} - ${w.name}`,
-                      value: w.id,
-                    }))}
-                  />
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: 'var(--text-secondary)',
-                      marginTop: '4px',
-                    }}
-                  >
-                    Receives Finished Products into child inventory
-                  </div>
-                </div>
-              </div>
-
-              {/* Intercompany Profit / Markup Setting */}
-              <div
-                style={{
-                  marginTop: '18px',
-                  padding: '14px 18px',
-                  background: 'var(--surface-subtle)',
-                  borderRadius: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <IconPercent size={18} color="var(--brand-primary)" />
+                {/* 4-Field Responsive Keyboard Navigation Grid */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                    gap: '12px',
+                    alignItems: 'start',
+                  }}
+                >
+                  {/* From Company */}
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: '13px' }}>
-                      Intercompany Profit / Markup Percentage
+                    <SearchableCombobox
+                      id="ic-from-company"
+                      label="From Company *"
+                      required
+                      options={fromCompanyOptions}
+                      value={fromCompanyId}
+                      onChange={(val) => setFromCompanyId(val)}
+                      nextFocusId="ic-source-warehouse"
+                      placeholder="Type & Enter to select Parent..."
+                      style={{ fontSize: '12px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: 'var(--color-primary)', marginTop: '2px' }}>
+                      ★ Holds Finished Stock & Standard Cost
                     </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      Formula: Selling Rate = Cost + (Cost × Markup%). Fully customizable, not
-                      hardcoded.
+                  </div>
+
+                  {/* Source Warehouse */}
+                  <div>
+                    <SearchableCombobox
+                      id="ic-source-warehouse"
+                      label="Source Warehouse *"
+                      required
+                      options={sourceWarehouseOptions}
+                      value={sourceWarehouseId}
+                      onChange={(val) => setSourceWarehouseId(val)}
+                      nextFocusId="ic-to-company"
+                      placeholder="Type & Enter warehouse..."
+                      style={{ fontSize: '12px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {isLoadingStock
+                        ? 'Loading source stock...'
+                        : `${sourceStock.length} Products physically available`}
+                    </div>
+                  </div>
+
+                  {/* To Company */}
+                  <div>
+                    <SearchableCombobox
+                      id="ic-to-company"
+                      label="To Company *"
+                      required
+                      options={toCompanyOptions}
+                      value={toCompanyId}
+                      onChange={(val) => setToCompanyId(val)}
+                      nextFocusId="ic-dest-warehouse"
+                      placeholder="Type & Enter Child Company..."
+                      style={{ fontSize: '12px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Child distributor receiving inventory
+                    </div>
+                  </div>
+
+                  {/* Destination Warehouse */}
+                  <div>
+                    <SearchableCombobox
+                      id="ic-dest-warehouse"
+                      label="Destination Warehouse *"
+                      required
+                      options={destWarehouseOptions}
+                      value={destWarehouseId}
+                      onChange={(val) => setDestWarehouseId(val)}
+                      nextFocusId="ic-product-search"
+                      placeholder="Type & Enter destination warehouse..."
+                      style={{ fontSize: '12px' }}
+                    />
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Stock incremented upon posting
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Presets:</span>
+              {/* ── 2. PRODUCT SEARCH & QUICK-ADD TOOLBAR ──────────────────────── */}
+              <div
+                style={{
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '8px 12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                }}
+              >
+                {/* Search / Add Combobox */}
+                <div style={{ flex: '1 1 340px', minWidth: '280px' }}>
+                  <SearchableCombobox
+                    id="ic-product-search"
+                    options={productSearchOptions}
+                    value={searchProductQuery}
+                    onChange={(val) => {
+                      if (val) {
+                        handleAddProduct(val);
+                      }
+                    }}
+                    placeholder="Search Finished Product by Code, Name, or Batch (Enter to add)..."
+                    disabled={sourceStock.length === 0}
+                    style={{ fontSize: '12px' }}
+                  />
+                </div>
+
+                {/* Global Markup Toolbar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    background: 'var(--bg-surface)',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-default)',
+                  }}
+                >
+                  <IconPercent size={14} color="var(--color-primary)" />
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>
+                    MARKUP:
+                  </span>
                   {[10, 15, 20, 25].map((pct) => (
                     <button
                       key={pct}
                       type="button"
                       onClick={() => handleApplyGlobalMarkup(pct)}
                       style={{
-                        padding: '4px 10px',
-                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
                         border:
                           globalMarkupPercent === pct
-                            ? '1px solid var(--brand-primary)'
-                            : '1px solid var(--border-color)',
+                            ? '1px solid var(--color-primary)'
+                            : '1px solid var(--border-default)',
                         background:
                           globalMarkupPercent === pct
-                            ? 'var(--brand-primary)'
-                            : 'var(--surface-primary)',
-                        color: globalMarkupPercent === pct ? '#fff' : 'var(--text-primary)',
+                            ? 'var(--color-primary)'
+                            : 'var(--bg-surface-raised)',
+                        color: globalMarkupPercent === pct ? '#ffffff' : 'var(--text-primary)',
                         cursor: 'pointer',
                         fontWeight: 600,
-                        fontSize: '12px',
+                        fontSize: '11px',
+                        transition: 'all 0.15s ease',
                       }}
                     >
                       {pct}%
                     </button>
                   ))}
-                  <div style={{ display: 'flex', alignItems: 'center', width: '90px' }}>
-                    <Input
+                  <div style={{ display: 'flex', alignItems: 'center', width: '56px' }}>
+                    <input
                       type="number"
                       value={globalMarkupPercent}
                       onChange={(e) =>
                         handleApplyGlobalMarkup(parseFloat(e.target.value) || 0)
                       }
-                      style={{ textAlign: 'center' }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'center',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 4px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-default)',
+                        background: 'var(--bg-surface-raised)',
+                        color: 'var(--text-primary)',
+                      }}
                     />
                   </div>
-                  <span style={{ fontWeight: 600, fontSize: '13px' }}>%</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>%</span>
                 </div>
               </div>
-            </CardContent>
-          </Card>
 
-          {/* Section 2: Multi-Product Line Items */}
-          <Card>
-            <CardHeader>
+              {/* ── 3. COMPACT PRODUCT SELECTION TABLE ─────────────────────────── */}
+              <div
+                style={{
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                {lineItems.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '36px 16px',
+                      textAlign: 'center',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    <IconBox size={28} style={{ marginBottom: '6px', opacity: 0.5 }} />
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                      No Products Added to Transfer
+                    </div>
+                    <p style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+                      Search a product above or click <strong>Load Scenario (A, B, C)</strong> to populate.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table
+                      style={{
+                        width: '100%',
+                        borderCollapse: 'collapse',
+                        fontSize: '12px',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <thead>
+                        <tr
+                          style={{
+                            background: 'var(--bg-surface)',
+                            borderBottom: '1px solid var(--border-default)',
+                            color: 'var(--text-muted)',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            fontSize: '11px',
+                            letterSpacing: '0.03em',
+                          }}
+                        >
+                          <th style={{ padding: '8px 10px', width: '38px', textAlign: 'center' }}>#</th>
+                          <th style={{ padding: '8px 10px' }}>Product</th>
+                          <th style={{ padding: '8px 10px', width: '130px' }}>Batch</th>
+                          <th style={{ padding: '8px 10px', width: '90px', textAlign: 'right' }}>
+                            Available
+                          </th>
+                          <th style={{ padding: '8px 10px', width: '110px' }}>Qty *</th>
+                          <th style={{ padding: '8px 10px', width: '100px', textAlign: 'right' }}>
+                            Cost
+                          </th>
+                          <th style={{ padding: '8px 10px', width: '85px', textAlign: 'center' }}>
+                            Markup %
+                          </th>
+                          <th style={{ padding: '8px 10px', width: '110px', textAlign: 'right' }}>
+                            Sale Rate
+                          </th>
+                          <th style={{ padding: '8px 10px', width: '120px', textAlign: 'right' }}>
+                            Total
+                          </th>
+                          <th style={{ padding: '8px 10px', width: '45px', textAlign: 'center' }}>
+                            Act
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lineItems.map((item, idx) => {
+                          const isExceeded = item.quantity > item.availableStock;
+                          const isZero = item.quantity <= 0;
+
+                          return (
+                            <tr
+                              key={item.id}
+                              style={{
+                                borderBottom: '1px solid var(--border-default)',
+                                background: isExceeded
+                                  ? 'rgba(239, 68, 68, 0.06)'
+                                  : idx % 2 === 0
+                                  ? 'transparent'
+                                  : 'var(--bg-surface-table-alt, rgba(0,0,0,0.01))',
+                              }}
+                            >
+                              {/* # */}
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'center',
+                                  fontWeight: 600,
+                                  color: 'var(--text-muted)',
+                                }}
+                              >
+                                {String(idx + 1).padStart(2, '0')}
+                              </td>
+
+                              {/* Product & Pack Size */}
+                              <td style={{ padding: '8px 10px' }}>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  {item.productName}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '11px',
+                                    color: 'var(--text-muted)',
+                                    display: 'flex',
+                                    gap: '6px',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <span>{item.productCode}</span>
+                                  <span>•</span>
+                                  <span style={{ color: 'var(--color-primary)' }}>{item.packSize}</span>
+                                </div>
+                              </td>
+
+                              {/* Batch Selection */}
+                              <td style={{ padding: '6px 8px' }}>
+                                {item.availableBatches && item.availableBatches.length > 1 ? (
+                                  <select
+                                    value={item.batchNumber}
+                                    onChange={(e) =>
+                                      handleUpdateLine(item.id, 'batchNumber', e.target.value)
+                                    }
+                                    style={{
+                                      width: '100%',
+                                      padding: '4px 6px',
+                                      fontSize: '11px',
+                                      borderRadius: '4px',
+                                      border: '1px solid var(--border-default)',
+                                      background: 'var(--bg-surface)',
+                                      color: 'var(--text-primary)',
+                                      fontFamily: 'monospace',
+                                    }}
+                                  >
+                                    {item.availableBatches.map((b) => (
+                                      <option key={b} value={b}>
+                                        {b}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontFamily: 'monospace',
+                                      fontSize: '11px',
+                                      background: 'var(--bg-surface)',
+                                      padding: '3px 6px',
+                                      borderRadius: '4px',
+                                      border: '1px solid var(--border-default)',
+                                    }}
+                                  >
+                                    {item.batchNumber}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Available Stock */}
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                  color:
+                                    item.availableStock > 0
+                                      ? 'var(--color-success)'
+                                      : 'var(--color-danger)',
+                                }}
+                              >
+                                {item.availableStock.toLocaleString()}
+                              </td>
+
+                              {/* Quantity */}
+                              <td style={{ padding: '6px 8px' }}>
+                                <input
+                                  id={`ic-qty-${item.id}`}
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity === 0 ? '' : item.quantity}
+                                  onChange={(e) =>
+                                    handleUpdateLine(
+                                      item.id,
+                                      'quantity',
+                                      parseFloat(e.target.value) || 0,
+                                    )
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      const markupEl = document.getElementById(`ic-markup-${item.id}`);
+                                      if (markupEl) markupEl.focus();
+                                    }
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '4px 8px',
+                                    fontSize: '12px',
+                                    fontWeight: 700,
+                                    borderRadius: '4px',
+                                    border: isExceeded
+                                      ? '1.5px solid var(--color-danger)'
+                                      : '1px solid var(--border-default)',
+                                    background: isExceeded
+                                      ? '#fef2f2'
+                                      : 'var(--bg-surface)',
+                                    color: isExceeded ? '#dc2626' : 'var(--text-primary)',
+                                    textAlign: 'right',
+                                  }}
+                                />
+                                {isExceeded && (
+                                  <div
+                                    style={{
+                                      fontSize: '10px',
+                                      color: 'var(--color-danger)',
+                                      marginTop: '2px',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Insufficient stock available in the selected source warehouse.
+                                  </div>
+                                )}
+                                {isZero && (
+                                  <div
+                                    style={{
+                                      fontSize: '10px',
+                                      color: 'var(--color-danger)',
+                                      marginTop: '2px',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Quantity must be &gt; 0
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Cost */}
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  color: 'var(--text-secondary)',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                PKR {item.unitCost.toLocaleString()}
+                              </td>
+
+                              {/* Markup % */}
+                              <td style={{ padding: '6px 8px' }}>
+                                <input
+                                  id={`ic-markup-${item.id}`}
+                                  type="number"
+                                  value={item.markupPercent}
+                                  onChange={(e) =>
+                                    handleUpdateLine(
+                                      item.id,
+                                      'markupPercent',
+                                      parseFloat(e.target.value) || 0,
+                                    )
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      // Advance to next row or back to product search
+                                      const nextIndex = idx + 1;
+                                      const nextItem = lineItems[nextIndex];
+                                      if (nextItem) {
+                                        const nextQtyEl = document.getElementById(
+                                          `ic-qty-${nextItem.id}`,
+                                        );
+                                        if (nextQtyEl) nextQtyEl.focus();
+                                      } else {
+                                        const searchEl = document.getElementById('ic-product-search');
+                                        if (searchEl) searchEl.focus();
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '4px 6px',
+                                    fontSize: '12px',
+                                    fontWeight: 600,
+                                    textAlign: 'center',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border-default)',
+                                    background: 'var(--bg-surface)',
+                                    color: 'var(--text-primary)',
+                                  }}
+                                />
+                              </td>
+
+                              {/* Sale Rate */}
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                  color: 'var(--color-primary)',
+                                }}
+                              >
+                                PKR {item.sellingPrice.toLocaleString()}
+                              </td>
+
+                              {/* Total */}
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                PKR {item.totalSales.toLocaleString()}
+                              </td>
+
+                              {/* Actions */}
+                              <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLine(item.id)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'var(--color-danger)',
+                                    padding: '2px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    margin: '0 auto',
+                                  }}
+                                  title="Delete Line"
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* ── 4. COMPACT SUMMARY & ACTION CONTROLS ───────────────────────── */}
+              <div
+                style={{
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '10px 14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                {/* Metrics Breakdown */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    flexWrap: 'wrap',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Products: </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{lineItems.length}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Total Qty: </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      {grandTotals.totalUnits.toLocaleString()}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Total Cost: </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>
+                      PKR {grandTotals.totalCost.toLocaleString()}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Intercompany Sales: </span>
+                    <strong style={{ color: 'var(--color-primary)' }}>
+                      PKR {grandTotals.totalSales.toLocaleString()}
+                    </strong>
+                  </div>
+                  <div
+                    style={{
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>Gross Profit:</span>
+                    <strong style={{ color: 'var(--color-success)' }}>
+                      PKR {grandTotals.totalProfit.toLocaleString()} (+{grandTotals.effectiveMarkup}%)
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Action Buttons: Save Draft, Review, Post Transfer */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => executeTransferAction('DRAFT')}
+                    disabled={isSubmitting || lineItems.length === 0}
+                    style={{ fontSize: '12px', padding: '6px 12px' }}
+                  >
+                    <IconFileText size={14} /> Save Draft
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => executeTransferAction('PENDING_APPROVAL')}
+                    disabled={isSubmitting || lineItems.length === 0 || grandTotals.hasZeroQty}
+                    style={{ fontSize: '12px', padding: '6px 12px' }}
+                  >
+                    <IconClock size={14} /> Review
+                  </Button>
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setIsConfirmModalOpen(true)}
+                    disabled={
+                      isSubmitting ||
+                      lineItems.length === 0 ||
+                      grandTotals.hasStockError ||
+                      grandTotals.hasZeroQty ||
+                      docStatus === 'POSTED'
+                    }
+                    style={{
+                      fontSize: '12px',
+                      padding: '6px 16px',
+                      fontWeight: 600,
+                      background: grandTotals.hasStockError ? 'var(--color-danger)' : undefined,
+                    }}
+                  >
+                    <IconCheck size={14} />
+                    {docStatus === 'POSTED' ? 'Posted (Complete)' : 'Post Transfer'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Delivery Reference / Notes (Optional compact row) */}
+              <div style={{ padding: '0 4px' }}>
+                <input
+                  type="text"
+                  placeholder="Optional delivery notes / transfer remarks..."
+                  value={transferNotes}
+                  onChange={(e) => setTransferNotes(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    fontSize: '11px',
+                    borderRadius: '4px',
+                    border: '1px solid var(--border-default)',
+                    background: 'var(--bg-surface-raised)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: SHEHSWAR PROFIT REPORT (Parent View)                               */}
+          {/* ========================================================================= */}
+          {activeTab === 'SHEHSWAR_PROFIT' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div
+                style={{
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '14px',
+                  }}
+                >
+                  <div>
+                    <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                      Shehswar Intercompany Profit & Margin Report
+                    </h2>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      Real-time aggregated profitability on Finished Products sold to child distributors
+                    </div>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={loadProfitReport}
+                    disabled={isLoadingProfitReport}
+                    style={{ fontSize: '11px' }}
+                  >
+                    <IconRefresh size={13} /> Refresh
+                  </Button>
+                </div>
+
+                {isLoadingProfitReport ? (
+                  <TableSkeleton rows={4} columns={6} />
+                ) : !profitReport ? (
+                  <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    No profit report data available.
+                  </div>
+                ) : (
+                  <>
+                    {/* Summary KPI Cards */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: '10px',
+                        marginBottom: '16px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Total Intercompany Sales
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: 700,
+                            color: 'var(--color-primary)',
+                            marginTop: '2px',
+                          }}
+                        >
+                          PKR {profitReport.summary?.totalSales?.toLocaleString() || 0}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Total Manufacturing Cost
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>
+                          PKR {profitReport.summary?.totalCost?.toLocaleString() || 0}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'rgba(16, 185, 129, 0.08)',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--color-success)', fontWeight: 600 }}>
+                          Shehswar Profit Earned
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: 800,
+                            color: 'var(--color-success)',
+                            marginTop: '2px',
+                          }}
+                        >
+                          PKR {profitReport.summary?.totalProfit?.toLocaleString() || 0}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Overall Margin %</div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>
+                          +{profitReport.summary?.overallMarginPercent || 0}%
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Total Units Dispatched</div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>
+                          {profitReport.summary?.totalUnits?.toLocaleString() || 0}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Product Performance Table */}
+                    <div style={{ overflowX: 'auto' }}>
+                      <table
+                        style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <thead>
+                          <tr
+                            style={{
+                              borderBottom: '1px solid var(--border-default)',
+                              background: 'var(--bg-surface)',
+                              color: 'var(--text-muted)',
+                              textAlign: 'left',
+                              fontSize: '11px',
+                            }}
+                          >
+                            <th style={{ padding: '8px 10px' }}>Product</th>
+                            <th style={{ padding: '8px 10px' }}>Pack Size</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qty Dispatched</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Cost Rate</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Avg Selling Rate</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Sales</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Cost</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Profit</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Margin %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {profitReport.productPerformance?.map((p: any) => (
+                            <tr key={p.productId} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                              <td style={{ padding: '8px 10px' }}>
+                                <div style={{ fontWeight: 600 }}>{p.productName}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  {p.productCode}
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 10px', color: 'var(--text-muted)' }}>
+                                {p.packSize}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                                {p.totalQuantity?.toLocaleString()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                PKR {p.unitCost?.toLocaleString()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                PKR {p.averageSellingRate?.toLocaleString()}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                  color: 'var(--color-primary)',
+                                }}
+                              >
+                                PKR {p.totalSales?.toLocaleString()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                PKR {p.totalCost?.toLocaleString()}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  color: 'var(--color-success)',
+                                }}
+                              >
+                                PKR {p.totalProfit?.toLocaleString()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                                +{p.marginPercent}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 3: CHILD COMPANY REPORT (Child View)                                  */}
+          {/* ========================================================================= */}
+          {activeTab === 'CHILD_REPORT' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div
+                style={{
+                  background: 'var(--bg-surface-raised)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    marginBottom: '14px',
+                  }}
+                >
+                  <div>
+                    <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                      Child Company Inventory & Intercompany Payables
+                    </h2>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      Received finished stock valuation and outstanding liability owed to Shehswar
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 600 }}>Child Entity:</span>
+                    <select
+                      value={selectedChildForReport}
+                      onChange={(e) => {
+                        setSelectedChildForReport(e.target.value);
+                        loadChildReport(e.target.value);
+                      }}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-default)',
+                        fontSize: '12px',
+                        background: 'var(--bg-surface)',
+                      }}
+                    >
+                      {companies
+                        .filter((c) => !c.isParent && c.code !== 'COMP-SHEHSWAR')
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.code} - {c.name}
+                          </option>
+                        ))}
+                    </select>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => loadChildReport(selectedChildForReport)}
+                      disabled={isLoadingChildReport}
+                      style={{ fontSize: '11px' }}
+                    >
+                      <IconRefresh size={13} />
+                    </Button>
+                  </div>
+                </div>
+
+                {isLoadingChildReport ? (
+                  <TableSkeleton rows={4} columns={6} />
+                ) : !childReport ? (
+                  <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    No child records available.
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        gap: '10px',
+                        marginBottom: '16px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: '#b91c1c', fontWeight: 600 }}>
+                          Total Payable to Shehswar
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '18px',
+                            fontWeight: 800,
+                            color: '#b91c1c',
+                            marginTop: '2px',
+                          }}
+                        >
+                          PKR {childReport.intercompanyPayable?.toLocaleString() || 0}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Received Transfer Invoices
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>
+                          {childReport.receivedItems?.length || 0}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          padding: '12px',
+                          background: 'var(--bg-surface)',
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-default)',
+                        }}
+                      >
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Child Physical Stock Lines
+                        </div>
+                        <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '2px' }}>
+                          {childReport.childStockStatus?.length || 0}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table
+                        style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: '12px',
+                        }}
+                      >
+                        <thead>
+                          <tr
+                            style={{
+                              borderBottom: '1px solid var(--border-default)',
+                              background: 'var(--bg-surface)',
+                              color: 'var(--text-muted)',
+                              textAlign: 'left',
+                              fontSize: '11px',
+                            }}
+                          >
+                            <th style={{ padding: '8px 10px' }}>Voucher #</th>
+                            <th style={{ padding: '8px 10px' }}>Date</th>
+                            <th style={{ padding: '8px 10px' }}>Product</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qty Received</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Purchase Rate</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Value</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right' }}>Child Stock Now</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {childReport.receivedItems?.map((it: any, idx: number) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 600 }}>{it.voucherNumber}</td>
+                              <td style={{ padding: '8px 10px' }}>
+                                {new Date(it.date).toLocaleDateString()}
+                              </td>
+                              <td style={{ padding: '8px 10px' }}>
+                                <div style={{ fontWeight: 600 }}>{it.productName}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  {it.productCode} • {it.packSize}
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                                {it.quantityReceived?.toLocaleString()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                PKR {it.purchaseRate?.toLocaleString()}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 600,
+                                  color: 'var(--color-primary)',
+                                }}
+                              >
+                                PKR {it.totalValue?.toLocaleString()}
+                              </td>
+                              <td
+                                style={{
+                                  padding: '8px 10px',
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  color: 'var(--color-success)',
+                                }}
+                              >
+                                {it.currentStockInChildWarehouse?.toLocaleString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 4: TRANSFER HISTORY                                                   */}
+          {/* ========================================================================= */}
+          {activeTab === 'HISTORY' && (
+            <div
+              style={{
+                background: 'var(--bg-surface-raised)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 'var(--radius-md)',
+                padding: '14px',
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '8px',
+                  marginBottom: '14px',
                 }}
               >
                 <div>
-                  <CardTitle>2. Product Selection & Multi-Product Line Items</CardTitle>
-                  <p
-                    style={{
-                      margin: '2px 0 0 0',
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    Select Finished Products from Shehswar's actual stock. Rates and costs are
-                    fetched automatically.
-                  </p>
-                </div>
-
-                {/* Quick Add Form */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ minWidth: '320px' }}>
-                    <Select
-                      value={selectedProductToAdd}
-                      onChange={(e) => setSelectedProductToAdd(e.target.value)}
-                      options={sourceStock.map((s) => ({
-                        label: `${s.productCode} - ${s.productName} (${s.packSize}) | Avail: ${s.availableStock} | Cost: PKR ${s.unitCost}`,
-                        value: s.finishedProductId,
-                      }))}
-                    />
+                  <h2 style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                    Intercompany Transfer Audit History
+                  </h2>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Comprehensive audit trail with document status and ledger impact
                   </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => handleAddProduct()}
-                    disabled={sourceStock.length === 0}
-                  >
-                    <IconPlus size={15} /> Add Product
-                  </Button>
                 </div>
-              </div>
-            </CardHeader>
-
-            <CardContent>
-              {lineItems.length === 0 ? (
-                <div
-                  style={{
-                    padding: '36px',
-                    textAlign: 'center',
-                    border: '2px dashed var(--border-color)',
-                    borderRadius: '8px',
-                    color: 'var(--text-secondary)',
-                  }}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={loadTransferHistory}
+                  disabled={isLoadingHistory}
+                  style={{ fontSize: '11px' }}
                 >
-                  <IconBox size={32} style={{ marginBottom: '8px', opacity: 0.6 }} />
-                  <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>
-                    No products added to this transfer yet
-                  </div>
-                  <p style={{ fontSize: '13px', margin: 0 }}>
-                    Select a Finished Product above and click <strong>Add Product</strong>, or click{' '}
-                    <strong>Load Acceptance Scenario</strong> to test the 3-product transfer.
-                  </p>
+                  <IconRefresh size={13} /> Refresh History
+                </Button>
+              </div>
+
+              {isLoadingHistory ? (
+                <TableSkeleton rows={4} columns={6} />
+              ) : history.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  No transfers recorded yet.
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
@@ -1071,1117 +2196,117 @@ export const IntercompanyTransferView: React.FC = () => {
                     style={{
                       width: '100%',
                       borderCollapse: 'collapse',
-                      fontSize: '13px',
+                      fontSize: '12px',
                     }}
                   >
                     <thead>
                       <tr
                         style={{
-                          borderBottom: '2px solid var(--border-color)',
+                          borderBottom: '1px solid var(--border-default)',
+                          background: 'var(--bg-surface)',
+                          color: 'var(--text-muted)',
                           textAlign: 'left',
-                          color: 'var(--text-secondary)',
+                          fontSize: '11px',
                         }}
                       >
-                        <th style={{ padding: '10px 8px' }}>#</th>
-                        <th style={{ padding: '10px 8px' }}>Product & Code</th>
-                        <th style={{ padding: '10px 8px' }}>Pack Size</th>
-                        <th style={{ padding: '10px 8px' }}>Batch #</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                          Available Stock
-                        </th>
-                        <th style={{ padding: '10px 8px', width: '110px' }}>
-                          Transfer Qty *
-                        </th>
-                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                          Shehswar Cost
-                        </th>
-                        <th style={{ padding: '10px 8px', width: '90px' }}>Markup %</th>
-                        <th style={{ padding: '10px 8px', width: '120px' }}>Selling Rate</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                          Total Sales
-                        </th>
-                        <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                          Shehswar Profit
-                        </th>
-                        <th style={{ padding: '10px 8px', textAlign: 'center' }}>Action</th>
+                        <th style={{ padding: '8px 10px' }}>Invoice No</th>
+                        <th style={{ padding: '8px 10px' }}>Date</th>
+                        <th style={{ padding: '8px 10px' }}>Route</th>
+                        <th style={{ padding: '8px 10px' }}>Items Transferred</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>Total Value</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'right' }}>Shehswar Profit</th>
+                        <th style={{ padding: '8px 10px', textAlign: 'center' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {lineItems.map((item, idx) => {
-                        const isExceeded = item.quantity > item.availableStock;
-                        return (
-                          <tr
-                            key={item.id}
+                      {history.map((t) => (
+                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border-default)' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 600 }}>{t.invoiceNumber}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            {new Date(t.date).toLocaleDateString()}
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ fontWeight: 600 }}>
+                              {t.sourceCompany} → {t.targetCompany}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {t.warehouse} → {t.targetWarehouse}
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            {t.items?.map((i: any) => i.productName).join(', ') || `${t.itemsCount} items`}
+                          </td>
+                          <td
                             style={{
-                              borderBottom: '1px solid var(--border-color)',
-                              background: isExceeded ? '#fff5f5' : 'transparent',
+                              padding: '8px 10px',
+                              textAlign: 'right',
+                              fontWeight: 600,
+                              color: 'var(--color-primary)',
                             }}
                           >
-                            <td style={{ padding: '12px 8px', fontWeight: 600 }}>{idx + 1}</td>
-                            <td style={{ padding: '12px 8px' }}>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                {item.productName}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {item.productCode}
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>
-                              {item.packSize}
-                            </td>
-                            <td style={{ padding: '12px 8px' }}>
-                              <Badge variant="secondary">{item.batchNumber}</Badge>
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                              <span
-                                style={{
-                                  fontWeight: 600,
-                                  color:
-                                    item.availableStock > 0
-                                      ? 'var(--brand-success)'
-                                      : 'var(--brand-danger)',
-                                }}
-                              >
-                                {item.availableStock.toLocaleString()}
-                              </span>
-                            </td>
-                            <td style={{ padding: '8px' }}>
-                              <Input
-                                type="number"
-                                value={item.quantity}
-                                onChange={(e) =>
-                                  handleUpdateLine(
-                                    item.id,
-                                    'quantity',
-                                    parseFloat(e.target.value) || 0,
-                                  )
-                                }
-                                style={{
-                                  borderColor: isExceeded
-                                    ? 'var(--brand-danger)'
-                                    : undefined,
-                                  color: isExceeded ? 'var(--brand-danger)' : undefined,
-                                  fontWeight: 600,
-                                }}
-                              />
-                              {isExceeded && (
-                                <div
-                                  style={{
-                                    fontSize: '10px',
-                                    color: 'var(--brand-danger)',
-                                    marginTop: '2px',
-                                    fontWeight: 600,
-                                  }}
-                                >
-                                  Max: {item.availableStock}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                              PKR {item.unitCost.toLocaleString()}
-                            </td>
-                            <td style={{ padding: '8px' }}>
-                              <Input
-                                type="number"
-                                value={item.markupPercent}
-                                onChange={(e) =>
-                                  handleUpdateLine(
-                                    item.id,
-                                    'markupPercent',
-                                    parseFloat(e.target.value) || 0,
-                                  )
-                                }
-                                style={{ textAlign: 'center' }}
-                              />
-                            </td>
-                            <td style={{ padding: '8px' }}>
-                              <Input
-                                type="number"
-                                value={item.sellingPrice}
-                                onChange={(e) =>
-                                  handleUpdateLine(
-                                    item.id,
-                                    'sellingPrice',
-                                    parseFloat(e.target.value) || 0,
-                                  )
-                                }
-                                style={{ textAlign: 'right', fontWeight: 600 }}
-                              />
-                            </td>
-                            <td
-                              style={{
-                                padding: '12px 8px',
-                                textAlign: 'right',
-                                fontWeight: 700,
-                                color: 'var(--brand-primary)',
-                              }}
+                            PKR {Number(t.amount || 0).toLocaleString()}
+                          </td>
+                          <td
+                            style={{
+                              padding: '8px 10px',
+                              textAlign: 'right',
+                              fontWeight: 700,
+                              color: 'var(--color-success)',
+                            }}
+                          >
+                            PKR {Number(t.profit || 0).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                            <Badge
+                              variant={
+                                t.status === 'POSTED'
+                                  ? 'success'
+                                  : t.status === 'PENDING_APPROVAL'
+                                  ? 'warning'
+                                  : 'secondary'
+                              }
                             >
-                              PKR {item.totalSales.toLocaleString()}
-                            </td>
-                            <td
-                              style={{
-                                padding: '12px 8px',
-                                textAlign: 'right',
-                                fontWeight: 700,
-                                color: 'var(--brand-success)',
-                              }}
-                            >
-                              PKR {item.profit.toLocaleString()}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveLine(item.id)}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  color: 'var(--brand-danger)',
-                                  cursor: 'pointer',
-                                  padding: '4px',
-                                }}
-                                title="Remove row"
-                              >
-                                <IconTrash size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              {t.status || 'POSTED'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
-                    <tfoot>
-                      <tr
-                        style={{
-                          borderTop: '2px solid var(--border-color)',
-                          background: 'var(--surface-subtle)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        <td colSpan={5} style={{ padding: '12px 8px' }}>
-                          TOTALS ({lineItems.length} Products, {grandTotals.totalUnits} Units)
-                        </td>
-                        <td style={{ padding: '12px 8px' }}>
-                          {grandTotals.totalUnits.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                          PKR {grandTotals.totalCost.toLocaleString()}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                          {grandTotals.effectiveMarkup}%
-                        </td>
-                        <td style={{ padding: '12px 8px' }}>-</td>
-                        <td
-                          style={{
-                            padding: '12px 8px',
-                            textAlign: 'right',
-                            color: 'var(--brand-primary)',
-                            fontSize: '14px',
-                          }}
-                        >
-                          PKR {grandTotals.totalSales.toLocaleString()}
-                        </td>
-                        <td
-                          style={{
-                            padding: '12px 8px',
-                            textAlign: 'right',
-                            color: 'var(--brand-success)',
-                            fontSize: '14px',
-                          }}
-                        >
-                          PKR {grandTotals.totalProfit.toLocaleString()}
-                        </td>
-                        <td />
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               )}
-
-              {/* Transfer Reference Notes */}
-              <div style={{ marginTop: '16px' }}>
-                <Input
-                  label="Transfer Delivery Notes & Reference"
-                  placeholder="e.g. Monthly replenishment batch #2026-04 for regional distribution"
-                  value={transferNotes}
-                  onChange={(e) => setTransferNotes(e.target.value)}
-                />
-              </div>
-
-              {/* Financial KPI Summary Cards */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: '14px',
-                  marginTop: '20px',
-                }}
-              >
-                <div
-                  style={{
-                    padding: '16px',
-                    borderRadius: '8px',
-                    background: 'var(--surface-subtle)',
-                    border: '1px solid var(--border-color)',
-                  }}
-                >
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Total Shehswar Manufacturing Cost
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '20px',
-                      fontWeight: 700,
-                      marginTop: '4px',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    PKR {grandTotals.totalCost.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Actual cost of {grandTotals.totalUnits} units dispatched
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    padding: '16px',
-                    borderRadius: '8px',
-                    background: 'var(--surface-subtle)',
-                    border: '1px solid var(--border-color)',
-                  }}
-                >
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Total Intercompany Sales Value
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '20px',
-                      fontWeight: 700,
-                      marginTop: '4px',
-                      color: 'var(--brand-primary)',
-                    }}
-                  >
-                    PKR {grandTotals.totalSales.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Billed to {activeChildCompany?.name || 'Child Company'}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    padding: '16px',
-                    borderRadius: '8px',
-                    background: '#e6f8f0',
-                    border: '1px solid #7be4b8',
-                  }}
-                >
-                  <div style={{ fontSize: '12px', color: '#0d764e', fontWeight: 600 }}>
-                    Shehswar Intercompany Profit Earned
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '22px',
-                      fontWeight: 800,
-                      marginTop: '4px',
-                      color: '#0d764e',
-                    }}
-                  >
-                    PKR {grandTotals.totalProfit.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#0d764e', fontWeight: 600 }}>
-                    Profit Margin: +{grandTotals.effectiveMarkup}%
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    padding: '16px',
-                    borderRadius: '8px',
-                    background: 'var(--surface-subtle)',
-                    border: '1px solid var(--border-color)',
-                  }}
-                >
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Child Inventory Valuation
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '20px',
-                      fontWeight: 700,
-                      marginTop: '4px',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    PKR {grandTotals.totalSales.toLocaleString()}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Child purchase cost & intercompany payable
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Bar */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  alignItems: 'center',
-                  gap: '12px',
-                  marginTop: '24px',
-                }}
-              >
-                <Button
-                  variant="secondary"
-                  onClick={() => setLineItems([])}
-                  disabled={lineItems.length === 0 || isSubmitting}
-                >
-                  Clear All
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => setIsConfirmModalOpen(true)}
-                  disabled={
-                    lineItems.length === 0 ||
-                    grandTotals.hasStockError ||
-                    grandTotals.hasZeroQty ||
-                    isSubmitting
-                  }
-                  style={{ padding: '10px 24px', fontSize: '14px', fontWeight: 600 }}
-                >
-                  <IconCheck size={18} />
-                  {isSubmitting ? 'Posting Transfer...' : 'POST Intercompany Transfer'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 2: SHEHSWAR PROFIT REPORT (Parent View)                               */}
-      {/* ========================================================================= */}
-      {activeTab === 'SHEHSWAR_PROFIT' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <Card>
-            <CardHeader>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <CardTitle>Shehswar Intercompany Profit & Margin Report</CardTitle>
-                  <p
-                    style={{
-                      margin: '2px 0 0 0',
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    Real-time aggregated profitability on Finished Products sold to child
-                    companies.
-                  </p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={loadProfitReport}
-                  disabled={isLoadingProfitReport}
-                >
-                  <IconRefresh size={14} /> Refresh Report
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingProfitReport ? (
-                <TableSkeleton rows={4} columns={6} />
-              ) : !profitReport ? (
-                <div style={{ textAlign: 'center', padding: '36px' }}>
-                  No profit report data available.
-                </div>
-              ) : (
-                <>
-                  {/* Summary KPI Cards */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                      gap: '14px',
-                      marginBottom: '24px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Total Intercompany Sales
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '22px',
-                          fontWeight: 700,
-                          color: 'var(--brand-primary)',
-                        }}
-                      >
-                        PKR {profitReport.summary?.totalSales?.toLocaleString() || 0}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Total Manufacturing Cost
-                      </div>
-                      <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                        PKR {profitReport.summary?.totalCost?.toLocaleString() || 0}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: '#e6f8f0',
-                        borderRadius: '8px',
-                        border: '1px solid #7be4b8',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: '#0d764e', fontWeight: 600 }}>
-                        Shehswar Profit Earned
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '22px',
-                          fontWeight: 800,
-                          color: '#0d764e',
-                        }}
-                      >
-                        PKR {profitReport.summary?.totalProfit?.toLocaleString() || 0}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Overall Margin %
-                      </div>
-                      <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                        {profitReport.summary?.overallMarginPercent || 0}%
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Total Units Dispatched
-                      </div>
-                      <div style={{ fontSize: '22px', fontWeight: 700 }}>
-                        {profitReport.summary?.totalUnits?.toLocaleString() || 0}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Product-Level Profit Table */}
-                  <h3
-                    style={{
-                      fontSize: '15px',
-                      fontWeight: 600,
-                      margin: '0 0 12px 0',
-                    }}
-                  >
-                    Product-Level Profit Performance
-                  </h3>
-                  <div style={{ overflowX: 'auto', marginBottom: '24px' }}>
-                    <table
-                      style={{
-                        width: '100%',
-                        borderCollapse: 'collapse',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <thead>
-                        <tr
-                          style={{
-                            borderBottom: '2px solid var(--border-color)',
-                            textAlign: 'left',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          <th style={{ padding: '10px 8px' }}>Product</th>
-                          <th style={{ padding: '10px 8px' }}>Pack Size</th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Qty Dispatched
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Cost Rate (PKR)
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Avg Selling Rate (PKR)
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Total Sales (PKR)
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Total Cost (PKR)
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Profit (PKR)
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>Margin %</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {profitReport.productPerformance?.map((p: any) => (
-                          <tr
-                            key={p.productId}
-                            style={{ borderBottom: '1px solid var(--border-color)' }}
-                          >
-                            <td style={{ padding: '12px 8px' }}>
-                              <div style={{ fontWeight: 600 }}>{p.productName}</div>
-                              <div
-                                style={{
-                                  fontSize: '11px',
-                                  color: 'var(--text-secondary)',
-                                }}
-                              >
-                                {p.productCode}
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>
-                              {p.packSize}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
-                              {p.totalQuantity?.toLocaleString()}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                              {p.unitCost?.toLocaleString()}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                              {p.averageSellingRate?.toLocaleString()}
-                            </td>
-                            <td
-                              style={{
-                                padding: '12px 8px',
-                                textAlign: 'right',
-                                fontWeight: 600,
-                                color: 'var(--brand-primary)',
-                              }}
-                            >
-                              {p.totalSales?.toLocaleString()}
-                            </td>
-                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                              {p.totalCost?.toLocaleString()}
-                            </td>
-                            <td
-                              style={{
-                                padding: '12px 8px',
-                                textAlign: 'right',
-                                fontWeight: 700,
-                                color: 'var(--brand-success)',
-                              }}
-                            >
-                              {p.totalProfit?.toLocaleString()}
-                            </td>
-                            <td
-                              style={{
-                                padding: '12px 8px',
-                                textAlign: 'right',
-                                fontWeight: 600,
-                              }}
-                            >
-                              +{p.marginPercent}%
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr
-                          style={{
-                            borderTop: '2px solid var(--border-color)',
-                            background: 'var(--surface-subtle)',
-                            fontWeight: 700,
-                          }}
-                        >
-                          <td colSpan={2} style={{ padding: '12px 8px' }}>
-                            GRAND TOTALS
-                          </td>
-                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                            {profitReport.summary?.totalUnits?.toLocaleString()}
-                          </td>
-                          <td colSpan={2} />
-                          <td
-                            style={{
-                              padding: '12px 8px',
-                              textAlign: 'right',
-                              color: 'var(--brand-primary)',
-                            }}
-                          >
-                            PKR {profitReport.summary?.totalSales?.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                            PKR {profitReport.summary?.totalCost?.toLocaleString()}
-                          </td>
-                          <td
-                            style={{
-                              padding: '12px 8px',
-                              textAlign: 'right',
-                              color: 'var(--brand-success)',
-                            }}
-                          >
-                            PKR {profitReport.summary?.totalProfit?.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                            +{profitReport.summary?.overallMarginPercent}%
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 3: CHILD COMPANY REPORT (Child View)                                  */}
-      {/* ========================================================================= */}
-      {activeTab === 'CHILD_REPORT' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <Card>
-            <CardHeader>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                }}
-              >
-                <div>
-                  <CardTitle>Child Company Received Goods & Intercompany Payables</CardTitle>
-                  <p
-                    style={{
-                      margin: '2px 0 0 0',
-                      fontSize: '12px',
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    Inventory valuation and outstanding payables owed to Shehswar.
-                  </p>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600 }}>Select Child Company:</span>
-                  <div style={{ width: '220px' }}>
-                    <Select
-                      value={selectedChildForReport}
-                      onChange={(e) => {
-                        setSelectedChildForReport(e.target.value);
-                        loadChildReport(e.target.value);
-                      }}
-                      options={companies
-                        .filter((c) => !c.isParent && c.code !== 'COMP-SHEHSWAR')
-                        .map((c) => ({
-                          label: `${c.code} - ${c.name}`,
-                          value: c.id,
-                        }))}
-                    />
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => loadChildReport(selectedChildForReport)}
-                    disabled={isLoadingChildReport}
-                  >
-                    <IconRefresh size={14} /> Refresh
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingChildReport ? (
-                <TableSkeleton rows={4} columns={6} />
-              ) : !childReport ? (
-                <div style={{ textAlign: 'center', padding: '36px' }}>
-                  No child company report data found.
-                </div>
-              ) : (
-                <>
-                  {/* Summary KPI Cards */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                      gap: '14px',
-                      marginBottom: '24px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: '#fef3f2',
-                        borderRadius: '8px',
-                        border: '1px solid #fecdca',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: '#b42318', fontWeight: 600 }}>
-                        Total Intercompany Payable to Shehswar
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '22px',
-                          fontWeight: 800,
-                          color: '#b42318',
-                          marginTop: '4px',
-                        }}
-                      >
-                        PKR {childReport.intercompanyPayable?.toLocaleString() || 0}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#b42318' }}>
-                        Liability balance on child ledger
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Total Received Line Items
-                      </div>
-                      <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px' }}>
-                        {childReport.receivedItems?.length || 0}
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        padding: '16px',
-                        background: 'var(--surface-subtle)',
-                        borderRadius: '8px',
-                      }}
-                    >
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Child Finished Goods Stock Items
-                      </div>
-                      <div style={{ fontSize: '22px', fontWeight: 700, marginTop: '4px' }}>
-                        {childReport.childStockStatus?.length || 0}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Received Goods Table */}
-                  <h3 style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 12px 0' }}>
-                    Finished Goods Received from Shehswar
-                  </h3>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table
-                      style={{
-                        width: '100%',
-                        borderCollapse: 'collapse',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <thead>
-                        <tr
-                          style={{
-                            borderBottom: '2px solid var(--border-color)',
-                            textAlign: 'left',
-                            color: 'var(--text-secondary)',
-                          }}
-                        >
-                          <th style={{ padding: '10px 8px' }}>Voucher #</th>
-                          <th style={{ padding: '10px 8px' }}>Date</th>
-                          <th style={{ padding: '10px 8px' }}>Parent Invoice</th>
-                          <th style={{ padding: '10px 8px' }}>Product</th>
-                          <th style={{ padding: '10px 8px' }}>Pack Size & Batch</th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Qty Received
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Purchase Rate
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Total Value
-                          </th>
-                          <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                            Current Warehouse Stock
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {childReport.receivedItems?.length === 0 ? (
-                          <tr>
-                            <td
-                              colSpan={9}
-                              style={{
-                                padding: '24px',
-                                textAlign: 'center',
-                                color: 'var(--text-secondary)',
-                              }}
-                            >
-                              No goods received for this child company yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          childReport.receivedItems?.map((it: any, idx: number) => (
-                            <tr
-                              key={idx}
-                              style={{ borderBottom: '1px solid var(--border-color)' }}
-                            >
-                              <td style={{ padding: '12px 8px', fontWeight: 600 }}>
-                                {it.voucherNumber}
-                              </td>
-                              <td style={{ padding: '12px 8px' }}>
-                                {new Date(it.date).toLocaleDateString()}
-                              </td>
-                              <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>
-                                {it.vendorInvoiceNo}
-                              </td>
-                              <td style={{ padding: '12px 8px' }}>
-                                <div style={{ fontWeight: 600 }}>{it.productName}</div>
-                                <div
-                                  style={{
-                                    fontSize: '11px',
-                                    color: 'var(--text-secondary)',
-                                  }}
-                                >
-                                  {it.productCode}
-                                </div>
-                              </td>
-                              <td style={{ padding: '12px 8px' }}>{it.packSize}</td>
-                              <td
-                                style={{
-                                  padding: '12px 8px',
-                                  textAlign: 'right',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {it.quantityReceived?.toLocaleString()}
-                              </td>
-                              <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                                PKR {it.purchaseRate?.toLocaleString()}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '12px 8px',
-                                  textAlign: 'right',
-                                  fontWeight: 600,
-                                  color: 'var(--brand-primary)',
-                                }}
-                              >
-                                PKR {it.totalValue?.toLocaleString()}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '12px 8px',
-                                  textAlign: 'right',
-                                  fontWeight: 600,
-                                  color: 'var(--brand-success)',
-                                }}
-                              >
-                                {it.currentStockInChildWarehouse?.toLocaleString()}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 4: TRANSFER HISTORY                                                   */}
-      {/* ========================================================================= */}
-      {activeTab === 'HISTORY' && (
-        <Card>
-          <CardHeader>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div>
-                <CardTitle>Intercompany Transfer History Log</CardTitle>
-                <p
-                  style={{
-                    margin: '2px 0 0 0',
-                    fontSize: '12px',
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  Complete audit log of multi-product parent sales and child purchase vouchers.
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={loadTransferHistory}
-                disabled={isLoadingHistory}
-              >
-                <IconRefresh size={14} /> Refresh History
-              </Button>
             </div>
-          </CardHeader>
-          <CardContent>
-            {isLoadingHistory ? (
-              <TableSkeleton rows={4} columns={6} />
-            ) : history.length === 0 ? (
-              <div
-                style={{
-                  padding: '36px',
-                  textAlign: 'center',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                No transfers recorded yet.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table
-                  style={{
-                    width: '100%',
-                    borderCollapse: 'collapse',
-                    fontSize: '13px',
-                  }}
-                >
-                  <thead>
-                    <tr
-                      style={{
-                        borderBottom: '2px solid var(--border-color)',
-                        textAlign: 'left',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      <th style={{ padding: '10px 8px' }}>Invoice No</th>
-                      <th style={{ padding: '10px 8px' }}>Date</th>
-                      <th style={{ padding: '10px 8px' }}>Route</th>
-                      <th style={{ padding: '10px 8px' }}>Items Transferred</th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                        Total Value (PKR)
-                      </th>
-                      <th style={{ padding: '10px 8px', textAlign: 'right' }}>
-                        Shehswar Profit (PKR)
-                      </th>
-                      <th style={{ padding: '10px 8px', textAlign: 'center' }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((t) => (
-                      <tr
-                        key={t.id}
-                        style={{ borderBottom: '1px solid var(--border-color)' }}
-                      >
-                        <td style={{ padding: '12px 8px', fontWeight: 600 }}>
-                          {t.invoiceNumber}
-                        </td>
-                        <td style={{ padding: '12px 8px' }}>
-                          {new Date(t.date).toLocaleDateString()}
-                        </td>
-                        <td style={{ padding: '12px 8px' }}>
-                          <div style={{ fontWeight: 600 }}>
-                            {t.sourceCompany} → {t.targetCompany}
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {t.warehouse} → {t.targetWarehouse}
-                          </div>
-                        </td>
-                        <td style={{ padding: '12px 8px' }}>
-                          <div style={{ fontWeight: 500 }}>
-                            {t.items?.map((i: any) => i.productName).join(', ') ||
-                              `${t.itemsCount} items`}
-                          </div>
-                        </td>
-                        <td
-                          style={{
-                            padding: '12px 8px',
-                            textAlign: 'right',
-                            fontWeight: 600,
-                            color: 'var(--brand-primary)',
-                          }}
-                        >
-                          PKR {Number(t.amount || 0).toLocaleString()}
-                        </td>
-                        <td
-                          style={{
-                            padding: '12px 8px',
-                            textAlign: 'right',
-                            fontWeight: 700,
-                            color: 'var(--brand-success)',
-                          }}
-                        >
-                          PKR {Number(t.profit || 0).toLocaleString()}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                          <Badge variant="success">POSTED</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </>
       )}
-    </>
-  )}
 
       {/* Confirmation Modal */}
       {isConfirmModalOpen && (
         <Modal
           isOpen={isConfirmModalOpen}
           onClose={() => setIsConfirmModalOpen(false)}
-          title="Confirm Intercompany Transfer"
+          title="Confirm Intercompany Transfer Posting"
           size="md"
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '12px',
-                background: 'var(--surface-subtle)',
-                borderRadius: '8px',
+                gap: '10px',
+                padding: '10px 12px',
+                background: 'var(--bg-surface)',
+                borderRadius: '6px',
+                border: '1px solid var(--border-default)',
               }}
             >
-              <IconBuilding size={20} color="var(--brand-primary)" />
+              <IconBuilding size={18} color="var(--color-primary)" />
               <div>
                 <div style={{ fontWeight: 600, fontSize: '13px' }}>
-                  {activeParentCompany?.name} → {activeChildCompany?.name}
+                  {activeFromCompany?.name} → {activeToCompany?.name}
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  {lineItems.length} Products | {grandTotals.totalUnits} Units
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lineItems.length} Products | {grandTotals.totalUnits} Total Units
                 </div>
               </div>
             </div>
@@ -2190,19 +2315,35 @@ export const IntercompanyTransferView: React.FC = () => {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
-                gap: '12px',
-                fontSize: '13px',
+                gap: '10px',
+                fontSize: '12px',
               }}
             >
-              <div>
-                <span style={{ color: 'var(--text-secondary)' }}>Total Sales Value:</span>
-                <div style={{ fontWeight: 700, color: 'var(--brand-primary)', fontSize: '16px' }}>
+              <div
+                style={{
+                  padding: '10px',
+                  background: 'var(--bg-surface)',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-default)',
+                }}
+              >
+                <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Total Sales Value:</div>
+                <div style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '15px' }}>
                   PKR {grandTotals.totalSales.toLocaleString()}
                 </div>
               </div>
-              <div>
-                <span style={{ color: 'var(--text-secondary)' }}>Shehswar Profit:</span>
-                <div style={{ fontWeight: 700, color: 'var(--brand-success)', fontSize: '16px' }}>
+              <div
+                style={{
+                  padding: '10px',
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                }}
+              >
+                <div style={{ color: 'var(--color-success)', fontSize: '11px', fontWeight: 600 }}>
+                  Shehswar Profit:
+                </div>
+                <div style={{ fontWeight: 700, color: 'var(--color-success)', fontSize: '15px' }}>
                   PKR {grandTotals.totalProfit.toLocaleString()} (+{grandTotals.effectiveMarkup}%)
                 </div>
               </div>
@@ -2210,34 +2351,26 @@ export const IntercompanyTransferView: React.FC = () => {
 
             <div
               style={{
-                padding: '12px',
+                padding: '10px 12px',
                 borderRadius: '6px',
-                background: '#f0f9ff',
-                border: '1px solid #b9e6fe',
-                fontSize: '12px',
-                color: '#026aa2',
+                background: 'rgba(13, 148, 136, 0.08)',
+                border: '1px solid rgba(13, 148, 136, 0.2)',
+                fontSize: '11px',
+                color: 'var(--text-primary)',
               }}
             >
-              <strong>Atomic Transaction Impact:</strong>
-              <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+              <strong>Atomic Impact:</strong>
+              <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                 <li>Shehswar: Generates Sales Invoice & deducts {grandTotals.totalUnits} units.</li>
-                <li>
-                  {activeChildCompany?.name}: Generates Purchase Invoice & increments inventory.
-                </li>
+                <li>{activeToCompany?.name}: Generates Purchase Voucher & increments physical stock.</li>
                 <li>Financial ledgers updated simultaneously with matching transaction ID.</li>
               </ul>
             </div>
 
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '10px',
-                marginTop: '8px',
-              }}
-            >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '6px' }}>
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={() => setIsConfirmModalOpen(false)}
                 disabled={isSubmitting}
               >
@@ -2245,11 +2378,12 @@ export const IntercompanyTransferView: React.FC = () => {
               </Button>
               <Button
                 variant="primary"
-                onClick={handleSubmitTransfer}
-                disabled={isSubmitting}
+                size="sm"
+                onClick={() => executeTransferAction('POSTED')}
+                disabled={isSubmitting || grandTotals.hasStockError}
               >
-                <IconCheck size={16} />
-                {isSubmitting ? 'Posting Transfer...' : 'Confirm & Post Transfer'}
+                <IconCheck size={14} />
+                {isSubmitting ? 'Posting Transfer...' : 'Confirm & Post'}
               </Button>
             </div>
           </div>

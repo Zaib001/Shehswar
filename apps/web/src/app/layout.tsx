@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { AuthProvider } from '../context/auth-context';
+import { CompanyProvider } from '../context/company-context';
 import { ThemeProvider } from '../context/theme-context';
 import { ToastProvider } from '../context/toast-context';
 
@@ -23,7 +24,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ThemeProvider>
           <AuthProvider>
-            <ToastProvider>{children}</ToastProvider>
+            <CompanyProvider>
+              <ToastProvider>{children}</ToastProvider>
+            </CompanyProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
