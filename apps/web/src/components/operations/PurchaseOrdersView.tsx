@@ -2235,9 +2235,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       options={[
                         { label: '-- Select Vendor --', value: '' },
                         ...vendors.map((v) => ({
-                          label: v.name ? (v.code ? `${v.name} — ${v.code}` : v.name) : v.code,
+                          label: v.name || v.code || 'Vendor',
                           value: v.id,
-                          subtext: v.code ? `${v.code}${v.vendorType ? ` • ${v.vendorType}` : ''}` : v.vendorType,
                         })),
                       ]}
                     />
@@ -2958,7 +2957,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               )}
             </div>
             <CardContent style={{ padding: '12px 18px', overflow: 'visible' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                     PO Number *
@@ -2995,9 +2994,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       .filter((v) => v.status !== 'INACTIVE' || v.id === formVendorId)
                       .map((v) => ({
                         value: v.id,
-                        label: v.name ? (v.code ? `${v.name} — ${v.code}` : v.name) : v.code,
-                        subtext: v.code ? `${v.code}${v.vendorType ? ` • ${v.vendorType}` : ''}` : v.vendorType,
-                        badge: v.status === 'INACTIVE' ? 'INACTIVE' : (v.vendorType || undefined),
+                        label: v.name || v.code || 'Vendor',
+                        searchTerms: `${v.code || ''} ${v.name || ''}`,
                       }))}
                     placeholder="Type to search vendor..."
                     addNewLabel="+ Add Vendor"

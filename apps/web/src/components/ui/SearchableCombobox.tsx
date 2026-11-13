@@ -8,6 +8,7 @@ export interface ComboboxOption {
   label: string;
   subtext?: string;
   badge?: string;
+  searchTerms?: string;
   disabled?: boolean;
 }
 
@@ -90,7 +91,8 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
       const subtextMatch = (opt.subtext || '').toLowerCase().includes(q);
       const valMatch = (opt.value || '').toLowerCase().includes(q);
       const badgeMatch = (opt.badge || '').toLowerCase().includes(q);
-      return labelMatch || subtextMatch || valMatch || badgeMatch;
+      const searchTermsMatch = (opt.searchTerms || '').toLowerCase().includes(q);
+      return labelMatch || subtextMatch || valMatch || badgeMatch || searchTermsMatch;
     });
   }, [options, query, selectedOption, isOpen]);
 
@@ -399,7 +401,9 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
             position: 'absolute',
             top: 'calc(100% + 4px)',
             left: 0,
-            right: 0,
+            minWidth: '100%',
+            width: 'max-content',
+            maxWidth: 'min(480px, 92vw)',
             zIndex: 9999,
             backgroundColor: 'var(--bg-surface, #FFFFFF)',
             border: '1px solid var(--border-default, #E2E8F0)',
