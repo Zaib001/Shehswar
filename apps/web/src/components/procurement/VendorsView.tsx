@@ -163,6 +163,17 @@ export const VendorsView: React.FC = () => {
   const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
   const [blockReason, setBlockReason] = useState('');
 
+  // Delete / Deactivate Vendor State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [vendorToDelete, setVendorToDelete] = useState<VendorRecord | null>(null);
+  const [vendorUsage, setVendorUsage] = useState<{
+    canDelete: boolean;
+    transactionCount: number;
+    breakdown: any;
+  } | null>(null);
+  const [isCheckingUsage, setIsCheckingUsage] = useState(false);
+  const [isDeletingVendor, setIsDeletingVendor] = useState(false);
+
   // Form State (for Create & Edit)
   const initialFormData = {
     code: '',
@@ -480,6 +491,60 @@ export const VendorsView: React.FC = () => {
     }
   };
 
+  const handleInitiateDelete = async (vendor: VendorRecord) => {
+    setVendorToDelete(vendor);
+    setIsCheckingUsage(true);
+    setIsDeleteModalOpen(true);
+    try {
+      const res = await ApiClient.get<any>(`/api/v1/procurement/vendors/${vendor.id}/usage`);
+      const data = res.data || res;
+      setVendorUsage(data);
+    } catch (err: any) {
+      console.error('Failed to check vendor usage:', err);
+      setVendorUsage({ canDelete: false, transactionCount: 1, breakdown: {} });
+    } finally {
+      setIsCheckingUsage(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!vendorToDelete) return;
+    setIsDeletingVendor(true);
+    try {
+      const res = await ApiClient.delete<any>(`/api/v1/procurement/vendors/${vendorToDelete.id}`);
+      const data = res.data || res;
+      if (data.action === 'DELETED') {
+        showToast({
+          title: 'Vendor Permanently Deleted',
+          message: data.message || `Vendor ${vendorToDelete.name} has been permanently deleted.`,
+          type: 'success',
+        });
+      } else {
+        showToast({
+          title: 'Vendor Deactivated',
+          message: data.message || `Vendor ${vendorToDelete.name} is used in historical transactions and has been deactivated.`,
+          type: 'info',
+        });
+      }
+      setIsDeleteModalOpen(false);
+      setVendorToDelete(null);
+      setVendorUsage(null);
+      await fetchVendors();
+      if (mode === 'detail' && selectedVendor?.id === vendorToDelete.id) {
+        setMode('list');
+        setSelectedVendor(null);
+      }
+    } catch (err: any) {
+      showToast({
+        title: 'Action Failed',
+        message: err.message || 'Could not process vendor deletion/deactivation',
+        type: 'error',
+      });
+    } finally {
+      setIsDeletingVendor(false);
+    }
+  };
+
   // Submit Handler for Create & Edit
   const handleSaveVendorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -644,6 +709,8 @@ export const VendorsView: React.FC = () => {
             ? 'warning'
             : s === VendorStatus.BLOCKED
             ? 'danger'
+            : s === VendorStatus.INACTIVE
+            ? 'neutral'
             : 'default';
         return <StatusBadge status={s.toLowerCase()} variant={variant} />;
       },
@@ -662,6 +729,14 @@ export const VendorsView: React.FC = () => {
             <IconEye size={14} /> View
           </Button>
           <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleOpenEdit(row.original)}
+            title="Edit Vendor Registration"
+          >
+            <IconEdit size={14} /> Edit
+          </Button>
+          <Button
             variant="secondary"
             size="sm"
             onClick={() => handleOpenLedger(row.original)}
@@ -669,6 +744,15 @@ export const VendorsView: React.FC = () => {
             style={{ fontSize: '11.5px', padding: '4px 8px' }}
           >
             <IconFileText size={13} /> Ledger
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleInitiateDelete(row.original)}
+            title="Delete or Deactivate Vendor"
+            style={{ color: '#ef4444' }}
+          >
+            <IconTrash size={14} />
           </Button>
         </div>
       ),
@@ -701,6 +785,8 @@ export const VendorsView: React.FC = () => {
                   ? 'warning'
                   : v.status === VendorStatus.BLOCKED
                   ? 'danger'
+                  : v.status === VendorStatus.INACTIVE
+                  ? 'neutral'
                   : 'default'
               }
             />
@@ -740,11 +826,19 @@ export const VendorsView: React.FC = () => {
                   <IconAlertTriangle size={16} /> Block Vendor
                 </Button>
               )}
-              {v.status === VendorStatus.BLOCKED && (
+              {(v.status === VendorStatus.BLOCKED || v.status === VendorStatus.INACTIVE) && (
                 <Button variant="primary" onClick={() => handleActivate(v)}>
                   <IconCheck size={16} /> Re-activate
                 </Button>
               )}
+              <Button
+                variant="danger"
+                onClick={() => handleInitiateDelete(v)}
+                title="Delete or Deactivate Vendor"
+                style={{ backgroundColor: '#dc2626' }}
+              >
+                <IconTrash size={15} /> Delete / Deactivate
+              </Button>
             </div>
           }
           tabs={[
@@ -1668,7 +1762,7 @@ export const VendorsView: React.FC = () => {
           },
           {
             title: 'Blocked / Inactive',
-            value: vendors.filter((v) => v.status === VendorStatus.BLOCKED).length,
+            value: vendors.filter((v) => v.status === VendorStatus.BLOCKED || v.status === VendorStatus.INACTIVE).length,
           },
         ]}
         filters={[
@@ -1714,6 +1808,7 @@ export const VendorsView: React.FC = () => {
                   { value: VendorStatus.PENDING_APPROVAL, label: 'Pending Approval' },
                   { value: VendorStatus.DRAFT, label: 'Draft' },
                   { value: VendorStatus.BLOCKED, label: 'Blocked' },
+                  { value: VendorStatus.INACTIVE, label: 'Inactive' },
                 ]}
               />
             ),
@@ -1796,6 +1891,106 @@ export const VendorsView: React.FC = () => {
               Confirm Block
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Delete / Deactivate Vendor Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          if (!isDeletingVendor) {
+            setIsDeleteModalOpen(false);
+            setVendorToDelete(null);
+            setVendorUsage(null);
+          }
+        }}
+        title={
+          vendorUsage && vendorUsage.transactionCount > 0
+            ? 'Deactivate Vendor (Transaction History Exists)'
+            : 'Delete Vendor'
+        }
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setVendorToDelete(null);
+                setVendorUsage(null);
+              }}
+              disabled={isDeletingVendor}
+            >
+              Cancel
+            </Button>
+            {vendorUsage && vendorUsage.transactionCount > 0 ? (
+              <Button
+                variant="danger"
+                onClick={handleConfirmDelete}
+                isLoading={isDeletingVendor}
+                disabled={isCheckingUsage}
+                style={{ backgroundColor: '#d97706', color: '#ffffff' }}
+              >
+                Deactivate Vendor
+              </Button>
+            ) : (
+              <Button
+                variant="danger"
+                onClick={handleConfirmDelete}
+                isLoading={isDeletingVendor}
+                disabled={isCheckingUsage}
+              >
+                Delete Vendor
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {isCheckingUsage ? (
+            <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+              Checking vendor transaction history...
+            </div>
+          ) : vendorUsage && vendorUsage.transactionCount > 0 ? (
+            <>
+              <div
+                style={{
+                  padding: '12px 14px',
+                  backgroundColor: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'flex-start',
+                }}
+              >
+                <IconAlertTriangle size={20} style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ fontSize: '13px', color: '#92400e', lineHeight: 1.5 }}>
+                  This vendor is already used in <strong>{vendorUsage.transactionCount} transactions</strong> (including{' '}
+                  {vendorUsage.breakdown?.purchaseOrders > 0 && `${vendorUsage.breakdown.purchaseOrders} Purchase Orders, `}
+                  {vendorUsage.breakdown?.purchases > 0 && `${vendorUsage.breakdown.purchases} Invoices, `}
+                  {vendorUsage.breakdown?.vendorLedgerEntries > 0 && `${vendorUsage.breakdown.vendorLedgerEntries} Ledger Entries`}
+                  ).
+                  <br />
+                  <br />
+                  <strong>It cannot be permanently deleted</strong> because this would break relational integrity and
+                  historical auditing.
+                  <br />
+                  <br />
+                  Deactivating will safely archive <strong>{vendorToDelete?.name} ({vendorToDelete?.code})</strong> so it
+                  no longer appears for new Purchase Orders, while fully preserving all historical records and ledgers.
+                </div>
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: '13.5px', color: '#334155', lineHeight: 1.6 }}>
+              Are you sure you want to delete vendor{' '}
+              <strong style={{ color: '#0f172a' }}>{vendorToDelete?.name} ({vendorToDelete?.code})</strong>?
+              <br />
+              <br />
+              This vendor has <strong>never been used</strong> in any transactions. Permanent deletion will remove it
+              completely from the system.
+            </div>
+          )}
         </div>
       </Modal>
 

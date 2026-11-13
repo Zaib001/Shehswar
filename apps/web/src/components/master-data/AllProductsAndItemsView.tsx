@@ -262,6 +262,8 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
     const matchingCat = categories.find((c) =>
       initialType === 'FINISHED_PRODUCT'
         ? c.entityType === 'FINISHED_PRODUCT' || c.categoryType === 'FINISHED_PRODUCT'
+        : initialType === 'OTHER'
+        ? c.code === '41-87' || (c.name || '').toLowerCase().includes('other') || c.categoryType === 'BOTH'
         : c.entityType === initialType || c.categoryType === initialType
     );
 
@@ -403,10 +405,16 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
         }
       } else {
         // RAW_MATERIAL or OTHER
+        let effectiveCategoryId = productForm.categoryId || undefined;
+        if (type === 'OTHER' && !effectiveCategoryId) {
+          const othCat = categories.find((c) => c.code === '41-87' || (c.name || '').toLowerCase().includes('other'));
+          if (othCat) effectiveCategoryId = othCat.id;
+        }
+
         const payload: any = {
           materialName: productForm.name.trim(),
           urduName: productForm.urduName.trim() || undefined,
-          categoryId: productForm.categoryId || undefined,
+          categoryId: effectiveCategoryId,
           baseUomId: productForm.uomId || undefined,
           purchaseUomId: productForm.uomId || undefined,
           specifications: productForm.packSize ? `Pack Size: ${productForm.packSize}` : productForm.description || undefined,

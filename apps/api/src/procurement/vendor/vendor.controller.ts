@@ -146,4 +146,25 @@ export class VendorController {
   ) {
     return this.vendorService.deleteDocument(id, docId, user);
   }
+
+  @Get(':id/usage')
+  async getVendorUsage(@Param('id') id: string) {
+    return this.vendorService.getVendorUsage(id);
+  }
+
+  @Post(':id/deactivate')
+  async deactivateVendor(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.vendorService.deactivateVendor(id, user);
+  }
+
+  @Delete(':id')
+  async deleteVendor(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.vendorService.deleteVendor(id, user);
+  }
 }

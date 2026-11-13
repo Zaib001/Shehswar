@@ -51,7 +51,7 @@ export class OperationalPoController {
 
   @Post('quick-create-material')
   async quickCreateMaterial(
-    @Body() body: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL'; packing?: string; unit?: string; purchaseRate?: number },
+    @Body() body: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER' | 'FINISHED_PRODUCT'; packing?: string; unit?: string; purchaseRate?: number },
     @CurrentUser() user: AuthUser,
   ) {
     if (!body.itemName || !body.itemName.trim()) throw new BadRequestException('Item name is required');

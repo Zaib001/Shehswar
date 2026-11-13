@@ -192,7 +192,7 @@ export class OperationalPoService {
   }
 
   async quickCreateMaterial(
-    params: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL'; packing?: string; unit?: string; purchaseRate?: number },
+    params: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER' | 'FINISHED_PRODUCT'; packing?: string; unit?: string; purchaseRate?: number },
     user: AuthUser,
   ) {
     const companyId = user.companyId;
@@ -201,6 +201,39 @@ export class OperationalPoService {
 
     const cleanName = params.itemName.trim();
     const matType = params.materialType || 'RAW_MATERIAL';
+
+    if (matType === 'OTHER') {
+      const othersCat = await this.prisma.materialCategory.findFirst({
+        where: { OR: [{ code: '41-87' }, { name: { contains: 'Other', mode: 'insensitive' } }] },
+      });
+      const existing = await this.prisma.rawMaterial.findFirst({
+        where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
+      });
+      if (existing) return existing;
+
+      const code = await this.codeGen.generateCode({
+        companyId,
+        organizationId,
+        entityType: 'RAW_MATERIAL',
+      });
+      const rm = await this.prisma.rawMaterial.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId,
+          categoryId: othersCat?.id || undefined,
+          materialCode: code,
+          materialName: cleanName,
+          status: 'ACTIVE',
+          approvalStatus: 'APPROVED',
+          lastPurchaseCost: Number(params.purchaseRate) || undefined,
+          standardCost: Number(params.purchaseRate) || undefined,
+          specifications: params.packing || undefined,
+        },
+      });
+      this.logger.log(`Other material quick-created: ${rm.materialName} (${rm.materialCode})`);
+      return rm;
+    }
 
     if (matType === 'PACKING_MATERIAL') {
       const existing = await this.prisma.packingMaterial.findFirst({
@@ -364,6 +397,65 @@ export class OperationalPoService {
               }).catch(() => null);
             }
           }
+        } else if (materialType === 'OTHER' || materialType === 'OTHER_PRODUCT') {
+          // Check if materialId is in rawMaterial or packingMaterial
+          let othRm = materialId ? await this.prisma.rawMaterial.findUnique({ where: { id: materialId } }) : null;
+          let othPm = (!othRm && materialId) ? await this.prisma.packingMaterial.findUnique({ where: { id: materialId } }) : null;
+
+          if (!othRm && !othPm && cleanName) {
+            othRm = await this.prisma.rawMaterial.findFirst({
+              where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
+            });
+            if (!othRm) {
+              othPm = await this.prisma.packingMaterial.findFirst({
+                where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
+              });
+            }
+            if (!othRm && !othPm) {
+              const othersCat = await this.prisma.materialCategory.findFirst({
+                where: { OR: [{ code: '41-87' }, { name: { contains: 'Other', mode: 'insensitive' } }] },
+              });
+              const code = await this.codeGen.generateCode({
+                companyId,
+                organizationId: company.organizationId,
+                entityType: 'RAW_MATERIAL',
+              });
+              othRm = await this.prisma.rawMaterial.create({
+                data: {
+                  id: uuidv7(),
+                  organizationId: company.organizationId,
+                  companyId,
+                  categoryId: othersCat?.id || undefined,
+                  materialCode: code,
+                  materialName: cleanName,
+                  status: 'ACTIVE',
+                  approvalStatus: 'APPROVED',
+                  lastPurchaseCost: Number(item.unitRate) || undefined,
+                  standardCost: Number(item.unitRate) || undefined,
+                  specifications: item.packing || (item.packSize ? `Pack Size: ${item.packSize}` : undefined),
+                },
+              });
+            }
+          }
+          if (othRm) {
+            materialId = othRm.id;
+            materialCodeSnapshot = othRm.materialCode;
+            if (Number(item.unitRate) > 0) {
+              await this.prisma.rawMaterial.update({
+                where: { id: othRm.id },
+                data: { lastPurchaseCost: Number(item.unitRate) },
+              }).catch(() => null);
+            }
+          } else if (othPm) {
+            materialId = othPm.id;
+            materialCodeSnapshot = othPm.materialCode;
+            if (Number(item.unitRate) > 0) {
+              await this.prisma.packingMaterial.update({
+                where: { id: othPm.id },
+                data: { lastPurchaseCost: Number(item.unitRate) },
+              }).catch(() => null);
+            }
+          }
         } else {
           // RAW_MATERIAL
           let rm = materialId
@@ -493,14 +585,38 @@ export class OperationalPoService {
     if (po.warehouseId && (po.status === 'CONFIRMED' || !dto.status)) {
       for (const item of po.items) {
         if (Number(item.quantity) > 0) {
+          let rawMaterialId: string | undefined = undefined;
+          let packingMaterialId: string | undefined = undefined;
+          let finishedProductId: string | undefined = undefined;
+
+          if (item.materialType === 'RAW_MATERIAL') {
+            rawMaterialId = item.materialId ?? undefined;
+          } else if (item.materialType === 'PACKING_MATERIAL') {
+            packingMaterialId = item.materialId ?? undefined;
+          } else if (item.materialType === 'FINISHED_PRODUCT') {
+            finishedProductId = item.materialId ?? undefined;
+          } else {
+            // OTHER or other product types
+            if (item.materialId) {
+              const [isRm, isPm, isFp] = await Promise.all([
+                this.prisma.rawMaterial.findUnique({ where: { id: item.materialId }, select: { id: true } }),
+                this.prisma.packingMaterial.findUnique({ where: { id: item.materialId }, select: { id: true } }),
+                this.prisma.finishedProduct.findUnique({ where: { id: item.materialId }, select: { id: true } }),
+              ]);
+              if (isRm) rawMaterialId = isRm.id;
+              else if (isPm) packingMaterialId = isPm.id;
+              else if (isFp) finishedProductId = isFp.id;
+            }
+          }
+
           await this.inventoryService.applyMovement(this.prisma, {
             organizationId: po.organizationId,
             companyId: po.companyId,
             warehouseId: po.warehouseId,
             itemType: (item.materialType as any) || 'RAW_MATERIAL',
-            rawMaterialId: item.materialType === 'RAW_MATERIAL' ? item.materialId ?? undefined : undefined,
-            packingMaterialId: item.materialType === 'PACKING_MATERIAL' ? item.materialId ?? undefined : undefined,
-            finishedProductId: item.materialType === 'FINISHED_PRODUCT' ? item.materialId ?? undefined : undefined,
+            rawMaterialId,
+            packingMaterialId,
+            finishedProductId,
             quantityChange: Number(item.quantity),
             unitCost: Number(item.unitRate) || 0,
             transactionType: 'PURCHASE',

@@ -29,7 +29,7 @@ import {
   CardContent,
   SearchableCombobox,
 } from '../ui';
-import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFileText, IconArrowLeft } from '../icons';
+import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFileText, IconArrowLeft, IconEdit } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 
@@ -510,6 +510,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
   const [packingMaterials, setPackingMaterials] = useState<any[]>([]);
   const [finishedProducts, setFinishedProducts] = useState<any[]>([]);
+  const [otherProducts, setOtherProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -582,7 +583,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const [isQuickMaterialModalOpen, setIsQuickMaterialModalOpen] = useState<boolean>(false);
   const [targetItemIndexForMat, setTargetItemIndexForMat] = useState<number>(-1);
   const [newMatName, setNewMatName] = useState<string>('');
-  const [newMatType, setNewMatType] = useState<'RAW_MATERIAL' | 'PACKING_MATERIAL'>('RAW_MATERIAL');
+  const [newMatType, setNewMatType] = useState<'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER'>('RAW_MATERIAL');
   const [newMatUnit, setNewMatUnit] = useState<string>('KG');
   const [newMatPacking, setNewMatPacking] = useState<string>('Bulk');
   const [newMatRate, setNewMatRate] = useState<number>(0);
@@ -680,6 +681,18 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       if (created && created.id) {
         if (newMatType === 'PACKING_MATERIAL') {
           setPackingMaterials((prev) => [created, ...prev]);
+        } else if (newMatType === 'OTHER') {
+          setOtherProducts((prev) => [
+            {
+              id: created.id,
+              code: created.materialCode || '',
+              name: created.materialName || '',
+              packSize: created.specifications || newMatPacking || `1 ${newMatUnit}`,
+              unit: newMatUnit,
+              materialType: 'OTHER',
+            },
+            ...prev,
+          ]);
         } else {
           setRawMaterials((prev) => [created, ...prev]);
         }
@@ -743,6 +756,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     name: v.name || v.legalName || 'Unnamed Vendor',
     vendorType: v.vendorType || 'RAW_MATERIAL',
     category: v.category || '',
+    status: v.status || 'APPROVED',
     phone: v.phone || '',
     email: v.email || '',
   });
@@ -823,6 +837,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true'),
         ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true'),
         ApiClient.get<any>('/api/v1/master-data/finished-products?all=true'),
+        ApiClient.get<any>('/api/v1/master-data/all-products?tab=OTHER'),
       ]);
 
       const poList = results[0].status === 'fulfilled' ? unpackArray(results[0].value) : [];
@@ -831,6 +846,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       const rmList = results[3].status === 'fulfilled' ? unpackArray(results[3].value).map(normalizeMaterial) : [];
       const pmList = results[4].status === 'fulfilled' ? unpackArray(results[4].value).map(normalizeMaterial) : [];
       const fpList = results[5]?.status === 'fulfilled' ? unpackArray(results[5].value).map(normalizeFinishedProduct) : [];
+      const othList = results[6]?.status === 'fulfilled' ? unpackArray(results[6].value).map((o: any) => ({
+        id: o.id,
+        code: o.code || '',
+        name: o.name || '',
+        packSize: o.packSize || `1 ${o.baseUomSymbol || 'Unit'}`,
+        unit: o.baseUomSymbol || 'Unit',
+        materialType: 'OTHER',
+      })) : [];
 
       setOrders(poList);
       setVendors(vList);
@@ -838,6 +861,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       setRawMaterials(rmList);
       setPackingMaterials(pmList);
       setFinishedProducts(fpList);
+      setOtherProducts(othList);
 
       setFormVendorId((current) => current || (vList.length > 0 ? (vList[0]?.id || '') : ''));
       setFormWarehouseId((current) => current || (whList.length > 0 ? (whList[0]?.id || '') : ''));
@@ -1144,13 +1168,24 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           materialType: 'FINISHED_PRODUCT',
         }));
       }
+      if (normType === 'OTHER' || normType === 'OTHER_PRODUCT') {
+        return otherProducts.map((o) => ({
+          id: o.id,
+          code: o.code || '',
+          name: o.name || '',
+          packSize: o.packSize || `1 ${o.unit || 'Unit'}`,
+          unit: o.unit || 'Unit',
+          materialType: 'OTHER',
+        }));
+      }
       return [
         ...rawMaterials.map((m) => ({ id: m.id, code: m.materialCode || '', name: m.materialName || '', packSize: m.packSize || '', unit: m.unit || 'KG', materialType: 'RAW_MATERIAL' })),
         ...packingMaterials.map((m) => ({ id: m.id, code: m.materialCode || '', name: m.materialName || '', packSize: m.packSize || '', unit: m.unit || 'PCS', materialType: 'PACKING_MATERIAL' })),
         ...finishedProducts.map((p) => ({ id: p.id, code: p.productCode || '', name: p.productName || '', packSize: p.packSize || '', unit: p.unit || 'Units', materialType: 'FINISHED_PRODUCT' })),
+        ...otherProducts.map((o) => ({ id: o.id, code: o.code || '', name: o.name || '', packSize: o.packSize || '', unit: o.unit || 'Unit', materialType: 'OTHER' })),
       ];
     },
-    [rawMaterials, packingMaterials, finishedProducts]
+    [rawMaterials, packingMaterials, finishedProducts, otherProducts]
   );
 
   // Form item update with Real-Time Pack Size, Quantity & Automatic Unit Cost Calculations
@@ -1163,23 +1198,41 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       item.materialId = value;
       let selectedItem: any = null;
 
-      const rm = rawMaterials.find((m) => m.id === value);
-      if (rm) {
-        selectedItem = rm;
-        item.materialType = 'RAW_MATERIAL';
-        item.itemName = rm.materialName;
-      } else {
-        const pm = packingMaterials.find((m) => m.id === value);
-        if (pm) {
-          selectedItem = pm;
-          item.materialType = 'PACKING_MATERIAL';
-          item.itemName = pm.materialName;
+      if (item.materialType === 'OTHER') {
+        const oth = otherProducts.find((o) => o.id === value);
+        if (oth) {
+          selectedItem = oth;
+          item.materialType = 'OTHER';
+          item.itemName = oth.name;
+        }
+      }
+
+      if (!selectedItem) {
+        const rm = rawMaterials.find((m) => m.id === value);
+        if (rm) {
+          selectedItem = rm;
+          item.materialType = 'RAW_MATERIAL';
+          item.itemName = rm.materialName;
         } else {
-          const fp = finishedProducts.find((p) => p.id === value);
-          if (fp) {
-            selectedItem = fp;
-            item.materialType = 'FINISHED_PRODUCT';
-            item.itemName = fp.productName;
+          const pm = packingMaterials.find((m) => m.id === value);
+          if (pm) {
+            selectedItem = pm;
+            item.materialType = 'PACKING_MATERIAL';
+            item.itemName = pm.materialName;
+          } else {
+            const fp = finishedProducts.find((p) => p.id === value);
+            if (fp) {
+              selectedItem = fp;
+              item.materialType = 'FINISHED_PRODUCT';
+              item.itemName = fp.productName;
+            } else {
+              const oth = otherProducts.find((o) => o.id === value);
+              if (oth) {
+                selectedItem = oth;
+                item.materialType = 'OTHER';
+                item.itemName = oth.name;
+              }
+            }
           }
         }
       }
@@ -1605,6 +1658,50 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     }
   };
 
+  const handleOpenEditOrder = (order: PurchaseOrderRecord) => {
+    setSelectedOrder(order);
+    setFormPoNumber(order.poNumber);
+    setFormVendorId(order.vendorId || order.vendor?.id || '');
+    setFormWarehouseId(order.warehouseId || order.warehouse?.id || '');
+    setFormExpectedDate(order.expectedDeliveryDate ? order.expectedDeliveryDate.slice(0, 10) : '');
+    setFormNotes(order.notes || '');
+    setFormItems(
+      order.items && order.items.length > 0
+        ? order.items.map((it) => {
+            const parsed = parsePackSize(it.packSize, it.unit);
+            const packCap = it.packCapacity || parsed.capacity;
+            const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
+            return {
+              ...it,
+              materialType: it.materialType || 'RAW_MATERIAL',
+              packSize: it.packSize || `${packCap} ${it.unit || 'KG'}`,
+              packCapacity: packCap,
+              numberOfPacks: packs,
+              costPerPack: it.costPerPack || (Number(it.unitRate) || 0) * packCap,
+              unitRate: Number(it.unitRate) || 0,
+              quantity: Number(it.quantity) || 1,
+              lineTotal: Number(it.lineTotal) || ((Number(it.quantity) || 1) * (Number(it.unitRate) || 0)),
+            };
+          })
+        : [
+            {
+              materialId: '',
+              materialType: 'RAW_MATERIAL',
+              itemName: '',
+              packSize: '1 KG',
+              packCapacity: 1,
+              numberOfPacks: 1,
+              quantity: 1,
+              unit: 'KG',
+              unitRate: 0,
+              totalPurchaseAmount: 0,
+              lineTotal: 0,
+            },
+          ]
+    );
+    setMode('create_manual');
+  };
+
   const filteredOrders = orders.filter((po) => {
     const matchesStatus = statusFilter === 'ALL' || po.status === statusFilter;
     const matchesSearch =
@@ -1675,6 +1772,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
             }}
           >
             <IconEye size={15} /> View
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleOpenEditOrder(o)}
+            title="Edit Purchase Order"
+          >
+            <IconEdit size={15} /> Edit
           </Button>
           {o.status !== 'CONVERTED_TO_PURCHASE' && o.status !== 'CANCELLED' && (
             <Button
@@ -2130,9 +2235,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       options={[
                         { label: '-- Select Vendor --', value: '' },
                         ...vendors.map((v) => ({
-                          label: v.code ? `${v.code} - ${v.name}` : v.name,
+                          label: v.name ? (v.code ? `${v.name} — ${v.code}` : v.name) : v.code,
                           value: v.id,
-                          subtext: v.vendorType || undefined,
+                          subtext: v.code ? `${v.code}${v.vendorType ? ` • ${v.vendorType}` : ''}` : v.vendorType,
                         })),
                       ]}
                     />
@@ -2886,11 +2991,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     id="field-po-vendor"
                     value={formVendorId}
                     onChange={(val) => setFormVendorId(val)}
-                    options={vendors.map((v) => ({
-                      value: v.id,
-                      label: v.code ? `${v.code} - ${v.name}` : v.name,
-                      badge: v.vendorType || undefined,
-                    }))}
+                    options={vendors
+                      .filter((v) => v.status !== 'INACTIVE' || v.id === formVendorId)
+                      .map((v) => ({
+                        value: v.id,
+                        label: v.name ? (v.code ? `${v.name} — ${v.code}` : v.name) : v.code,
+                        subtext: v.code ? `${v.code}${v.vendorType ? ` • ${v.vendorType}` : ''}` : v.vendorType,
+                        badge: v.status === 'INACTIVE' ? 'INACTIVE' : (v.vendorType || undefined),
+                      }))}
                     placeholder="Type to search vendor..."
                     addNewLabel="+ Add Vendor"
                     onAddNew={() => setIsQuickVendorModalOpen(true)}
@@ -3082,6 +3190,12 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             id={`field-po-mat-type-${idx}`}
                             value={item.materialType || 'RAW_MATERIAL'}
                             onChange={(e) => updateItem(idx, 'materialType', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                document.getElementById(`field-po-product-${idx}`)?.focus();
+                              }
+                            }}
                             style={{
                               width: '100%',
                               height: '36px',
@@ -3098,8 +3212,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             }}
                           >
                             <option value="RAW_MATERIAL">Raw Material</option>
-                            <option value="PACKING_MATERIAL">Packaging</option>
+                            <option value="PACKING_MATERIAL">Packing Material</option>
                             <option value="FINISHED_PRODUCT">Finished Product</option>
+                            <option value="OTHER">Other Product</option>
                           </select>
                         </td>
 
@@ -3119,7 +3234,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                             onAddNewProduct={() => {
                               setTargetItemIndexForMat(idx);
                               setNewMatName(item.itemName || '');
-                              setNewMatType(item.materialType === 'PACKING_MATERIAL' ? 'PACKING_MATERIAL' : 'RAW_MATERIAL');
+                              setNewMatType(
+                                item.materialType === 'PACKING_MATERIAL'
+                                  ? 'PACKING_MATERIAL'
+                                  : item.materialType === 'OTHER'
+                                  ? 'OTHER'
+                                  : 'RAW_MATERIAL'
+                              );
                               setNewMatRate(item.unitRate || 0);
                               setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
                               setNewMatPacking(item.packSize || 'Bulk');
@@ -3649,10 +3770,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           columns={columns}
           data={filteredOrders}
           keyExtractor={(o) => o.id}
-          onRowDoubleClick={(order: PurchaseOrderRecord) => {
-            setSelectedOrder(order);
-            setMode('detail');
-          }}
+          onRowDoubleClick={(order: PurchaseOrderRecord) => handleOpenEditOrder(order)}
         />
       )}
       {renderVerifyModal()}

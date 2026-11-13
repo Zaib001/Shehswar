@@ -284,15 +284,21 @@ export const WarehouseStockView: React.FC = () => {
   // Helper to test if a record matches a selected type tab
   const matchesTypeFilter = useCallback((s: WarehouseStockRecord, typeId: string): boolean => {
     if (typeId === 'ALL') return true;
-    if (typeId === 'RAW_MATERIAL') return s.itemType === 'RAW_MATERIAL';
-    if (typeId === 'PACKING_MATERIAL') return s.itemType === 'PACKING_MATERIAL';
-    if (typeId === 'FINISHED_PRODUCT') return s.itemType === 'FINISHED_PRODUCT';
+    const catName = getItemCategory(s);
+    const isOtherCategory = (catName || '').toLowerCase().includes('other');
+
     if (typeId === 'OTHER') {
       const isStandard = ['RAW_MATERIAL', 'PACKING_MATERIAL', 'FINISHED_PRODUCT'].includes(s.itemType);
-      return !isStandard || s.itemType === 'OTHER' || s.itemType === 'OTHER_MATERIAL';
+      return !isStandard || s.itemType === 'OTHER' || s.itemType === 'OTHER_MATERIAL' || isOtherCategory;
     }
+    if (typeId === 'RAW_MATERIAL') {
+      return s.itemType === 'RAW_MATERIAL' && !isOtherCategory;
+    }
+    if (typeId === 'PACKING_MATERIAL') {
+      return s.itemType === 'PACKING_MATERIAL' && !isOtherCategory;
+    }
+    if (typeId === 'FINISHED_PRODUCT') return s.itemType === 'FINISHED_PRODUCT';
     // Dynamic category/type match
-    const catName = getItemCategory(s);
     return s.itemType === typeId || catName === typeId;
   }, []);
 

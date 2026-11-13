@@ -591,4 +591,157 @@ export class VendorService {
 
     return updated;
   }
+
+  /**
+   * Get transaction usage breakdown for a vendor
+   */
+  async getVendorUsage(id: string) {
+    const vendor = await this.findVendorById(id);
+
+    const [
+      purchaseOrders,
+      goodsReceiptNotes,
+      purchases,
+      purchaseReturns,
+      vendorPayments,
+      vendorLedgerEntries,
+      quotations,
+      rfqVendors,
+      gatePasses,
+    ] = await Promise.all([
+      this.prisma.purchaseOrder.count({ where: { vendorId: id } }),
+      this.prisma.goodsReceiptNote.count({ where: { vendorId: id } }),
+      this.prisma.purchaseInvoice.count({ where: { vendorId: id } }),
+      this.prisma.purchaseReturn.count({ where: { vendorId: id } }),
+      this.prisma.vendorPayment.count({ where: { vendorId: id } }),
+      this.prisma.vendorLedgerEntry.count({ where: { vendorId: id } }),
+      this.prisma.vendorQuotation.count({ where: { vendorId: id } }),
+      this.prisma.rfqVendor.count({ where: { vendorId: id } }),
+      this.prisma.gatePass.count({ where: { vendorId: id } }),
+    ]);
+
+    const transactionCount =
+      purchaseOrders +
+      goodsReceiptNotes +
+      purchases +
+      purchaseReturns +
+      vendorPayments +
+      vendorLedgerEntries +
+      quotations +
+      rfqVendors +
+      gatePasses;
+
+    return {
+      vendorId: id,
+      vendorName: vendor.name,
+      vendorCode: vendor.code,
+      status: vendor.status,
+      canDelete: transactionCount === 0,
+      transactionCount,
+      breakdown: {
+        purchaseOrders,
+        goodsReceiptNotes,
+        purchases,
+        purchaseReturns,
+        vendorPayments,
+        vendorLedgerEntries,
+        quotations,
+        rfqVendors,
+        gatePasses,
+      },
+    };
+  }
+
+  /**
+   * Safe deletion / deactivation logic:
+   * If vendor has never been used in any transaction: permanently delete.
+   * If vendor has transactions: deactivate (mark as INACTIVE).
+   */
+  async deleteVendor(id: string, actor?: AuthUser) {
+    const usage = await this.getVendorUsage(id);
+    const vendor = await this.findVendorById(id);
+
+    if (usage.transactionCount > 0) {
+      // Must not delete physically -> Deactivate vendor
+      const updated = await this.prisma.vendor.update({
+        where: { id },
+        data: { status: VendorStatus.INACTIVE },
+      });
+
+      await this.auditService.record({
+        organizationId: vendor.organizationId,
+        companyId: vendor.companyId,
+        actorId: actor?.id || '00000000-0000-0000-0000-000000000000',
+        actorEmail: actor?.email || 'system@shehswar.com',
+        resource: Resource.VENDOR,
+        resourceId: id,
+        action: Action.HOLD,
+        previousState: { status: vendor.status },
+        newState: { status: updated.status, deactivationReason: `Used in ${usage.transactionCount} transactions` },
+        correlationId: uuidv7(),
+      });
+
+      return {
+        success: true,
+        action: 'DEACTIVATED' as const,
+        transactionCount: usage.transactionCount,
+        message: `This vendor is referenced in ${usage.transactionCount} transaction(s) and cannot be permanently deleted. It has been deactivated instead.`,
+        vendor: updated,
+      };
+    }
+
+    // Zero transactions: safe to permanently delete
+    // First remove any non-transaction auxiliary records like documents or performance reviews
+    await this.prisma.vendorDocument.deleteMany({ where: { vendorId: id } });
+    await this.prisma.vendorPerformance.deleteMany({ where: { vendorId: id } });
+
+    await this.prisma.vendor.delete({ where: { id } });
+
+    await this.auditService.record({
+      organizationId: vendor.organizationId,
+      companyId: vendor.companyId,
+      actorId: actor?.id || '00000000-0000-0000-0000-000000000000',
+      actorEmail: actor?.email || 'system@shehswar.com',
+      resource: Resource.VENDOR,
+      resourceId: id,
+      action: Action.DELETE,
+      previousState: { vendor },
+      newState: null,
+      correlationId: uuidv7(),
+    });
+
+    return {
+      success: true,
+      action: 'DELETED' as const,
+      transactionCount: 0,
+      message: `Vendor "${vendor.name}" (${vendor.code}) has been permanently deleted.`,
+    };
+  }
+
+  /**
+   * Explicitly deactivate a vendor
+   */
+  async deactivateVendor(id: string, actor?: AuthUser) {
+    const vendor = await this.findVendorById(id);
+
+    const updated = await this.prisma.vendor.update({
+      where: { id },
+      data: { status: VendorStatus.INACTIVE },
+    });
+
+    await this.auditService.record({
+      organizationId: vendor.organizationId,
+      companyId: vendor.companyId,
+      actorId: actor?.id || '00000000-0000-0000-0000-000000000000',
+      actorEmail: actor?.email || 'system@shehswar.com',
+      resource: Resource.VENDOR,
+      resourceId: id,
+      action: Action.HOLD,
+      previousState: { status: vendor.status },
+      newState: { status: updated.status },
+      correlationId: uuidv7(),
+    });
+
+    return updated;
+  }
 }
