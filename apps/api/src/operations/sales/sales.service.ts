@@ -2749,18 +2749,64 @@ export class SalesService {
   // WAREHOUSE STOCK (display)
   // ============================
 
-  async getWarehouseStockReport(companyId: string, warehouseId?: string) {
-    const where: any = { companyId };
-    if (warehouseId) where.warehouseId = warehouseId;
+  async getWarehouseStockReport(companyId?: string, warehouseId?: string) {
+    const where: any = {};
+    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+    if (warehouseId && warehouseId !== 'ALL') where.warehouseId = warehouseId;
     where.quantityOnHand = { gt: 0 };
 
     return this.prisma.warehouseStock.findMany({
       where,
       include: {
-        warehouse: { select: { id: true, name: true, code: true } },
-        rawMaterial: { select: { id: true, materialCode: true, materialName: true } },
-        packingMaterial: { select: { id: true, materialCode: true, materialName: true } },
-        finishedProduct: { select: { id: true, productCode: true, productName: true } },
+        warehouse: { select: { id: true, name: true, code: true, location: true } },
+        rawMaterial: {
+          select: {
+            id: true,
+            materialCode: true,
+            materialName: true,
+            urduName: true,
+            description: true,
+            grade: true,
+            customFields: true,
+            baseUom: { select: { id: true, name: true, code: true, symbol: true } },
+            category: { select: { id: true, name: true, code: true } },
+          },
+        },
+        packingMaterial: {
+          select: {
+            id: true,
+            materialCode: true,
+            materialName: true,
+            urduName: true,
+            description: true,
+            packCompatibility: true,
+            customFields: true,
+            baseUom: { select: { id: true, name: true, code: true, symbol: true } },
+            category: { select: { id: true, name: true, code: true } },
+          },
+        },
+        finishedProduct: {
+          select: {
+            id: true,
+            productCode: true,
+            productName: true,
+            urduName: true,
+            productType: true,
+            mType: true,
+            packingQuantity: true,
+            packingUnit: true,
+            ppc: true,
+            customFields: true,
+            baseUom: { select: { id: true, name: true, code: true, symbol: true } },
+            packSize: { select: { id: true, name: true, code: true } },
+            category: { select: { id: true, name: true, code: true } },
+            batches: {
+              where: { isActive: true },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, batchNumber: true, availableQuantity: true, isActive: true },
+            },
+          },
+        },
       },
       orderBy: [{ itemType: 'asc' }, { lastUpdated: 'desc' }],
     });

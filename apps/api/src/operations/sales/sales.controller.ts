@@ -417,8 +417,10 @@ export class WarehouseStockController {
   async getReport(
     @CurrentUser() user: AuthUser,
     @Query('warehouseId') warehouseId?: string,
+    @Query('companyId') companyId?: string,
   ) {
-    return this.salesService.getWarehouseStockReport(user.companyId, warehouseId);
+    const effectiveCompanyId = companyId || user?.companyId;
+    return this.salesService.getWarehouseStockReport(effectiveCompanyId, warehouseId);
   }
 
   @Get('sales-products')

@@ -1793,26 +1793,26 @@ export function ProductCostingView() {
                                 line.type === 'RM'
                                   ? '#eff6ff'
                                   : line.type === 'PM'
-                                  ? '#f5f3ff'
-                                  : line.type === 'FP'
-                                  ? '#ecfdf5'
-                                  : '#fffbeb',
+                                    ? '#f5f3ff'
+                                    : line.type === 'FP'
+                                      ? '#ecfdf5'
+                                      : '#fffbeb',
                               color:
                                 line.type === 'RM'
                                   ? '#1d4ed8'
                                   : line.type === 'PM'
-                                  ? '#6d28d9'
-                                  : line.type === 'FP'
-                                  ? '#047857'
-                                  : '#b45309',
+                                    ? '#6d28d9'
+                                    : line.type === 'FP'
+                                      ? '#047857'
+                                      : '#b45309',
                               border:
                                 line.type === 'RM'
                                   ? '1px solid #bfdbfe'
                                   : line.type === 'PM'
-                                  ? '1px solid #ddd6fe'
-                                  : line.type === 'FP'
-                                  ? '1px solid #a7f3d0'
-                                  : '1px solid #fde68a',
+                                    ? '1px solid #ddd6fe'
+                                    : line.type === 'FP'
+                                      ? '1px solid #a7f3d0'
+                                      : '1px solid #fde68a',
                             }}
                           >
                             {line.type}
@@ -2331,12 +2331,12 @@ export function ProductCostingView() {
                     {t === 'ALL'
                       ? 'All'
                       : t === 'RM'
-                      ? 'Raw Material (RM)'
-                      : t === 'PM'
-                      ? 'Packaging (PM)'
-                      : t === 'FP'
-                      ? 'Finished Product (FP)'
-                      : 'Other (OT)'}
+                        ? 'Raw Material (RM)'
+                        : t === 'PM'
+                          ? 'Packaging (PM)'
+                          : t === 'FP'
+                            ? 'Finished Product (FP)'
+                            : 'Other (OT)'}
                   </button>
                 ))}
               </div>
@@ -2712,7 +2712,7 @@ export function ProductCostingView() {
                           let snap: any = {};
                           try {
                             if (rec.notes && rec.notes.startsWith('{')) snap = JSON.parse(rec.notes);
-                          } catch {}
+                          } catch { }
 
                           const productName = snap.productName || rec.finishedProduct?.productName || 'Finished Product';
                           const code = snap.serialNumber || snap.costingCode || rec.costingCode || `CST-v${rec.version}`;
@@ -2812,7 +2812,7 @@ export function ProductCostingView() {
                           let snap: any = {};
                           try {
                             if (rec.notes && rec.notes.startsWith('{')) snap = JSON.parse(rec.notes);
-                          } catch {}
+                          } catch { }
 
                           const productName = snap.productName || rec.finishedProduct?.productName || 'Finished Product';
                           const code = snap.serialNumber || snap.costingCode || rec.costingCode || `CST-v${rec.version}`;
@@ -2909,7 +2909,7 @@ export function ProductCostingView() {
             let snap: any = {};
             try {
               if (selectedHistoryModalRecord.notes) snap = JSON.parse(selectedHistoryModalRecord.notes);
-            } catch {}
+            } catch { }
 
             const savedLines: CostingLineItem[] = snap.lines || [];
 
