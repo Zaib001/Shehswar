@@ -218,3 +218,4 @@ export const useCompany = (): CompanyContextType => {
   }
   return context;
 };
+

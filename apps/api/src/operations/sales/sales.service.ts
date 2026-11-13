@@ -58,7 +58,7 @@ export class SalesService {
     private readonly financeService: FinanceService,
     private readonly creditControlService: CreditControlService,
     private readonly codeGen: CodeGenerationService,
-  ) {}
+  ) { }
 
   // ============================
   // DEALER MANAGEMENT
@@ -617,37 +617,37 @@ export class SalesService {
       currentBalance: Number(dealer.currentBalance || 0),
       region: region
         ? {
-            id: region.id,
-            code: region.code,
-            name: region.name,
-            businessManager: region.businessManager
-              ? `${region.businessManager.firstName} ${region.businessManager.lastName}`.trim()
-              : 'Unassigned',
-          }
+          id: region.id,
+          code: region.code,
+          name: region.name,
+          businessManager: region.businessManager
+            ? `${region.businessManager.firstName} ${region.businessManager.lastName}`.trim()
+            : 'Unassigned',
+        }
         : null,
       zone: zone
         ? {
-            id: zone.id,
-            code: zone.code,
-            name: zone.name,
-            areaManager: zone.areaManager
-              ? `${zone.areaManager.firstName} ${zone.areaManager.lastName}`.trim()
-              : 'Unassigned',
-          }
+          id: zone.id,
+          code: zone.code,
+          name: zone.name,
+          areaManager: zone.areaManager
+            ? `${zone.areaManager.firstName} ${zone.areaManager.lastName}`.trim()
+            : 'Unassigned',
+        }
         : null,
       territory: territory
         ? {
-            id: territory.id,
-            code: territory.code,
-            name: territory.name,
-          }
+          id: territory.id,
+          code: territory.code,
+          name: territory.name,
+        }
         : null,
       salesOfficer: so
         ? {
-            id: so.id,
-            name: `${so.firstName} ${so.lastName}`.trim(),
-            phone: so.phone,
-          }
+          id: so.id,
+          name: `${so.firstName} ${so.lastName}`.trim(),
+          phone: so.phone,
+        }
         : null,
     };
   }
@@ -1613,39 +1613,39 @@ export class SalesService {
           },
           ...(taxAmt > 0
             ? [
-                {
-                  accountCode: '4000', // Sales Revenue (Revenue)
-                  debit: 0,
-                  credit: revAmt,
-                  salesOfficerId: salesOfficerId ?? undefined,
-                  territoryId: territoryId ?? undefined,
-                  zoneId: zoneId ?? undefined,
-                  regionId: regionId ?? undefined,
-                  description: 'Sales Revenue',
-                },
-                {
-                  accountCode: '2100', // Tax Payable (Liability)
-                  debit: 0,
-                  credit: taxAmt,
-                  salesOfficerId: salesOfficerId ?? undefined,
-                  territoryId: territoryId ?? undefined,
-                  zoneId: zoneId ?? undefined,
-                  regionId: regionId ?? undefined,
-                  description: 'Sales Tax Payable',
-                },
-              ]
+              {
+                accountCode: '4000', // Sales Revenue (Revenue)
+                debit: 0,
+                credit: revAmt,
+                salesOfficerId: salesOfficerId ?? undefined,
+                territoryId: territoryId ?? undefined,
+                zoneId: zoneId ?? undefined,
+                regionId: regionId ?? undefined,
+                description: 'Sales Revenue',
+              },
+              {
+                accountCode: '2100', // Tax Payable (Liability)
+                debit: 0,
+                credit: taxAmt,
+                salesOfficerId: salesOfficerId ?? undefined,
+                territoryId: territoryId ?? undefined,
+                zoneId: zoneId ?? undefined,
+                regionId: regionId ?? undefined,
+                description: 'Sales Tax Payable',
+              },
+            ]
             : [
-                {
-                  accountCode: '4000', // Sales Revenue (Revenue)
-                  debit: 0,
-                  credit: netAmount,
-                  salesOfficerId: salesOfficerId ?? undefined,
-                  territoryId: territoryId ?? undefined,
-                  zoneId: zoneId ?? undefined,
-                  regionId: regionId ?? undefined,
-                  description: 'Sales Revenue',
-                },
-              ]),
+              {
+                accountCode: '4000', // Sales Revenue (Revenue)
+                debit: 0,
+                credit: netAmount,
+                salesOfficerId: salesOfficerId ?? undefined,
+                territoryId: territoryId ?? undefined,
+                zoneId: zoneId ?? undefined,
+                regionId: regionId ?? undefined,
+                description: 'Sales Revenue',
+              },
+            ]),
         ],
       });
 
@@ -2008,39 +2008,39 @@ export class SalesService {
             },
             ...(taxAmt > 0
               ? [
-                  {
-                    accountCode: '4000', // Sales Revenue (Revenue)
-                    debit: 0,
-                    credit: revAmt,
-                    salesOfficerId: invoice.salesOfficerId ?? undefined,
-                    territoryId: invoice.territoryId ?? undefined,
-                    zoneId: invoice.zoneId ?? undefined,
-                    regionId: invoice.regionId ?? undefined,
-                    description: 'Sales Revenue',
-                  },
-                  {
-                    accountCode: '2100', // Tax Payable (Liability)
-                    debit: 0,
-                    credit: taxAmt,
-                    salesOfficerId: invoice.salesOfficerId ?? undefined,
-                    territoryId: invoice.territoryId ?? undefined,
-                    zoneId: invoice.zoneId ?? undefined,
-                    regionId: invoice.regionId ?? undefined,
-                    description: 'Sales Tax Payable',
-                  },
-                ]
+                {
+                  accountCode: '4000', // Sales Revenue (Revenue)
+                  debit: 0,
+                  credit: revAmt,
+                  salesOfficerId: invoice.salesOfficerId ?? undefined,
+                  territoryId: invoice.territoryId ?? undefined,
+                  zoneId: invoice.zoneId ?? undefined,
+                  regionId: invoice.regionId ?? undefined,
+                  description: 'Sales Revenue',
+                },
+                {
+                  accountCode: '2100', // Tax Payable (Liability)
+                  debit: 0,
+                  credit: taxAmt,
+                  salesOfficerId: invoice.salesOfficerId ?? undefined,
+                  territoryId: invoice.territoryId ?? undefined,
+                  zoneId: invoice.zoneId ?? undefined,
+                  regionId: invoice.regionId ?? undefined,
+                  description: 'Sales Tax Payable',
+                },
+              ]
               : [
-                  {
-                    accountCode: '4000', // Sales Revenue (Revenue)
-                    debit: 0,
-                    credit: netAmt,
-                    salesOfficerId: invoice.salesOfficerId ?? undefined,
-                    territoryId: invoice.territoryId ?? undefined,
-                    zoneId: invoice.zoneId ?? undefined,
-                    regionId: invoice.regionId ?? undefined,
-                    description: 'Sales Revenue',
-                  },
-                ]),
+                {
+                  accountCode: '4000', // Sales Revenue (Revenue)
+                  debit: 0,
+                  credit: netAmt,
+                  salesOfficerId: invoice.salesOfficerId ?? undefined,
+                  territoryId: invoice.territoryId ?? undefined,
+                  zoneId: invoice.zoneId ?? undefined,
+                  regionId: invoice.regionId ?? undefined,
+                  description: 'Sales Revenue',
+                },
+              ]),
           ],
         });
       }

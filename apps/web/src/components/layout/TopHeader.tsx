@@ -376,8 +376,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleSidebar, onOpenCom
                           backgroundColor: isHighlighted
                             ? 'var(--surface-subtle, #f1f5f9)'
                             : isSelected
-                            ? 'rgba(13, 148, 136, 0.08)'
-                            : 'transparent',
+                              ? 'rgba(13, 148, 136, 0.08)'
+                              : 'transparent',
                           color: isSelected ? 'var(--color-primary, #0d9488)' : 'var(--text-primary)',
                           display: 'flex',
                           alignItems: 'center',

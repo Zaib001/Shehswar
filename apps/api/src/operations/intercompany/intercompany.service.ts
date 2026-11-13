@@ -194,7 +194,13 @@ export class IntercompanyService {
     const productIds = rawItems.map((i) => i.finishedProductId);
     const products = await this.prisma.finishedProduct.findMany({
       where: { id: { in: productIds } },
-      include: { packSize: true, baseUom: true },
+      include: {
+        category: true,
+        packSize: true,
+        baseUom: true,
+        salesUom: true,
+        packagingMaterial: true,
+      },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -351,6 +357,143 @@ export class IntercompanyService {
 
     // 4. ATOMIC TRANSACTION
     return this.transactionService.runInTransaction(async (tx) => {
+      // ── Step 0: Resolve or Create Child Company Finished Products ────
+      const childProductMap = new Map<string, any>();
+
+      for (const item of processedItems) {
+        const parentProd = productMap.get(item.finishedProductId)!;
+
+        // Check whether this product already exists in the destination child company
+        let childProd = await tx.finishedProduct.findFirst({
+          where: {
+            companyId: childCompanyId,
+            productCode: parentProd.productCode,
+            deletedAt: null,
+          },
+        });
+
+        if (!childProd) {
+          childProd = await tx.finishedProduct.findFirst({
+            where: {
+              companyId: childCompanyId,
+              productName: parentProd.productName,
+              deletedAt: null,
+            },
+          });
+        }
+
+        if (!childProd) {
+          // REQUIREMENT 2 & 8: Automatically create the required child-company product record using transferred product master info
+          childProd = await tx.finishedProduct.create({
+            data: {
+              id: uuidv7(),
+              organizationId: childCompany.organizationId,
+              companyId: childCompanyId,
+              categoryId: parentProd.categoryId,
+              packSizeId: parentProd.packSizeId,
+              baseUomId: parentProd.baseUomId,
+              salesUomId: parentProd.salesUomId,
+              productCode: parentProd.productCode,
+              sku: parentProd.sku,
+              productName: parentProd.productName,
+              urduName: parentProd.urduName,
+              brand: parentProd.brand,
+              grade: parentProd.grade,
+              productType: parentProd.productType || 'FINISHED_PRODUCT',
+              mType: parentProd.mType,
+              fertilizerType: parentProd.fertilizerType,
+              productForm: parentProd.productForm,
+              packagingMaterialId: parentProd.packagingMaterialId,
+              packingQuantity: parentProd.packingQuantity,
+              packingUnit: parentProd.packingUnit,
+              ppc: parentProd.ppc,
+              bagWeight: parentProd.bagWeight,
+              barcode: parentProd.barcode,
+              batchControlled: parentProd.batchControlled,
+              expiryControlled: parentProd.expiryControlled,
+              shelfLifeDays: parentProd.shelfLifeDays,
+              minimumStock: parentProd.minimumStock,
+              reorderLevel: parentProd.reorderLevel,
+              standardCost: item.sellingPrice, // Intercompany purchase cost
+              defaultSellingPrice: item.sellingPrice,
+              status: 'ACTIVE',
+              approvalStatus: 'APPROVED',
+              customFields: {
+                sourceCompanyId: parentCompanyId,
+                sourceCompanyName: parentCompany.name,
+                sourceProductId: parentProd.id,
+                intercompanyTransferRate: item.sellingPrice,
+                originalManufacturingCost: item.unitCost,
+                markupPercent: item.markupPercent,
+                batchNumber: item.batchNumber,
+              },
+            },
+          });
+          this.logger.log(
+            `Created child FinishedProduct for ${childCompany.name}: ${childProd.productName} (${childProd.productCode})`,
+          );
+        } else {
+          // REQUIREMENT 2 & 8: Product exists - DO NOT duplicate! Update cost & ensure active status
+          await tx.finishedProduct.update({
+            where: { id: childProd.id },
+            data: {
+              standardCost: item.sellingPrice,
+              defaultSellingPrice: item.sellingPrice,
+              status: 'ACTIVE',
+              customFields: {
+                ...(typeof childProd.customFields === 'object' && childProd.customFields
+                  ? (childProd.customFields as any)
+                  : {}),
+                lastTransferRate: item.sellingPrice,
+                lastOriginalCost: item.unitCost,
+                lastMarkupPercent: item.markupPercent,
+                batchNumber: item.batchNumber,
+              },
+            },
+          });
+          this.logger.log(
+            `Reused existing child FinishedProduct for ${childCompany.name}: ${childProd.productName} (${childProd.productCode})`,
+          );
+        }
+
+        // Migrate any previous legacy child stock in this warehouse that referenced parent product ID
+        const legacyStock = await tx.warehouseStock.findFirst({
+          where: {
+            warehouseId: childWarehouseId,
+            itemType: 'FINISHED_PRODUCT',
+            finishedProductId: parentProd.id,
+          },
+        });
+        if (legacyStock) {
+          const existingChildStock = await tx.warehouseStock.findFirst({
+            where: {
+              warehouseId: childWarehouseId,
+              itemType: 'FINISHED_PRODUCT',
+              finishedProductId: childProd.id,
+            },
+          });
+          if (existingChildStock && existingChildStock.id !== legacyStock.id) {
+            await tx.warehouseStock.update({
+              where: { id: existingChildStock.id },
+              data: {
+                quantityOnHand:
+                  Number(existingChildStock.quantityOnHand) + Number(legacyStock.quantityOnHand),
+              },
+            });
+            await tx.warehouseStock.delete({ where: { id: legacyStock.id } });
+          } else {
+            await tx.warehouseStock.update({
+              where: { id: legacyStock.id },
+              data: {
+                finishedProductId: childProd.id,
+              },
+            });
+          }
+        }
+
+        childProductMap.set(item.finishedProductId, childProd);
+      }
+
       // ── A. PARENT COMPANY: Sales Invoice & Stock OUT ─────────────────
       const parentInvoice = await tx.salesInvoice.create({
         data: {
@@ -398,10 +541,10 @@ export class IntercompanyService {
             transactionType: 'SALE',
             referenceId: parentInvoice.id,
             referenceNumber: parentInvoiceNo,
-            notes: `Intercompany dispatch to ${childCompany.name} (Batch: ${item.batchNumber})`,
+            notes: `Intercompany dispatch to ${childCompany.name} (Dest WH: ${childWarehouse.name}, Batch: ${item.batchNumber}, Rate: PKR ${item.sellingPrice})`,
           });
 
-          // If batch exists, decrement available quantity
+          // If batch exists in parent, decrement available quantity
           if (item.batchNumber && item.batchNumber !== 'STD-BATCH') {
             const pb = await tx.productBatch.findFirst({
               where: { finishedProductId: item.finishedProductId, batchNumber: item.batchNumber },
@@ -442,39 +585,94 @@ export class IntercompanyService {
           postedAt: isPosted ? new Date() : null,
           postedById: actor.id,
           items: {
-            create: processedItems.map((item) => ({
-              id: uuidv7(),
-              materialType: 'FINISHED_PRODUCT',
-              finishedProductId: item.finishedProductId,
-              itemName: item.productName,
-              packing: item.packSize
-                ? `${item.packSize}${item.batchNumber ? ' | Batch: ' + item.batchNumber : ''}`
-                : item.batchNumber ? `Batch: ${item.batchNumber}` : undefined,
-              quantity: item.quantity,
-              rate: item.sellingPrice,
-              grossAmount: item.totalSales,
-              netAmount: item.totalSales,
-            })),
+            create: processedItems.map((item) => {
+              const childProd = childProductMap.get(item.finishedProductId)!;
+              return {
+                id: uuidv7(),
+                materialType: 'FINISHED_PRODUCT',
+                finishedProductId: childProd.id, // Linked to Child's FinishedProduct!
+                itemName: childProd.productName,
+                packing: item.packSize
+                  ? `${item.packSize}${item.batchNumber ? ' | Batch: ' + item.batchNumber : ''}`
+                  : item.batchNumber
+                  ? `Batch: ${item.batchNumber}`
+                  : undefined,
+                quantity: item.quantity,
+                rate: item.sellingPrice,
+                grossAmount: item.totalSales,
+                netAmount: item.totalSales,
+              };
+            }),
           },
         },
       });
 
-      // Increment Child Stock for each product if POSTED (referencing SAME FinishedProduct ID)
+      // Increment Child Stock for each product if POSTED
       if (isPosted) {
         for (const item of processedItems) {
+          const childProd = childProductMap.get(item.finishedProductId)!;
+
+          // Fetch parent batch info (mfgDate, expiryDate) to preserve
+          let sourceBatch: any = null;
+          if (item.batchNumber && item.batchNumber !== 'STD-BATCH') {
+            sourceBatch = await tx.productBatch.findFirst({
+              where: { finishedProductId: item.finishedProductId, batchNumber: item.batchNumber },
+            });
+          }
+
+          // Add physical stock to destination child warehouse
           await this.inventoryService.applyMovement(tx, {
             organizationId: childCompany.organizationId,
             companyId: childCompanyId,
             warehouseId: childWarehouseId,
             itemType: 'FINISHED_PRODUCT',
-            finishedProductId: item.finishedProductId,
+            finishedProductId: childProd.id, // <-- Child company's FP ID!
             quantityChange: item.quantity,
-            unitCost: item.sellingPrice,
+            unitCost: item.sellingPrice, // Intercompany transfer purchase cost
             transactionType: 'PURCHASE',
             referenceId: childPurchase.id,
             referenceNumber: childVoucherNo,
-            notes: `Intercompany stock receipt from ${parentCompany.name} (Batch: ${item.batchNumber})`,
+            notes: `Intercompany stock receipt from ${parentCompany.name} (Source WH: ${parentWarehouse.name}, Batch: ${item.batchNumber}, Rate: PKR ${item.sellingPrice})`,
           });
+
+          // Batch handling in Child Company: preserve batch information
+          const effectiveBatchNumber = item.batchNumber || 'STD-BATCH';
+          const childBatch = await tx.productBatch.findFirst({
+            where: {
+              finishedProductId: childProd.id,
+              batchNumber: effectiveBatchNumber,
+            },
+          });
+
+          if (childBatch) {
+            await tx.productBatch.update({
+              where: { id: childBatch.id },
+              data: {
+                availableQuantity: Number(childBatch.availableQuantity) + item.quantity,
+                initialQuantity: Number(childBatch.initialQuantity) + item.quantity,
+                isActive: true,
+                status: 'RELEASED',
+              },
+            });
+          } else {
+            await tx.productBatch.create({
+              data: {
+                id: uuidv7(),
+                organizationId: childCompany.organizationId,
+                companyId: childCompanyId,
+                finishedProductId: childProd.id,
+                batchNumber: effectiveBatchNumber,
+                manufacturingDate: sourceBatch?.manufacturingDate || new Date(),
+                expiryDate: sourceBatch?.expiryDate || null,
+                initialQuantity: item.quantity,
+                availableQuantity: item.quantity,
+                allocatedQuantity: 0,
+                isActive: true,
+                status: 'RELEASED',
+                notes: `Transferred from ${parentCompany.name} (Source WH: ${parentWarehouse.name}, Source Batch: ${effectiveBatchNumber})`,
+              },
+            });
+          }
         }
       }
 
@@ -500,7 +698,10 @@ export class IntercompanyService {
         totalSales: totalBatchSales,
         totalProfit: totalBatchProfit,
         effectiveMarkupPercent: effectiveMarkup,
-        items: processedItems,
+        items: processedItems.map((item) => ({
+          ...item,
+          childProductId: childProductMap.get(item.finishedProductId)?.id,
+        })),
       };
     });
   }
