@@ -23,8 +23,9 @@ export class DocumentNumberingService {
     prefixOverride?: string;
   }): Promise<string> {
     const fiscalYear = params.fiscalYear ?? new Date().getFullYear();
-    const defaultPrefix = `SH-${params.documentType}-${fiscalYear}`;
-    const prefix = params.prefixOverride ?? defaultPrefix;
+    const docShort = params.documentType === 'SALES_INVOICE' ? 'SI' : params.documentType;
+    const defaultPrefix = `SH-${docShort}-${fiscalYear}`.slice(0, 20);
+    const prefix = (params.prefixOverride ?? defaultPrefix).slice(0, 20);
 
     // Concurrency-safe atomic increment via upsert
     const sequence = await this.prisma.documentSequence.upsert({

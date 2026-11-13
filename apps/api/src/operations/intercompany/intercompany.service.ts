@@ -2,12 +2,19 @@
  * SHEHSWAR ONE360 - Intercompany Transfer Service
  *
  * Implements the client's canonical Parent -> Child Company Flow:
- * ONE action creates:
- *  1. Parent Company: Sale Invoice + Warehouse Stock OUT (-)
- *  2. Child Company: Purchase Invoice + Warehouse Stock IN (+)
- *
- * Both records reference the same transaction ID (`INTERCOMPANY_TRANSFER`).
- * Perfectly atomic transaction.
+ * - Parent Company (Shehswar): Manufacturing company holding actual finished product stock and product cost.
+ * - Sells finished goods to dynamic child companies (ConsceptAG, Nectar, AgriventurePakistan, Excelium SEEd, etc.).
+ * - Sets intercompany profit/markup percentage (e.g. 10%, 15%, 20% or custom, not hardcoded).
+ * - Multi-product transfer with independent product-level calculations:
+ *     Selling Rate = Cost + (Cost * Markup%)
+ *     Total Sales = Qty * Selling Rate
+ *     Total Cost = Qty * Cost
+ *     Profit = Total Sales - Total Cost
+ * - Atomic transaction:
+ *     1. Parent: Sales Invoice + Warehouse Stock OUT (-)
+ *     2. Child: Purchase Invoice + Warehouse Stock IN (+)
+ * - Strictly validates that Shehswar has sufficient stock before allowing transfer.
+ * - Child references the SAME FinishedProduct record (no duplicate product masters).
  */
 import {
   Injectable,
@@ -22,16 +29,31 @@ import { DocumentNumberingService } from '../../platform/document-numbering/docu
 import { uuidv7 } from '@shehswar/shared';
 import { AuthUser } from '@shehswar/types';
 
+export interface IntercompanyTransferItemDto {
+  finishedProductId: string;
+  batchNumber?: string;
+  quantity: number;
+  unitCost?: number;
+  markupPercent?: number;
+  sellingPrice?: number;
+}
+
 export interface IntercompanyTransferDto {
   parentCompanyId: string;
   childCompanyId: string;
-  finishedProductId: string;
   parentWarehouseId: string;
   childWarehouseId: string;
-  quantity: number;
-  transferCost: number; // Parent's internal transfer cost
-  sellingPrice: number; // Transfer/selling price to child
+  defaultMarkupPercent?: number;
+  items?: IntercompanyTransferItemDto[];
   notes?: string;
+
+  // Backward compatibility fields for single-item calls:
+  finishedProductId?: string;
+  quantity?: number;
+  transferCost?: number;
+  sellingPrice?: number;
+  batchNumber?: string;
+  markupPercent?: number;
 }
 
 @Injectable()
@@ -46,39 +68,216 @@ export class IntercompanyService {
   ) {}
 
   /**
+   * Get available Finished Product stock for the selected source warehouse
+   */
+  async getSourceStock(warehouseId: string) {
+    if (!warehouseId) return [];
+
+    const stocks = await this.prisma.warehouseStock.findMany({
+      where: {
+        warehouseId,
+        itemType: 'FINISHED_PRODUCT',
+        quantityOnHand: { gt: 0 },
+      },
+      include: {
+        finishedProduct: {
+          include: {
+            packSize: true,
+            baseUom: true,
+            batches: {
+              where: { isActive: true },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: { quantityOnHand: 'desc' },
+    });
+
+    return stocks
+      .filter((s) => s.finishedProduct)
+      .map((s) => {
+        const p = s.finishedProduct!;
+        const activeBatch = p.batches?.[0];
+        const packDesc =
+          p.packSize?.name ||
+          (p.packingQuantity ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim() : '');
+        const cost = Number(p.standardCost || s.averageCost || 0);
+
+        return {
+          id: p.id,
+          finishedProductId: p.id,
+          productCode: p.productCode,
+          productName: p.productName,
+          packSize: packDesc || '-',
+          uom: p.baseUom?.code || p.packingUnit || 'Units',
+          availableStock: Number(s.quantityOnHand),
+          unitCost: cost,
+          batchNumber: activeBatch?.batchNumber || 'STD-BATCH',
+          mfgDate: activeBatch?.manufacturingDate,
+          expiryDate: activeBatch?.expiryDate,
+        };
+      });
+  }
+
+  /**
    * Execute Parent Sale & Child Purchase simultaneously in one atomic transaction
+   * Supports multi-product items with custom markup % and stock validation
    */
   async executeTransfer(dto: IntercompanyTransferDto, actor: AuthUser) {
     const {
       parentCompanyId,
       childCompanyId,
-      finishedProductId,
       parentWarehouseId,
       childWarehouseId,
-      quantity,
-      sellingPrice,
+      defaultMarkupPercent,
       notes,
     } = dto;
 
-    if (quantity <= 0) throw new BadRequestException('Quantity must be greater than zero');
-    if (parentCompanyId === childCompanyId) throw new BadRequestException('Parent and Child company cannot be the same');
+    if (!parentCompanyId || !childCompanyId) {
+      throw new BadRequestException('Parent and Child company IDs are required');
+    }
+    if (parentCompanyId === childCompanyId) {
+      throw new BadRequestException('Parent and Child company cannot be the same');
+    }
+    if (!parentWarehouseId || !childWarehouseId) {
+      throw new BadRequestException('Source and Destination warehouse IDs are required');
+    }
 
-    // 1. Validate Parent and Child Companies
-    const [parentCompany, childCompany, product, parentWarehouse, childWarehouse] = await Promise.all([
+    // Normalize items array (support multi-line and legacy single-product)
+    const rawItems: IntercompanyTransferItemDto[] =
+      dto.items && dto.items.length > 0
+        ? dto.items
+        : dto.finishedProductId && dto.quantity
+        ? [
+            {
+              finishedProductId: dto.finishedProductId,
+              batchNumber: dto.batchNumber,
+              quantity: dto.quantity,
+              unitCost: dto.transferCost,
+              markupPercent: dto.markupPercent,
+              sellingPrice: dto.sellingPrice,
+            },
+          ]
+        : [];
+
+    if (rawItems.length === 0) {
+      throw new BadRequestException('At least one product item is required for transfer');
+    }
+
+    // 1. Validate Parent and Child Companies & Warehouses
+    const [parentCompany, childCompany, parentWarehouse, childWarehouse] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: parentCompanyId } }),
       this.prisma.company.findUnique({ where: { id: childCompanyId } }),
-      this.prisma.finishedProduct.findUnique({ where: { id: finishedProductId } }),
       this.prisma.warehouse.findUnique({ where: { id: parentWarehouseId } }),
       this.prisma.warehouse.findUnique({ where: { id: childWarehouseId } }),
     ]);
 
     if (!parentCompany) throw new NotFoundException('Parent company not found');
     if (!childCompany) throw new NotFoundException('Child company not found');
-    if (!product) throw new NotFoundException('Finished product not found');
-    if (!parentWarehouse) throw new NotFoundException('Parent warehouse not found');
-    if (!childWarehouse) throw new NotFoundException('Child warehouse not found');
+    if (!parentWarehouse) throw new NotFoundException('Parent source warehouse not found');
+    if (!childWarehouse) throw new NotFoundException('Child destination warehouse not found');
 
-    // 2. Find or create dummy/internal intercompany dealer (for Parent) & vendor (for Child)
+    if (parentWarehouse.companyId !== parentCompanyId) {
+      throw new BadRequestException(`Source warehouse does not belong to parent company (${parentCompany.name})`);
+    }
+    if (childWarehouse.companyId !== childCompanyId) {
+      throw new BadRequestException(`Destination warehouse does not belong to child company (${childCompany.name})`);
+    }
+
+    // 2. Fetch products and validate source warehouse stock
+    const productIds = rawItems.map((i) => i.finishedProductId);
+    const products = await this.prisma.finishedProduct.findMany({
+      where: { id: { in: productIds } },
+      include: { packSize: true, baseUom: true },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const sourceStocks = await this.prisma.warehouseStock.findMany({
+      where: {
+        warehouseId: parentWarehouseId,
+        itemType: 'FINISHED_PRODUCT',
+        finishedProductId: { in: productIds },
+      },
+    });
+    const stockMap = new Map(sourceStocks.map((s) => [s.finishedProductId!, s]));
+
+    const globalMarkup = defaultMarkupPercent !== undefined && defaultMarkupPercent !== null
+      ? Number(defaultMarkupPercent)
+      : 15;
+
+    // Process and validate each line item
+    const processedItems = rawItems.map((item, idx) => {
+      const prod = productMap.get(item.finishedProductId);
+      if (!prod) {
+        throw new NotFoundException(`Product not found for line #${idx + 1}`);
+      }
+      if (!item.quantity || item.quantity <= 0) {
+        throw new BadRequestException(`Quantity for product "${prod.productName}" must be greater than zero`);
+      }
+
+      const stock = stockMap.get(item.finishedProductId);
+      const availableQty = stock ? Number(stock.quantityOnHand) : 0;
+
+      // REQUIREMENT: Strict stock validation
+      if (availableQty < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock available in Shehswar for ${prod.productName}. Available: ${availableQty}, Requested: ${item.quantity}`,
+        );
+      }
+
+      // Unit Cost from item, or stock avg, or product standardCost
+      const costRate =
+        item.unitCost !== undefined && item.unitCost > 0
+          ? Number(item.unitCost)
+          : Number(stock?.averageCost || prod.standardCost || 0);
+
+      // Markup %
+      const markupPercent =
+        item.markupPercent !== undefined && item.markupPercent !== null
+          ? Number(item.markupPercent)
+          : globalMarkup;
+
+      // Selling Rate = Cost + (Cost * Markup%)
+      const calculatedSellingRate = Math.round(costRate * (1 + markupPercent / 100) * 100) / 100;
+      const sellingRate =
+        item.sellingPrice !== undefined && item.sellingPrice > 0
+          ? Number(item.sellingPrice)
+          : calculatedSellingRate;
+
+      const lineCost = Math.round(item.quantity * costRate * 100) / 100;
+      const lineSales = Math.round(item.quantity * sellingRate * 100) / 100;
+      const lineProfit = Math.round((lineSales - lineCost) * 100) / 100;
+
+      const packDesc =
+        prod.packSize?.name ||
+        (prod.packingQuantity ? `${prod.packingQuantity} ${prod.packingUnit || ''}`.trim() : '');
+
+      return {
+        finishedProductId: prod.id,
+        productCode: prod.productCode,
+        productName: prod.productName,
+        packSize: packDesc || '-',
+        batchNumber: item.batchNumber || 'STD-BATCH',
+        quantity: Number(item.quantity),
+        unitCost: costRate,
+        markupPercent,
+        sellingPrice: sellingRate,
+        totalCost: lineCost,
+        totalSales: lineSales,
+        profit: lineProfit,
+      };
+    });
+
+    const totalBatchCost = Math.round(processedItems.reduce((acc, i) => acc + i.totalCost, 0) * 100) / 100;
+    const totalBatchSales = Math.round(processedItems.reduce((acc, i) => acc + i.totalSales, 0) * 100) / 100;
+    const totalBatchProfit = Math.round((totalBatchSales - totalBatchCost) * 100) / 100;
+    const effectiveMarkup = totalBatchCost > 0
+      ? Math.round(((totalBatchSales - totalBatchCost) / totalBatchCost) * 1000) / 10
+      : 0;
+
+    // 3. Find or create internal intercompany dealer (for Parent) & vendor (for Child)
     let childDealer = await this.prisma.dealer.findFirst({
       where: { companyId: parentCompanyId, name: childCompany.name },
     });
@@ -115,7 +314,6 @@ export class IntercompanyService {
     }
 
     const transferTxId = `IC-TX-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const totalAmount = quantity * sellingPrice;
 
     // Generate Document Numbers
     const [parentInvoiceNo, childVoucherNo] = await Promise.all([
@@ -131,7 +329,23 @@ export class IntercompanyService {
       }),
     ]);
 
-    // 3. ATOMIC TRANSACTION
+    // Structured metadata for permanent history & reporting
+    const metadataPayload = {
+      txId: transferTxId,
+      transferType: 'Inter Company Sale',
+      parentCompany: { id: parentCompany.id, name: parentCompany.name, code: parentCompany.code },
+      childCompany: { id: childCompany.id, name: childCompany.name, code: childCompany.code },
+      parentWarehouse: { id: parentWarehouse.id, name: parentWarehouse.name },
+      childWarehouse: { id: childWarehouse.id, name: childWarehouse.name },
+      totalCost: totalBatchCost,
+      totalSales: totalBatchSales,
+      totalProfit: totalBatchProfit,
+      markupPercent: effectiveMarkup,
+      items: processedItems,
+    };
+    const structuredNotes = `[INTERCOMPANY_TRANSFER] ${JSON.stringify(metadataPayload)} | ${notes || 'Standard dispatch'}`;
+
+    // 4. ATOMIC TRANSACTION
     return this.transactionService.runInTransaction(async (tx) => {
       // ── A. PARENT COMPANY: Sales Invoice & Stock OUT ─────────────────
       const parentInvoice = await tx.salesInvoice.create({
@@ -143,43 +357,61 @@ export class IntercompanyService {
           invoiceDate: new Date(),
           dealerId: childDealer.id,
           warehouseId: parentWarehouseId,
-          grossAmount: totalAmount,
+          grossAmount: totalBatchSales,
           taxAmount: 0,
           discountAmount: 0,
-          netAmount: totalAmount,
+          netAmount: totalBatchSales,
           postingStatus: 'POSTED',
           postedAt: new Date(),
-          notes: `Intercompany Transfer to ${childCompany.name} (Tx: ${transferTxId}). ${notes || ''}`,
+          notes: structuredNotes,
           items: {
-            create: [
-              {
-                id: uuidv7(),
-                finishedProductId: product.id,
-                productName: product.productName,
-                quantity,
-                rate: sellingPrice,
-                grossAmount: totalAmount,
-                netAmount: totalAmount,
-              },
-            ],
+            create: processedItems.map((item) => ({
+              id: uuidv7(),
+              finishedProductId: item.finishedProductId,
+              productName: item.productName,
+              packing: item.packSize,
+              batchNumber: item.batchNumber,
+              quantity: item.quantity,
+              rate: item.sellingPrice,
+              grossAmount: item.totalSales,
+              netAmount: item.totalSales,
+            })),
           },
         },
       });
 
-      // Decrement Parent Stock
-      await this.inventoryService.applyMovement(tx, {
-        organizationId: parentCompany.organizationId,
-        companyId: parentCompanyId,
-        warehouseId: parentWarehouseId,
-        itemType: 'FINISHED_PRODUCT',
-        finishedProductId: product.id,
-        quantityChange: -quantity,
-        unitCost: dto.transferCost || sellingPrice,
-        transactionType: 'SALE',
-        referenceId: parentInvoice.id,
-        referenceNumber: parentInvoiceNo,
-        notes: `Intercompany dispatch to ${childCompany.name}`,
-      });
+      // Decrement Parent Stock for each product
+      for (const item of processedItems) {
+        await this.inventoryService.applyMovement(tx, {
+          organizationId: parentCompany.organizationId,
+          companyId: parentCompanyId,
+          warehouseId: parentWarehouseId,
+          itemType: 'FINISHED_PRODUCT',
+          finishedProductId: item.finishedProductId,
+          quantityChange: -item.quantity,
+          unitCost: item.unitCost,
+          transactionType: 'SALE',
+          referenceId: parentInvoice.id,
+          referenceNumber: parentInvoiceNo,
+          notes: `Intercompany dispatch to ${childCompany.name} (Batch: ${item.batchNumber})`,
+        });
+
+        // If batch exists, decrement available quantity
+        if (item.batchNumber && item.batchNumber !== 'STD-BATCH') {
+          const pb = await tx.productBatch.findFirst({
+            where: { finishedProductId: item.finishedProductId, batchNumber: item.batchNumber },
+          });
+          if (pb) {
+            const currentAvail = Number(pb.availableQuantity);
+            await tx.productBatch.update({
+              where: { id: pb.id },
+              data: {
+                availableQuantity: Math.max(0, currentAvail - item.quantity),
+              },
+            });
+          }
+        }
+      }
 
       // ── B. CHILD COMPANY: Purchase Invoice & Stock IN ────────────────
       const childPurchase = await tx.purchaseInvoice.create({
@@ -196,47 +428,50 @@ export class IntercompanyService {
           isComplete: true,
           vendorId: parentVendor.id,
           warehouseId: childWarehouseId,
-          grossAmount: totalAmount,
+          grossAmount: totalBatchSales,
           taxAmount: 0,
           discountAmount: 0,
-          netAmount: totalAmount,
-          notes: `Intercompany Purchase from ${parentCompany.name} (Tx: ${transferTxId}). ${notes || ''}`,
+          netAmount: totalBatchSales,
+          notes: structuredNotes,
           postedAt: new Date(),
           postedById: actor.id,
           items: {
-            create: [
-              {
-                id: uuidv7(),
-                materialType: 'FINISHED_PRODUCT',
-                finishedProductId: product.id,
-                itemName: product.productName,
-                quantity,
-                rate: sellingPrice,
-                grossAmount: totalAmount,
-                netAmount: totalAmount,
-              },
-            ],
+            create: processedItems.map((item) => ({
+              id: uuidv7(),
+              materialType: 'FINISHED_PRODUCT',
+              finishedProductId: item.finishedProductId,
+              itemName: item.productName,
+              packing: item.packSize
+                ? `${item.packSize}${item.batchNumber ? ' | Batch: ' + item.batchNumber : ''}`
+                : item.batchNumber ? `Batch: ${item.batchNumber}` : undefined,
+              quantity: item.quantity,
+              rate: item.sellingPrice,
+              grossAmount: item.totalSales,
+              netAmount: item.totalSales,
+            })),
           },
         },
       });
 
-      // Increment Child Stock
-      await this.inventoryService.applyMovement(tx, {
-        organizationId: childCompany.organizationId,
-        companyId: childCompanyId,
-        warehouseId: childWarehouseId,
-        itemType: 'FINISHED_PRODUCT',
-        finishedProductId: product.id,
-        quantityChange: quantity,
-        unitCost: sellingPrice,
-        transactionType: 'PURCHASE',
-        referenceId: childPurchase.id,
-        referenceNumber: childVoucherNo,
-        notes: `Intercompany stock receipt from ${parentCompany.name}`,
-      });
+      // Increment Child Stock for each product (referencing SAME FinishedProduct ID)
+      for (const item of processedItems) {
+        await this.inventoryService.applyMovement(tx, {
+          organizationId: childCompany.organizationId,
+          companyId: childCompanyId,
+          warehouseId: childWarehouseId,
+          itemType: 'FINISHED_PRODUCT',
+          finishedProductId: item.finishedProductId,
+          quantityChange: item.quantity,
+          unitCost: item.sellingPrice,
+          transactionType: 'PURCHASE',
+          referenceId: childPurchase.id,
+          referenceNumber: childVoucherNo,
+          notes: `Intercompany stock receipt from ${parentCompany.name} (Batch: ${item.batchNumber})`,
+        });
+      }
 
       this.logger.log(
-        `Intercompany Transfer Complete: ${transferTxId} | Parent Sale ${parentInvoiceNo} | Child Purchase ${childVoucherNo}`,
+        `Intercompany Transfer Successful: ${transferTxId} | Parent Sale: ${parentInvoiceNo} | Child Purchase: ${childVoucherNo} | Cost: PKR ${totalBatchCost} | Sales: PKR ${totalBatchSales} | Profit: PKR ${totalBatchProfit}`,
       );
 
       return {
@@ -246,49 +481,351 @@ export class IntercompanyService {
           invoiceNumber: parentInvoiceNo,
           company: parentCompany.name,
           warehouse: parentWarehouse.name,
-          quantityDeducted: quantity,
         },
         childPurchase: {
           id: childPurchase.id,
           voucherNumber: childVoucherNo,
           company: childCompany.name,
           warehouse: childWarehouse.name,
-          quantityAdded: quantity,
         },
-        product: product.productName,
-        totalAmount,
+        totalCost: totalBatchCost,
+        totalSales: totalBatchSales,
+        totalProfit: totalBatchProfit,
+        effectiveMarkupPercent: effectiveMarkup,
+        items: processedItems,
       };
     });
   }
 
-  async getTransferHistory(companyId: string) {
-    const transfers = await this.prisma.salesInvoice.findMany({
-      where: {
-        companyId,
-        notes: { contains: 'Intercompany Transfer' },
+  /**
+   * Shehswar Profit Reporting
+   * Returns: Product | Qty | Cost | Selling Rate | Sales | Profit + Totals
+   */
+  async getProfitReport(params: { companyId?: string; startDate?: string; endDate?: string }) {
+    const { companyId, startDate, endDate } = params;
+
+    const where: any = {
+      notes: { contains: 'INTERCOMPANY', mode: 'insensitive' },
+    };
+    if (companyId) {
+      where.companyId = companyId;
+    }
+    if (startDate || endDate) {
+      where.invoiceDate = {};
+      if (startDate) where.invoiceDate.gte = new Date(startDate);
+      if (endDate) where.invoiceDate.lte = new Date(endDate);
+    }
+
+    const sales = await this.prisma.salesInvoice.findMany({
+      where,
+      include: {
+        company: { select: { name: true, code: true } },
+        dealer: { select: { name: true } },
+        warehouse: { select: { name: true } },
+        items: {
+          include: {
+            finishedProduct: {
+              select: {
+                id: true,
+                productCode: true,
+                productName: true,
+                standardCost: true,
+                packSize: { select: { name: true } },
+              },
+            },
+          },
+        },
       },
+      orderBy: { invoiceDate: 'desc' },
+      take: 100,
+    });
+
+    const detailedRows: any[] = [];
+    const productAggregation = new Map<string, any>();
+
+    let grandTotalCost = 0;
+    let grandTotalSales = 0;
+    let grandTotalProfit = 0;
+    let grandTotalQty = 0;
+
+    for (const inv of sales) {
+      // Attempt to extract structured metadata if available
+      let parsedMeta: any = null;
+      if (inv.notes && inv.notes.includes('[INTERCOMPANY_TRANSFER]')) {
+        try {
+          const jsonStr = inv.notes.split('[INTERCOMPANY_TRANSFER]')[1]?.split('|')[0]?.trim();
+          if (jsonStr) parsedMeta = JSON.parse(jsonStr);
+        } catch {
+          // fallback to item parsing
+        }
+      }
+
+      for (const item of inv.items) {
+        const prod = item.finishedProduct;
+        const metaItem = parsedMeta?.items?.find(
+          (m: any) => m.finishedProductId === item.finishedProductId || m.productName === item.productName,
+        );
+
+        const qty = Number(item.quantity);
+        const sellingRate = Number(item.rate);
+        const lineSales = Number(item.netAmount);
+
+        const unitCost = metaItem?.unitCost !== undefined
+          ? Number(metaItem.unitCost)
+          : Number(prod?.standardCost || 0);
+
+        const lineCost = metaItem?.totalCost !== undefined
+          ? Number(metaItem.totalCost)
+          : Math.round(qty * unitCost * 100) / 100;
+
+        const lineProfit = Math.round((lineSales - lineCost) * 100) / 100;
+        const markupPercent = unitCost > 0
+          ? Math.round(((sellingRate - unitCost) / unitCost) * 1000) / 10
+          : 0;
+
+        const row = {
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.invoiceDate,
+          childCompany: inv.dealer?.name || 'Child Company',
+          warehouse: inv.warehouse?.name || 'Central',
+          productId: item.finishedProductId,
+          productCode: prod?.productCode || 'N/A',
+          productName: item.productName,
+          packSize: item.packing || prod?.packSize?.name || '-',
+          batchNumber: item.batchNumber || metaItem?.batchNumber || '-',
+          quantity: qty,
+          unitCost,
+          sellingRate,
+          lineCost,
+          lineSales,
+          profit: lineProfit,
+          markupPercent,
+        };
+
+        detailedRows.push(row);
+
+        grandTotalCost += lineCost;
+        grandTotalSales += lineSales;
+        grandTotalProfit += lineProfit;
+        grandTotalQty += qty;
+
+        // Group by product
+        const prodKey = prod?.id || item.productName;
+        if (!productAggregation.has(prodKey)) {
+          productAggregation.set(prodKey, {
+            productId: prodKey,
+            productCode: prod?.productCode || 'N/A',
+            productName: item.productName,
+            packSize: row.packSize,
+            totalQuantity: 0,
+            unitCost: unitCost,
+            weightedSellingRateTotal: 0,
+            totalCost: 0,
+            totalSales: 0,
+            totalProfit: 0,
+          });
+        }
+        const pAgg = productAggregation.get(prodKey)!;
+        pAgg.totalQuantity += qty;
+        pAgg.totalCost += lineCost;
+        pAgg.totalSales += lineSales;
+        pAgg.totalProfit += lineProfit;
+        pAgg.weightedSellingRateTotal += lineSales;
+      }
+    }
+
+    const aggregatedProducts = Array.from(productAggregation.values()).map((p) => {
+      const avgSellingRate = p.totalQuantity > 0 ? Math.round((p.totalSales / p.totalQuantity) * 100) / 100 : 0;
+      const marginPct = p.totalCost > 0 ? Math.round(((p.totalSales - p.totalCost) / p.totalCost) * 1000) / 10 : 0;
+      return {
+        ...p,
+        averageSellingRate: avgSellingRate,
+        marginPercent: marginPct,
+      };
+    });
+
+    const overallMargin = grandTotalCost > 0
+      ? Math.round(((grandTotalSales - grandTotalCost) / grandTotalCost) * 1000) / 10
+      : 0;
+
+    return {
+      summary: {
+        totalCost: Math.round(grandTotalCost * 100) / 100,
+        totalSales: Math.round(grandTotalSales * 100) / 100,
+        totalProfit: Math.round(grandTotalProfit * 100) / 100,
+        overallMarginPercent: overallMargin,
+        totalUnits: grandTotalQty,
+        transfersCount: sales.length,
+      },
+      productPerformance: aggregatedProducts,
+      detailedTransactions: detailedRows,
+    };
+  }
+
+  /**
+   * Child Company Received Goods & Intercompany Payable Report
+   */
+  async getChildReport(params: { childCompanyId: string; warehouseId?: string }) {
+    const { childCompanyId, warehouseId } = params;
+    if (!childCompanyId) {
+      throw new BadRequestException('Child company ID is required');
+    }
+
+    const where: any = {
+      companyId: childCompanyId,
+      reference: { startsWith: 'IC-TX-' },
+    };
+    if (warehouseId) {
+      where.warehouseId = warehouseId;
+    }
+
+    const purchases = await this.prisma.purchaseInvoice.findMany({
+      where,
+      include: {
+        vendor: { select: { name: true } },
+        warehouse: { select: { name: true } },
+        items: {
+          include: {
+            finishedProduct: {
+              select: {
+                id: true,
+                productCode: true,
+                productName: true,
+                packSize: { select: { name: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+
+    // Query current stock in child warehouses
+    const productIds = new Set<string>();
+    purchases.forEach((p) => {
+      p.items.forEach((it) => {
+        if (it.finishedProductId) productIds.add(it.finishedProductId);
+      });
+    });
+
+    const childStocks = await this.prisma.warehouseStock.findMany({
+      where: {
+        companyId: childCompanyId,
+        itemType: 'FINISHED_PRODUCT',
+        finishedProductId: { in: Array.from(productIds) },
+        ...(warehouseId ? { warehouseId } : {}),
+      },
+      include: {
+        warehouse: { select: { name: true } },
+        finishedProduct: { select: { productName: true, productCode: true } },
+      },
+    });
+
+    const stockMap = new Map<string, number>();
+    childStocks.forEach((s) => {
+      const current = stockMap.get(s.finishedProductId!) || 0;
+      stockMap.set(s.finishedProductId!, current + Number(s.quantityOnHand));
+    });
+
+    let totalPayables = 0;
+    const receivedItems: any[] = [];
+
+    for (const pur of purchases) {
+      totalPayables += Number(pur.netAmount);
+
+      for (const item of pur.items) {
+        const prod = item.finishedProduct;
+        const currentStock = stockMap.get(item.finishedProductId || '') || 0;
+
+        receivedItems.push({
+          voucherNumber: pur.voucherNumber,
+          date: pur.date,
+          vendorInvoiceNo: pur.vendorInvoiceNo,
+          warehouse: pur.warehouse?.name,
+          productId: item.finishedProductId,
+          productCode: prod?.productCode || 'N/A',
+          productName: item.itemName,
+          packSize: item.packing || prod?.packSize?.name || '-',
+          quantityReceived: Number(item.quantity),
+          purchaseRate: Number(item.rate),
+          totalValue: Number(item.netAmount),
+          currentStockInChildWarehouse: currentStock,
+        });
+      }
+    }
+
+    return {
+      intercompanyPayable: totalPayables,
+      receivedItems,
+      childStockStatus: childStocks.map((s) => ({
+        warehouse: s.warehouse.name,
+        productCode: s.finishedProduct?.productCode || 'N/A',
+        productName: s.finishedProduct?.productName || 'N/A',
+        quantityOnHand: Number(s.quantityOnHand),
+        averageCost: Number(s.averageCost),
+      })),
+    };
+  }
+
+  /**
+   * Transfer History for auditing & list views
+   */
+  async getTransferHistory(companyId?: string) {
+    const where: any = {
+      notes: { contains: 'INTERCOMPANY', mode: 'insensitive' },
+    };
+    if (companyId) {
+      where.companyId = companyId;
+    }
+
+    const transfers = await this.prisma.salesInvoice.findMany({
+      where,
       include: {
         dealer: { select: { name: true } },
         warehouse: { select: { name: true } },
+        company: { select: { name: true, code: true } },
         items: true,
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 50,
     });
 
-    return transfers.map((t) => ({
-      id: t.id,
-      invoiceNumber: t.invoiceNumber,
-      date: t.invoiceDate,
-      targetCompany: t.dealer?.name,
-      warehouse: t.warehouse?.name,
-      amount: Number(t.netAmount),
-      items: t.items.map((i) => ({
-        productName: i.productName,
-        quantity: Number(i.quantity),
-        rate: Number(i.rate),
-      })),
-      notes: t.notes,
-    }));
+    return transfers.map((t) => {
+      let parsedMeta: any = null;
+      if (t.notes && t.notes.includes('[INTERCOMPANY_TRANSFER]')) {
+        try {
+          const jsonStr = t.notes.split('[INTERCOMPANY_TRANSFER]')[1]?.split('|')[0]?.trim();
+          if (jsonStr) parsedMeta = JSON.parse(jsonStr);
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        id: t.id,
+        invoiceNumber: t.invoiceNumber,
+        date: t.invoiceDate,
+        sourceCompany: t.company?.name || 'Shehswar',
+        targetCompany: t.dealer?.name || parsedMeta?.childCompany?.name || 'Child Company',
+        warehouse: t.warehouse?.name,
+        targetWarehouse: parsedMeta?.childWarehouse?.name || 'Child Central',
+        amount: Number(t.netAmount),
+        cost: parsedMeta?.totalCost || 0,
+        profit: parsedMeta?.totalProfit || 0,
+        markupPercent: parsedMeta?.markupPercent || 0,
+        itemsCount: t.items.length,
+        items: t.items.map((i) => ({
+          productName: i.productName,
+          packing: i.packing,
+          batchNumber: i.batchNumber,
+          quantity: Number(i.quantity),
+          rate: Number(i.rate),
+          netAmount: Number(i.netAmount),
+        })),
+        notes: t.notes,
+      };
+    });
   }
 }
