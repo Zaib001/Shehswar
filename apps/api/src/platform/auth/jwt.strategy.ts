@@ -24,6 +24,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
+        company: {
+          select: { id: true, code: true, name: true, isParent: true },
+        },
+        organization: {
+          select: { id: true, code: true, name: true },
+        },
         userRoles: {
           include: {
             role: {
@@ -77,6 +83,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       isSuperAdmin: user.isSuperAdmin,
       organizationId: user.organizationId,
       companyId: user.companyId,
+      company: user.company
+        ? {
+            id: user.company.id,
+            code: user.company.code,
+            name: user.company.name,
+            isParent: user.company.isParent,
+          }
+        : undefined,
+      organization: user.organization
+        ? {
+            id: user.organization.id,
+            code: user.organization.code,
+            name: user.organization.name,
+          }
+        : undefined,
       sessionId: payload.sessionId,
       roles,
       permissions: Array.from(permissionsSet),

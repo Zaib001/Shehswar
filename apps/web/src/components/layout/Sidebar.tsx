@@ -262,6 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         children: [
           { id: 'warehouses', label: 'Warehouses Master' },
           { id: 'warehouse-stock', label: 'Stock On Hand & Valuation' },
+          { id: 'intercompany-transfers', label: 'Intercompany Transfers' },
           { id: 'gate-passes', label: 'Gate Passes (In/Out)' },
         ],
       },

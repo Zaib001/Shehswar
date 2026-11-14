@@ -88,6 +88,8 @@ export class InventoryService {
       stock = await tx.warehouseStock.update({
         where: { id: stock.id },
         data: {
+          companyId: companyId || stock.companyId,
+          organizationId: organizationId || stock.organizationId,
           quantityOnHand: newQty,
           averageCost: newAvgCost,
           lastUpdated: new Date(),

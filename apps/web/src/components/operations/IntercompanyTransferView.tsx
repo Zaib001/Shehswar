@@ -1666,7 +1666,7 @@ export const IntercompanyTransferView: React.FC = () => {
                     }}
                   >
                     <IconCheck size={14} />
-                    {docStatus === 'POSTED' ? 'Posted (Complete)' : 'Post Transfer'}
+                    {docStatus === 'POSTED' ? 'Posted (Complete)' : 'Post Intercompany Transfer'}
                   </Button>
                 </div>
               </div>
@@ -2361,9 +2361,9 @@ export const IntercompanyTransferView: React.FC = () => {
             >
               <strong>Atomic Impact:</strong>
               <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                <li>Shehswar: Generates Sales Invoice & deducts {grandTotals.totalUnits} units.</li>
-                <li>{activeToCompany?.name}: Generates Purchase Voucher & increments physical stock.</li>
-                <li>Financial ledgers updated simultaneously with matching transaction ID.</li>
+                <li>Shehswar: Generates Sales Invoice & deducts {grandTotals.totalUnits} units from {availableParentWarehouses.find(w => w.id === sourceWarehouseId)?.name || 'source warehouse'}.</li>
+                <li>{activeToCompany?.name}: Generates Purchase Voucher, automatically creates/links Finished Products & adds {grandTotals.totalUnits} units to {availableChildWarehouses.find(w => w.id === destWarehouseId)?.name || 'destination warehouse'}.</li>
+                <li>Batches, cost/transfer rates, and audit logs are recorded atomically with zero duplicates.</li>
               </ul>
             </div>
 
@@ -2383,7 +2383,7 @@ export const IntercompanyTransferView: React.FC = () => {
                 disabled={isSubmitting || grandTotals.hasStockError}
               >
                 <IconCheck size={14} />
-                {isSubmitting ? 'Posting Transfer...' : 'Confirm & Post'}
+                {isSubmitting ? 'Posting Transfer...' : 'Confirm & Post Intercompany Transfer'}
               </Button>
             </div>
           </div>

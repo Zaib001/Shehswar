@@ -11,7 +11,6 @@
  * - Action: "Create Purchase" -> Seamlessly transfers data into Purchase Form
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { ListPageTemplate, FormPageTemplate } from '../templates';
 import {
   DataTable,
@@ -82,6 +81,8 @@ interface ProductAutocompleteInputProps {
   onCustomTextChange: (text: string) => void;
   onAddNewProduct: () => void;
   nextFocusId?: string;
+  onFocusRow?: () => void;
+  onBlurRow?: () => void;
 }
 
 export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> = ({
@@ -89,31 +90,23 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
   value,
   selectedId,
   options,
-  placeholder = 'Type code or product name (e.g. AC Lamp)...',
+  placeholder = 'Search product name or code (e.g. Bifenthrin, Bottle)...',
   onSelect,
   onCustomTextChange,
   onAddNewProduct,
   nextFocusId,
+  onFocusRow,
+  onBlurRow,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [searchQuery, setSearchQuery] = useState(value || '');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [mounted, setMounted] = useState(false);
-  const [menuCoords, setMenuCoords] = useState<{
-    top: number;
-    left: number;
-    width: number;
-    placement: 'top' | 'bottom';
-  } | null>(null);
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Sync searchQuery when external value changes and input is not focused
   useEffect(() => {
@@ -122,48 +115,16 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
     }
   }, [value, isFocused]);
 
-  // Dynamic floating position calculation immune to table overflow or footers
-  const updatePosition = useCallback(() => {
+  // Determine whether to open downward or upward based on viewport clearance
+  const updatePlacement = useCallback(() => {
     if (!inputRef.current) return;
     const rect = inputRef.current.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return;
     const spaceBelow = window.innerHeight - rect.bottom;
-    const menuEstimatedHeight = 260;
-
-    // Flip upwards only if not enough space below AND more space above
-    const openUpwards = spaceBelow < menuEstimatedHeight && rect.top > spaceBelow;
-
-    // Keep comfortably inside horizontal viewport
-    const menuWidth = Math.max(rect.width, 420);
-    let left = rect.left;
-    if (left + menuWidth > window.innerWidth - 16) {
-      left = Math.max(16, window.innerWidth - menuWidth - 16);
-    }
-
-    setMenuCoords({
-      top: openUpwards ? rect.top - 6 : rect.bottom + 6,
-      left,
-      width: menuWidth,
-      placement: openUpwards ? 'top' : 'bottom',
-    });
+    // Only flip upwards if space below is less than 180px and space above is greater
+    const openUpwards = spaceBelow < 180 && rect.top > spaceBelow;
+    setPlacement(openUpwards ? 'top' : 'bottom');
   }, []);
-
-  // Update floating position on open, scroll, or resize
-  useEffect(() => {
-    if (!isOpen) return;
-    updatePosition();
-
-    const handleScrollOrResize = () => {
-      updatePosition();
-    };
-
-    window.addEventListener('scroll', handleScrollOrResize, true);
-    window.addEventListener('resize', handleScrollOrResize);
-    return () => {
-      window.removeEventListener('scroll', handleScrollOrResize, true);
-      window.removeEventListener('resize', handleScrollOrResize);
-    };
-  }, [isOpen, updatePosition]);
 
   // Filter options based on query
   const filtered = React.useMemo(() => {
@@ -179,7 +140,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       .slice(0, 40);
   }, [options, searchQuery]);
 
-  // Keep highlighted index in bounds
+  // Reset highlighted index when filtered options change
   useEffect(() => {
     setHighlightedIndex(0);
   }, [filtered.length, searchQuery]);
@@ -195,7 +156,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
     }
   }, [highlightedIndex, isOpen]);
 
-  // Close on outside click
+  // Outside click handler
   useEffect(() => {
     if (!isOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -206,17 +167,20 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       ) {
         setIsOpen(false);
         setIsFocused(false);
+        onBlurRow?.();
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isOpen]);
+  }, [isOpen, onBlurRow]);
 
   const handleSelect = (option: ProductOption) => {
     const display = option.code ? `[${option.code}] ${option.name}` : option.name;
     setSearchQuery(display);
     setIsOpen(false);
+    setIsFocused(false);
     onSelect(option);
+    onBlurRow?.();
 
     if (nextFocusId) {
       setTimeout(() => {
@@ -236,7 +200,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       e.preventDefault();
       e.stopPropagation();
       if (!isOpen) {
-        updatePosition();
+        updatePlacement();
         setIsOpen(true);
         return;
       }
@@ -245,7 +209,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       e.preventDefault();
       e.stopPropagation();
       if (!isOpen) {
-        updatePosition();
+        updatePlacement();
         setIsOpen(true);
         return;
       }
@@ -260,6 +224,8 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
         }
       } else {
         setIsOpen(false);
+        setIsFocused(false);
+        onBlurRow?.();
         if (nextFocusId) {
           setTimeout(() => {
             const nextEl = document.getElementById(nextFocusId) as HTMLInputElement | null;
@@ -276,8 +242,12 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
       e.preventDefault();
       e.stopPropagation();
       setIsOpen(false);
+      setIsFocused(false);
+      onBlurRow?.();
     } else if (e.key === 'Tab') {
       setIsOpen(false);
+      setIsFocused(false);
+      onBlurRow?.();
     }
   };
 
@@ -293,15 +263,24 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
         onChange={(e) => {
           const val = e.target.value;
           setSearchQuery(val);
-          updatePosition();
+          updatePlacement();
           setIsOpen(true);
           onCustomTextChange(val);
         }}
         onFocus={() => {
           setIsFocused(true);
-          updatePosition();
+          updatePlacement();
           setIsOpen(true);
+          onFocusRow?.();
           inputRef.current?.select();
+        }}
+        onBlur={(e) => {
+          if (containerRef.current && containerRef.current.contains(e.relatedTarget as Node)) {
+            return;
+          }
+          setIsFocused(false);
+          setIsOpen(false);
+          onBlurRow?.();
         }}
         onKeyDown={handleKeyDown}
         style={{
@@ -321,28 +300,29 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
         }}
       />
 
-      {/* RENDERED IN PORTAL DIRECTLY TO DOCUMENT.BODY: IMMUNE TO PARENT OVERFLOW, SCROLLBARS, AND FOOTER DOCKS */}
-      {mounted && isOpen && menuCoords && typeof document !== 'undefined' && createPortal(
+      {/* ANCHORED DIRECTLY TO INPUT: NEVER DETACHED, IMMUNE TO PORTAL SCROLL/ZOOM DRIFT */}
+      {isOpen && (
         <div
           ref={listRef}
           style={{
-            position: 'fixed',
-            top: menuCoords.placement === 'top' ? undefined : `${menuCoords.top}px`,
-            bottom: menuCoords.placement === 'top' ? `${window.innerHeight - menuCoords.top}px` : undefined,
-            left: `${menuCoords.left}px`,
-            width: `${menuCoords.width}px`,
+            position: 'absolute',
+            ...(placement === 'top'
+              ? { bottom: 'calc(100% + 4px)', top: 'auto' }
+              : { top: 'calc(100% + 4px)', bottom: 'auto' }),
+            left: 0,
+            width: 'max(100%, 420px)',
             maxWidth: 'calc(100vw - 32px)',
             maxHeight: '260px',
             overflowY: 'auto',
             backgroundColor: '#ffffff',
             border: '2px solid #059669',
-            borderRadius: '10px',
-            boxShadow: '0 20px 45px -6px rgba(15, 23, 42, 0.28), 0 10px 18px -4px rgba(15, 23, 42, 0.14)',
-            zIndex: 9999999, // Super high z-index: NOTHING can ever cover it!
+            borderRadius: '8px',
+            boxShadow: '0 16px 36px -4px rgba(15, 23, 42, 0.22), 0 6px 14px -2px rgba(15, 23, 42, 0.1)',
+            zIndex: 9999,
           }}
           onMouseDown={(e) => {
-            // Prevent input from losing focus when clicking inside dropdown
-            e.stopPropagation();
+            // Prevent input blur before click event fires
+            e.preventDefault();
           }}
         >
           {filtered.length > 0 ? (
@@ -436,6 +416,8 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
               e.preventDefault();
               e.stopPropagation();
               setIsOpen(false);
+              setIsFocused(false);
+              onBlurRow?.();
               onAddNewProduct();
             }}
             style={{
@@ -453,8 +435,7 @@ export const ProductAutocompleteInput: React.FC<ProductAutocompleteInputProps> =
           >
             <IconPlus size={14} /> + Add New Product to Master
           </div>
-        </div>,
-        document.body
+        </div>
       )}
     </div>
   );
@@ -540,6 +521,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       lineTotal: 0,
     },
   ]);
+  const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
 
   // Multi-Warehouse Split Modal State
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -3172,7 +3154,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                           borderBottom: '1px solid #f1f5f9',
                           backgroundColor: idx % 2 === 0 ? '#ffffff' : '#fafafa',
                           position: 'relative',
-                          zIndex: formItems.length - idx + 10,
+                          zIndex: activeRowIndex === idx ? 100 : formItems.length - idx + 10,
                         }}
                       >
                         {/* Index */}
@@ -3245,6 +3227,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                               setIsQuickMaterialModalOpen(true);
                             }}
                             nextFocusId={`field-po-packs-${idx}`}
+                            onFocusRow={() => setActiveRowIndex(idx)}
+                            onBlurRow={() => setActiveRowIndex((cur) => (cur === idx ? -1 : cur))}
                           />
                         </td>
 
