@@ -163,7 +163,7 @@ export class CostingService {
     private readonly prisma: PrismaService,
     private readonly codeGen: CodeGenerationService,
     private readonly inventoryService: InventoryService,
-  ) {}
+  ) { }
 
   /**
    * Get unit cost for a raw material using configured costing method.
@@ -343,7 +343,7 @@ export class CostingService {
 
       if (comp.componentType === 'RAW_MATERIAL' && comp.rawMaterialId) {
         name = comp.rawMaterial?.materialName ?? 'Raw Material';
-        
+
         // Raw Material Total Cost (e.g. 300,000 PKR)
         // If standardCost or lastPurchaseCost is set, treat as total RM batch cost (or calculate from base rate * total volume)
         const rmRawVal = Number(comp.rawMaterial?.lastPurchaseCost || comp.rawMaterial?.standardCost || 0);
@@ -361,7 +361,7 @@ export class CostingService {
       } else if (comp.componentType === 'PACKING_MATERIAL' && comp.packingMaterialId) {
         name = comp.packingMaterial?.materialName ?? 'Packaging Material';
         const pmUnitCost = await this.getPackingMaterialCost(comp.packingMaterialId, warehouseId, method);
-        
+
         const unitsPerPack = Number(comp.quantity) > 0 && Number(formula.standardBatchSize) > 0
           ? Number(comp.quantity) / Number(formula.standardBatchSize)
           : 1;
@@ -732,9 +732,9 @@ export class CostingService {
     });
     const packingMaterial = !rawMaterial
       ? await this.prisma.packingMaterial.findUnique({
-          where: { id: materialId },
-          include: { baseUom: true },
-        })
+        where: { id: materialId },
+        include: { baseUom: true },
+      })
       : null;
 
     const materialName = rawMaterial?.materialName || packingMaterial?.materialName || '';
@@ -760,9 +760,9 @@ export class CostingService {
           ...(materialCode ? [{ materialCodeSnapshot: materialCode }] : []),
           ...(materialName
             ? [
-                { materialNameSnapshot: { equals: materialName, mode: 'insensitive' as const } },
-                { itemName: { equals: materialName, mode: 'insensitive' as const } },
-              ]
+              { materialNameSnapshot: { equals: materialName, mode: 'insensitive' as const } },
+              { itemName: { equals: materialName, mode: 'insensitive' as const } },
+            ]
             : []),
         ],
         ...(options?.companyId && options.companyId !== 'ALL'
@@ -1471,19 +1471,19 @@ export class CostingService {
       const rawMaterialsList = dto.rawMaterials && dto.rawMaterials.length > 0
         ? dto.rawMaterials
         : primaryRmId ? [
-            {
-              rawMaterialId: primaryRmId,
-              rawMaterialName: rawMaterial?.materialName || 'Raw Material',
-              rawMaterialCode: rawMaterial?.materialCode || '',
-              sourcePoId: dto.sourcePoId,
-              sourcePoNumber: dto.sourcePoNumber,
-              purchaseDate: dto.purchaseDate,
-              quantity: dto.rawMaterialQuantity || 0,
-              unitCost: rmUnitCost,
-              totalCost: dto.totalRawMaterialCost || (dto.rawMaterialCost || 0),
-              uomName: dto.packSizeUnit || 'Liter',
-            },
-          ] : [];
+          {
+            rawMaterialId: primaryRmId,
+            rawMaterialName: rawMaterial?.materialName || 'Raw Material',
+            rawMaterialCode: rawMaterial?.materialCode || '',
+            sourcePoId: dto.sourcePoId,
+            sourcePoNumber: dto.sourcePoNumber,
+            purchaseDate: dto.purchaseDate,
+            quantity: dto.rawMaterialQuantity || 0,
+            unitCost: rmUnitCost,
+            totalCost: dto.totalRawMaterialCost || (dto.rawMaterialCost || 0),
+            uomName: dto.packSizeUnit || 'Liter',
+          },
+        ] : [];
 
       const isPost = dto.postProduction === true || dto.action === 'POST';
       const recordStatus = isPost ? 'POSTED' : 'DRAFT';
@@ -1863,8 +1863,8 @@ export class CostingService {
         costing: costingRecord,
         message: isPost
           ? (resolvedSplits.length > 1
-              ? `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units split across ${resolvedSplits.length} warehouses at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`
-              : `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units added to stock at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`)
+            ? `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units split across ${resolvedSplits.length} warehouses at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`
+            : `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units added to stock at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`)
           : `Costing draft ${costingCode} saved successfully (PKR ${Number(dto.costPerUnit).toLocaleString()}/unit)`,
       };
     });

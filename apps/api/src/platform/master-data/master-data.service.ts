@@ -52,7 +52,7 @@ export class MasterDataService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly codeGen: CodeGenerationService,
-  ) {}
+  ) { }
 
   // ==========================================
   // 1. ORGANIZATION MANAGEMENT
@@ -2059,7 +2059,7 @@ export class MasterDataService {
       const latestPacking = latestItem?.packing || custom.containerType || m.specifications || '';
       const factorMatch = latestPacking ? latestPacking.match(/(\d+(\.\d+)?)\s*(ltr|l|liter|kg|kilo|gm|g|ml)/i) : null;
       const factor = Number(m.purchaseConversionFactor || 0) || (factorMatch ? Number(factorMatch[1]) : 1);
-      
+
       const costPerBaseUnit = customBaseCost > 0 ? customBaseCost : (factor > 1 && latestRate > 0 ? latestRate / factor : latestRate);
       const effectiveTotalPurchasedQty = totalPurchasedQty > 0 ? totalPurchasedQty : customTotalQty;
       const effectiveTotalPurchasedValue = totalPurchasedValue > 0 ? totalPurchasedValue : (customTotalVal > 0 ? customTotalVal : (m.standardCost ? Number(m.standardCost) : 0));
@@ -2872,7 +2872,7 @@ export class MasterDataService {
         newState: updated as unknown as Record<string, unknown>,
         correlationId: uuidv7(),
       });
-    } catch (_) {}
+    } catch (_) { }
 
     return updated;
   }
@@ -4576,11 +4576,11 @@ export class MasterDataService {
         name: r.name,
         businessManager: r.businessManager
           ? {
-              id: r.businessManager.id,
-              name: `${r.businessManager.firstName} ${r.businessManager.lastName}`.trim(),
-              email: r.businessManager.email,
-              phone: r.businessManager.phone,
-            }
+            id: r.businessManager.id,
+            name: `${r.businessManager.firstName} ${r.businessManager.lastName}`.trim(),
+            email: r.businessManager.email,
+            phone: r.businessManager.phone,
+          }
           : null,
         zones: r.zones.map((z) => ({
           id: z.id,
@@ -4588,11 +4588,11 @@ export class MasterDataService {
           name: z.name,
           areaManager: z.areaManager
             ? {
-                id: z.areaManager.id,
-                name: `${z.areaManager.firstName} ${z.areaManager.lastName}`.trim(),
-                email: z.areaManager.email,
-                phone: z.areaManager.phone,
-              }
+              id: z.areaManager.id,
+              name: `${z.areaManager.firstName} ${z.areaManager.lastName}`.trim(),
+              email: z.areaManager.email,
+              phone: z.areaManager.phone,
+            }
             : null,
           territories: z.territories.map((t) => ({
             id: t.id,
@@ -4600,11 +4600,11 @@ export class MasterDataService {
             name: t.name,
             primarySalesOfficer: t.salesOfficer
               ? {
-                  id: t.salesOfficer.id,
-                  name: `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim(),
-                  email: t.salesOfficer.email,
-                  phone: t.salesOfficer.phone,
-                }
+                id: t.salesOfficer.id,
+                name: `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim(),
+                email: t.salesOfficer.email,
+                phone: t.salesOfficer.phone,
+              }
               : null,
             assignedOfficers: t.userMarketAssignments.map((uma) => ({
               id: uma.user.id,
