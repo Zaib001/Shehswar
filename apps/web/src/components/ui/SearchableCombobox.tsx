@@ -545,7 +545,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                 }}
               >
                 <IconPlus size={14} />
-                <span>{addNewLabel || `+ Add New`}</span>
+                <span>{addNewLabel ? addNewLabel.replace(/^\+\s*/, '') : 'Add New'}</span>
               </li>
             )}
           </ul>

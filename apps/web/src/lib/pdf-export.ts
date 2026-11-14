@@ -2069,6 +2069,685 @@ export const exportSalesInvoiceToPdf = (
 };
 
 
+export interface PurchaseInvoicePdfItem {
+  itemName: string;
+  materialType?: string;
+  packSize?: string;
+  unit?: string;
+  quantity: number;
+  rate: number;
+  taxPercent?: number;
+  netAmount: number;
+  batchNumber?: string;
+}
+
+export interface PurchaseInvoiceExportData {
+  voucherNumber: string;
+  vendorInvoiceNo?: string;
+  reference?: string;
+  date: string;
+  postingStatus?: string;
+  vendor?: {
+    id?: string;
+    name: string;
+    code?: string;
+    legalName?: string;
+    ntn?: string;
+    strn?: string;
+    phone?: string;
+    city?: string;
+    address?: string;
+  };
+  warehouse?: {
+    id?: string;
+    name: string;
+    code?: string;
+    location?: string;
+  };
+  grossAmount?: number;
+  taxAmount?: number;
+  discountAmount?: number;
+  netAmount: number;
+  notes?: string;
+  items: PurchaseInvoicePdfItem[];
+  company?: {
+    name?: string;
+    address?: string;
+    ntn?: string;
+    strn?: string;
+  };
+}
+
+export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) => {
+  const gross = Number(
+    invoice.grossAmount ??
+      invoice.items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.rate || 0), 0)
+  );
+  const discount = Number(invoice.discountAmount || 0);
+  const tax = Number(invoice.taxAmount || 0);
+  const net = Number(invoice.netAmount || (gross - discount + tax));
+  const amountInWords = convertNumberToWordsPKR(net);
+
+  const formattedDate = new Date(invoice.date || new Date()).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  const docTitleBadge = 'COMMERCIAL PURCHASE INVOICE';
+  const docSubtitle = 'Official Procurement Goods Receipt & Commercial Inward Voucher';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Purchase_Invoice_${invoice.voucherNumber}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm 10mm 12mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      margin: 0;
+      padding: 0;
+      font-size: 8.5pt;
+      line-height: 1.35;
+      width: 100%;
+      background: #f8fafc;
+    }
+
+    /* Screen Action Bar */
+    .screen-toolbar {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      color: #ffffff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      font-size: 13px;
+    }
+    .screen-toolbar button {
+      background: #1e293b;
+      color: #ffffff;
+      border: 1px solid #475569;
+      padding: 7px 16px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s ease;
+    }
+    .screen-toolbar button:hover {
+      background: #334155;
+    }
+    .screen-toolbar .close-btn {
+      margin-left: 8px;
+    }
+
+    /* Background Watermark */
+    .watermark-container {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-10deg);
+      opacity: 0.035;
+      z-index: 0;
+      pointer-events: none;
+      width: 440px;
+      text-align: center;
+    }
+    .watermark-container img {
+      width: 100%;
+      height: auto;
+      filter: grayscale(100%);
+    }
+
+    @media screen {
+      body {
+        padding-bottom: 40px;
+      }
+      .page-container {
+        width: 210mm;
+        min-height: 282mm;
+        height: auto;
+        margin: 20px auto;
+        padding: 10mm 12mm;
+        background: #ffffff;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        border: 1px solid #e2e8f0;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        position: relative;
+        border-radius: 4px;
+      }
+    }
+
+    @media print {
+      .screen-toolbar { display: none !important; }
+      html, body {
+        width: 100% !important;
+        height: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        overflow: hidden !important;
+      }
+      .page-container {
+        width: 100% !important;
+        height: calc(297mm - 20mm) !important;
+        max-height: calc(297mm - 20mm) !important;
+        min-height: calc(297mm - 20mm) !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        page-break-inside: avoid !important;
+        page-break-after: avoid !important;
+        page-break-before: avoid !important;
+        overflow: hidden !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+      .bottom-section {
+        margin-top: auto !important;
+        page-break-inside: avoid !important;
+      }
+    }
+
+    .content-body {
+      flex: 1 0 auto;
+    }
+    .bottom-section {
+      margin-top: auto;
+      flex-shrink: 0;
+      padding-top: 10px;
+      page-break-inside: avoid;
+    }
+
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+      border-collapse: collapse;
+    }
+    .logo-img {
+      height: 50px;
+      width: auto;
+      object-fit: contain;
+    }
+    .company-title {
+      font-size: 13pt;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: 0.02em;
+      margin: 0;
+      text-transform: uppercase;
+    }
+    .company-sub {
+      font-size: 7.2pt;
+      color: #475569;
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+    .doc-badge {
+      display: inline-block;
+      padding: 3px 12px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 3px;
+      font-size: 8.5pt;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .doc-ref {
+      font-size: 8.5pt;
+      color: #0f172a;
+      font-weight: 700;
+      margin-top: 4px;
+      font-family: monospace;
+    }
+    .doc-date {
+      font-size: 7.5pt;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .meta-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 8px 12px;
+      background: #ffffff;
+    }
+    .meta-box-title {
+      font-size: 7.5pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #0f172a;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 3px;
+      font-size: 7.6pt;
+    }
+    .meta-label {
+      color: #64748b;
+    }
+    .meta-val {
+      font-weight: 600;
+      color: #0f172a;
+      text-align: right;
+    }
+    .mono {
+      font-family: monospace;
+      font-size: 8pt;
+    }
+
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      font-size: 8pt;
+      border: 1px solid #cbd5e1;
+    }
+    .items-table thead th {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 6px 8px;
+      font-weight: 700;
+      font-size: 7.5pt;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      border-right: 1px solid #334155;
+    }
+    .items-table thead th:last-child {
+      border-right: none;
+      text-align: right;
+    }
+    .items-table tbody tr {
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .items-table tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+    .items-table tbody td {
+      padding: 6px 8px;
+      vertical-align: middle;
+      border-right: 1px solid #e2e8f0;
+    }
+    .items-table tbody td:last-child {
+      border-right: none;
+    }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+
+    .summary-section {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px;
+      margin-bottom: 10px;
+    }
+    .words-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 7.5pt;
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .words-label {
+      font-size: 7pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+    .words-val {
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.4;
+      font-size: 8pt;
+    }
+
+    .totals-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 10px;
+      font-size: 7.5pt;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .totals-row.grand-total {
+      background: #0f172a;
+      color: #ffffff;
+      padding: 7px 10px;
+      font-size: 9pt;
+      font-weight: 800;
+      border-bottom: none;
+    }
+
+    .terms-box {
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 6.8pt;
+      color: #475569;
+      line-height: 1.35;
+      margin-bottom: 8px;
+      background: #f8fafc;
+    }
+    .terms-title {
+      font-weight: 700;
+      font-size: 7pt;
+      text-transform: uppercase;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+
+    .signature-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      padding-top: 8px;
+      border-top: 1.5px solid #cbd5e1;
+    }
+    .sig-box {
+      text-align: center;
+    }
+    .sig-line {
+      height: 22px;
+      border-bottom: 1px dashed #94a3b8;
+      margin-bottom: 4px;
+    }
+    .sig-title {
+      font-size: 7pt;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .sig-sub {
+      font-size: 6.2pt;
+      color: #64748b;
+    }
+
+    .doc-footer {
+      margin-top: 6px;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 6.5pt;
+      color: #64748b;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Screen Toolbar -->
+  <div class="screen-toolbar">
+    <div style="font-weight: 600;">
+      <span>${docTitleBadge} — ${invoice.voucherNumber}</span>
+      <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${docSubtitle})</span>
+    </div>
+    <div>
+      <button onclick="window.print()">Print / Save PDF</button>
+      <button class="close-btn" onclick="window.close()">Close</button>
+    </div>
+  </div>
+
+  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <div class="watermark-container">
+    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+  </div>
+
+  <div class="page-container">
+    <div class="content-body">
+
+      <!-- Header -->
+      <table class="header-table">
+        <tr>
+          <td style="width: 55px; vertical-align: middle;">
+            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+          </td>
+          <td style="padding-left: 12px; vertical-align: middle;">
+            <div class="company-title">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+            <div class="company-sub">
+              Manufacturing & Pesticide Formulations • Commercial Procurement & Inward Logistics<br>
+              Head Office & Plant: Multan Road / Faisalabad • NTN: 4128934-7 • STRN: 3277876123456
+            </div>
+          </td>
+          <td style="text-align: right; vertical-align: middle;">
+            <span class="doc-badge">${docTitleBadge}</span>
+            <div class="doc-ref">VOUCHER: ${invoice.voucherNumber}</div>
+            <div class="doc-date">Date: ${formattedDate} • Status: ${invoice.postingStatus || 'POSTED'}</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- 2-Column Meta Section -->
+      <div class="meta-grid">
+        <!-- Supplier Box -->
+        <div class="meta-box">
+          <div class="meta-box-title">SUPPLIER / VENDOR DETAILS</div>
+          <div class="meta-row">
+            <span class="meta-label">Vendor Name:</span>
+            <span class="meta-val" style="font-weight: 700;">${invoice.vendor?.name || 'Authorized Supplier'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Vendor Code:</span>
+            <span class="meta-val mono">${invoice.vendor?.code || '—'}</span>
+          </div>
+          ${invoice.vendor?.ntn || invoice.vendor?.strn ? `
+          <div class="meta-row">
+            <span class="meta-label">NTN / STRN:</span>
+            <span class="meta-val mono">${invoice.vendor?.ntn || '—'} / ${invoice.vendor?.strn || '—'}</span>
+          </div>` : ''}
+          <div class="meta-row">
+            <span class="meta-label">Phone:</span>
+            <span class="meta-val">${invoice.vendor?.phone || '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">City / Address:</span>
+            <span class="meta-val">${invoice.vendor?.address || invoice.vendor?.city || 'Pakistan'}</span>
+          </div>
+        </div>
+
+        <!-- Inward Logistics & Order Box -->
+        <div class="meta-box">
+          <div class="meta-box-title">RECEIVING & PROCUREMENT DETAILS</div>
+          <div class="meta-row">
+            <span class="meta-label">Purchase Voucher #:</span>
+            <span class="meta-val mono">${invoice.voucherNumber}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Vendor Bill / Inv #:</span>
+            <span class="meta-val mono">${invoice.vendorInvoiceNo || invoice.reference || '—'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Receiving Warehouse:</span>
+            <span class="meta-val">${invoice.warehouse?.name || 'Main Factory Warehouse'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Warehouse Code:</span>
+            <span class="meta-val mono">${invoice.warehouse?.code || 'WH-MAIN'}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Transaction Type:</span>
+            <span class="meta-val">Inward Commercial Purchase (Billed)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line Items Table -->
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="width: 5%;" class="text-center">#</th>
+            <th style="width: 33%;">Material / Product Description</th>
+            <th style="width: 14%;" class="text-center">Classification</th>
+            <th style="width: 12%;" class="text-center">Batch / Ref</th>
+            <th style="width: 12%;" class="text-center">Pack Size</th>
+            <th style="width: 8%;" class="text-right">Qty</th>
+            <th style="width: 13%;" class="text-right">Rate (PKR)</th>
+            <th style="width: 15%;" class="text-right">Net Total (PKR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${invoice.items.map((item, idx) => {
+            const matTypeLabel =
+              item.materialType === 'PACKING_MATERIAL'
+                ? 'Packaging'
+                : item.materialType === 'FINISHED_PRODUCT'
+                ? 'Finished Good'
+                : item.materialType === 'OTHER'
+                ? 'Other Product'
+                : 'Raw Material';
+            return `
+            <tr>
+              <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
+              <td style="font-weight: 600; color: #0f172a;">${item.itemName}</td>
+              <td class="text-center" style="color: #475569; font-size: 7.2pt;">${matTypeLabel}</td>
+              <td class="text-center mono" style="color: #475569;">${item.batchNumber || '—'}</td>
+              <td class="text-center" style="color: #475569;">${item.packSize || `1 ${item.unit || 'KG'}`}</td>
+              <td class="text-right mono" style="font-weight: 600;">${Number(item.quantity).toLocaleString()} <span style="font-size: 6.8pt; color: #64748b;">${item.unit || ''}</span></td>
+              <td class="text-right mono">PKR ${Number(item.rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              <td class="text-right mono" style="font-weight: 700;">PKR ${Number(item.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            </tr>
+          `;
+          }).join('')}
+        </tbody>
+      </table>
+
+      <!-- Financial Summary & Words Section -->
+      <div class="summary-section">
+        <div class="words-box">
+          <div>
+            <div class="words-label">AMOUNT IN WORDS:</div>
+            <div class="words-val">${amountInWords}</div>
+          </div>
+          ${invoice.notes ? `<div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #cbd5e1; color: #475569; font-size: 7.2pt;"><strong>Notes:</strong> ${invoice.notes}</div>` : ''}
+        </div>
+
+        <div class="totals-box">
+          <div class="totals-row">
+            <span style="color: #64748b;">Gross Total:</span>
+            <span class="mono" style="font-weight: 600;">PKR ${gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+          ${discount > 0 ? `
+          <div class="totals-row">
+            <span style="color: #64748b;">Discount / Rebate:</span>
+            <span class="mono" style="color: #dc2626;">- PKR ${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>` : ''}
+          ${tax > 0 ? `
+          <div class="totals-row">
+            <span style="color: #64748b;">Sales Tax:</span>
+            <span class="mono" style="color: #0f172a;">+ PKR ${tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>` : ''}
+          <div class="totals-row grand-total">
+            <span>NET AMOUNT PAYABLE:</span>
+            <span class="mono">PKR ${net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Commercial Notes & Inward Goods Governance Terms -->
+      <div class="terms-box">
+        <div class="terms-title">Procurement Quality & Commercial Governance Terms:</div>
+        <div>1. <strong>Goods Receipt & Quality Inspection:</strong> Inward supplies are accepted subject to quality control inspection, laboratory chemical assay compliance, and official weight verification at factory weighbridge.</div>
+        <div>2. <strong>Commercial Liability & Settlement:</strong> Invoiced liability is credited to the Supplier Ledger based on verified net weights and authorized purchase rates. Payments processed via Crossed Cheque or Direct Bank Settlement.</div>
+      </div>
+
+    </div><!-- End content-body -->
+
+    <!-- Bottom Section: Signatures & Footer -->
+    <div class="bottom-section">
+      <div class="signature-grid">
+        <div class="sig-box">
+          <div class="sig-line"></div>
+          <div class="sig-title">PREPARED BY</div>
+          <div class="sig-sub">Procurement Officer</div>
+        </div>
+        <div class="sig-box">
+          <div class="sig-line"></div>
+          <div class="sig-title">STORE INCHARGE</div>
+          <div class="sig-sub">Receiving Warehouse</div>
+        </div>
+        <div class="sig-box">
+          <div class="sig-line"></div>
+          <div class="sig-title">QC INSPECTOR</div>
+          <div class="sig-sub">Quality Control & Lab</div>
+        </div>
+        <div class="sig-box">
+          <div class="sig-line"></div>
+          <div class="sig-title">ACCOUNTS & FINANCE</div>
+          <div class="sig-sub">Authorized Signatory</div>
+        </div>
+      </div>
+
+      <div class="doc-footer">
+        <div>${docTitleBadge} • SHEHSWAR ONE360 ERP SYSTEM • VERIFIED DIGITAL DOCUMENT</div>
+        <div>Page 1 of 1</div>
+      </div>
+    </div><!-- End bottom-section -->
+
+  </div><!-- End page-container -->
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+};
+
+
 /**
  * Interface and PDF export function for Dealer Ledger / Statement of Account
  */
@@ -2661,8 +3340,18 @@ export interface VendorLedgerExportData {
 export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
   const { vendor, startDate, endDate, entries } = data;
 
-  const totalCredits = entries.reduce((sum, e) => sum + Number(e.credit || 0), 0); // Purchases (Payable)
-  const totalDebits = entries.reduce((sum, e) => sum + Number(e.debit || 0), 0);   // Payments (Settlement)
+  // Chronological ascending sorting: earliest entry on top row (e.g. 11/12/2026), latest at bottom
+  const sortedEntries = [...entries].sort((a, b) => {
+    const timeA = new Date(a.entryDate).getTime();
+    const timeB = new Date(b.entryDate).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+    if (a.entryType === 'OPENING_BALANCE') return -1;
+    if (b.entryType === 'OPENING_BALANCE') return 1;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+
+  const totalCredits = sortedEntries.reduce((sum, e) => sum + Number(e.credit || 0), 0); // Purchases (Payable)
+  const totalDebits = sortedEntries.reduce((sum, e) => sum + Number(e.debit || 0), 0);   // Payments (Settlement)
   const closingBalance = Number(vendor.currentBalance ?? (totalCredits - totalDebits));
   const closingBalFormatted = Math.abs(closingBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const closingBalSuffix = closingBalance >= 0 ? 'Cr (Net Payable)' : 'Dr (Advance/Refundable)';
@@ -3124,13 +3813,13 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
           </tr>
         </thead>
         <tbody>
-          ${entries.length === 0 ? `
+          ${sortedEntries.length === 0 ? `
             <tr>
               <td colspan="7" class="text-center" style="padding: 30px; color: #94a3b8;">
                 No financial ledger transactions recorded for this vendor in the selected period.
               </td>
             </tr>
-          ` : entries.map((entry) => {
+          ` : sortedEntries.map((entry) => {
             const dateStr = new Date(entry.entryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
             const debitNum = Number(entry.debit || 0);
             const creditNum = Number(entry.credit || 0);

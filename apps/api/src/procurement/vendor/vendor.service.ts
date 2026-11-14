@@ -311,12 +311,12 @@ export class VendorService {
 
     const entries = await this.prisma.vendorLedgerEntry.findMany({
       where,
-      orderBy: { entryDate: 'desc' },
-      take: options?.limit ?? 100,
+      orderBy: [{ entryDate: 'asc' }, { createdAt: 'asc' }],
+      take: options?.limit ?? 500,
     });
 
-    const lastEntry = entries[0];
-    const currentBalance = lastEntry ? Number(lastEntry.runningBalance) : 0;
+    const latestEntry = entries[entries.length - 1];
+    const currentBalance = latestEntry ? Number(latestEntry.runningBalance) : 0;
 
     return {
       entries: entries.map((e) => ({

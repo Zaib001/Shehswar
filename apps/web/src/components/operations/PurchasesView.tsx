@@ -33,9 +33,11 @@ import {
   IconEye,
   IconTrash,
   IconRotateCcw,
+  IconDownload,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
+import { exportPurchaseInvoiceToPdf, PurchaseInvoiceExportData } from '../../lib/pdf-export';
 
 export interface PurchaseItemRow {
   materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'FINISHED_PRODUCT';
@@ -817,6 +819,63 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
     }
   };
 
+  const handleExportInvoicePdf = async (inv: PurchaseInvoiceRecord) => {
+    let fullInv = inv;
+    if (!fullInv.items || fullInv.items.length === 0) {
+      try {
+        const res = await ApiClient.get<any>(`/api/v1/purchases/${inv.id}`);
+        if (res.data) {
+          fullInv = res.data.data || res.data;
+        }
+      } catch (err) {
+        console.error('Failed to fetch full purchase details for PDF:', err);
+      }
+    }
+
+    const vendorObj = vendors.find((v) => v.id === fullInv.vendorId) || fullInv.vendor;
+    const warehouseObj = warehouses.find((w) => w.id === fullInv.warehouseId) || fullInv.warehouse;
+
+    const exportData: PurchaseInvoiceExportData = {
+      voucherNumber: fullInv.voucherNumber,
+      date: fullInv.date,
+      postingStatus: fullInv.postingStatus,
+      notes: fullInv.notes,
+      grossAmount: fullInv.grossAmount,
+      taxAmount: fullInv.taxAmount,
+      discountAmount: fullInv.discountAmount,
+      netAmount: fullInv.netAmount,
+      vendor: {
+        id: vendorObj?.id || fullInv.vendorId,
+        name: vendorObj?.name || 'Unknown Vendor',
+        code: vendorObj?.code,
+        legalName: (vendorObj as any)?.legalName,
+        ntn: (vendorObj as any)?.ntn,
+        strn: (vendorObj as any)?.strn,
+        phone: (vendorObj as any)?.phone,
+        city: (vendorObj as any)?.city,
+        address: (vendorObj as any)?.address,
+      },
+      warehouse: {
+        id: warehouseObj?.id || fullInv.warehouseId,
+        name: warehouseObj?.name || 'Main Warehouse',
+        code: warehouseObj?.code,
+        location: (warehouseObj as any)?.location,
+      },
+      items: (fullInv.items || []).map((it: any) => ({
+        itemName: it.itemName,
+        materialType: it.materialType,
+        quantity: Number(it.originalQuantity ?? it.quantity) || 0,
+        rate: Number(it.rate) || 0,
+        grossAmount: Number(it.grossAmount) || undefined,
+        taxAmount: Number(it.taxAmount) || undefined,
+        discountAmount: Number(it.discountAmount) || undefined,
+        netAmount: Number(it.netAmount) || 0,
+      })),
+    };
+
+    exportPurchaseInvoiceToPdf(exportData);
+  };
+
   const renderReturnModal = () => (
     <Modal
       isOpen={isReturnModalOpen}
@@ -1152,6 +1211,14 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
             }}
           >
             <IconEye size={15} /> View
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleExportInvoicePdf(inv)}
+            title="Download Purchase Invoice PDF"
+          >
+            <IconDownload size={14} /> PDF
           </Button>
           <Button
             variant="secondary"
@@ -1632,6 +1699,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button variant="secondary" onClick={() => setMode('list')}>
               Back to List
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => handleExportInvoicePdf(selectedInvoice)}
+            >
+              <IconDownload size={15} /> Download PDF
             </Button>
             <Button
               variant="secondary"

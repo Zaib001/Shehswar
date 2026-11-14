@@ -85,13 +85,13 @@ export class VendorLedgerService {
 
     const entries = await this.prisma.vendorLedgerEntry.findMany({
       where,
-      orderBy: { entryDate: 'desc' },
-      take: options?.limit ?? 100,
+      orderBy: [{ entryDate: 'asc' }, { createdAt: 'asc' }],
+      take: options?.limit ?? 500,
     });
 
-    // Get current balance from last entry
-    const lastEntry = entries[0];
-    const currentBalance = lastEntry ? Number(lastEntry.runningBalance) : 0;
+    // Get current balance from latest chronological entry
+    const latestEntry = entries[entries.length - 1];
+    const currentBalance = latestEntry ? Number(latestEntry.runningBalance) : 0;
 
     return {
       entries: entries.map((e) => ({

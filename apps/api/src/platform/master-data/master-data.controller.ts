@@ -11,6 +11,7 @@ import {
   Body,
   Query,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { MasterDataService } from './master-data.service';
 import { CategoryRouterService } from './category-router.service';
@@ -250,7 +251,17 @@ export class MasterDataController {
   ) {
     const organizationId = orgId || ctx.organizationId || '';
     const active = isActive !== undefined ? isActive === 'true' : undefined;
-    const companyIdFilter = user?.isSuperAdmin
+
+    const isParentUser = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR' ||
+      user?.permissions?.includes('company:cross_company_view')
+    );
+
+    // Parent company users can view ALL companies (parent and all children).
+    // Child company users can ONLY view their own child company records.
+    const companyIdFilter = isParentUser
       ? (all === 'true' ? undefined : (qCompanyId || ctx.companyId || undefined))
       : user?.companyId;
 
@@ -276,12 +287,36 @@ export class MasterDataController {
   }
 
   @Get('companies/:id/parent')
-  async getCompanyParent(@Param('id') id: string) {
+  async getCompanyParent(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const isParentUser = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR' ||
+      user?.permissions?.includes('company:cross_company_view')
+    );
+    if (!isParentUser) {
+      throw new ForbiddenException('Parent company details are restricted to authorized parent company personnel.');
+    }
     return this.masterDataService.findCompanyParent(id);
   }
 
   @Get('companies/:id')
-  async getCompany(@Param('id') id: string) {
+  async getCompany(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const isParentUser = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR' ||
+      user?.permissions?.includes('company:cross_company_view')
+    );
+    if (!isParentUser && user?.companyId !== id) {
+      throw new ForbiddenException('Child company users cannot access details of the parent company or other companies.');
+    }
     return this.masterDataService.findOneCompany(id);
   }
 

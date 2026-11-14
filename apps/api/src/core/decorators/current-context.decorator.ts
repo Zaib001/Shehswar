@@ -14,11 +14,18 @@ export const CurrentContext = createParamDecorator(
     const requestedCompanyId =
       request.activeCompanyId || (headers['x-company-id'] as string | undefined);
 
+    const isParent = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR'
+    );
+
     let effectiveCompanyId = user?.companyId;
     if (requestedCompanyId && requestedCompanyId !== 'ALL' && requestedCompanyId !== 'all') {
       effectiveCompanyId = requestedCompanyId;
     } else if (requestedCompanyId === 'ALL' || requestedCompanyId === 'all') {
-      effectiveCompanyId = undefined;
+      // ONLY parent company users or superadmin can run un-scoped queries across all companies
+      effectiveCompanyId = isParent ? undefined : user?.companyId;
     }
 
     return {

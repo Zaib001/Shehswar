@@ -53,15 +53,35 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const res = await ApiClient.get<CompanyRecord[]>('/api/v1/master-data/companies?all=true');
       const allCompanies = Array.isArray(res.data) ? res.data : [];
 
-      // Determine authorized companies based on user permissions
-      let authorized: CompanyRecord[] = allCompanies;
-      if (user && !user.isSuperAdmin && !user.permissions?.includes('company:cross_company_view')) {
-        // Filter by user's assigned company or authorizedCompanyIds if present
-        const allowedIds = new Set<string>([user.companyId]);
-        if ((user as any).authorizedCompanyIds) {
+      // Determine whether user belongs to Parent Company
+      const isParentUser = Boolean(
+        user?.isSuperAdmin ||
+        user?.company?.isParent ||
+        user?.company?.code === 'COMP-SHEHSWAR' ||
+        (user as any)?.company?.companyType === 'PARENT_MANUFACTURING' ||
+        user?.permissions?.includes('company:cross_company_view')
+      );
+
+      let authorized: CompanyRecord[] = [];
+
+      if (isParentUser) {
+        // Parent company user has full oversight and can access Parent Company + ALL child companies
+        authorized = allCompanies;
+      } else {
+        // Child company user: STRICTLY EXCLUDE Parent Company!
+        // Only allow child companies assigned to this user
+        const allowedIds = new Set<string>([user?.companyId || '']);
+        if ((user as any)?.authorizedCompanyIds) {
           (user as any).authorizedCompanyIds.forEach((id: string) => allowedIds.add(id));
         }
-        authorized = allCompanies.filter((c) => allowedIds.has(c.id));
+
+        authorized = allCompanies.filter((c) => {
+          // Strictly exclude parent company
+          if (c.isParent || c.code === 'COMP-SHEHSWAR' || c.companyType === 'PARENT_MANUFACTURING') {
+            return false;
+          }
+          return allowedIds.has(c.id);
+        });
       }
 
       setAuthorizedCompanies(authorized);
@@ -74,9 +94,20 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         targetComp = authorized.find((c) => c.id === savedId);
       }
 
-      // Default to Parent Company (Shehswar) or first available company
+      // If user is a child company user, guarantee targetComp is NEVER a parent company
+      if (!isParentUser && targetComp && (targetComp.isParent || targetComp.code === 'COMP-SHEHSWAR' || targetComp.companyType === 'PARENT_MANUFACTURING')) {
+        targetComp = undefined;
+      }
+
+      // Default target company:
+      // For Parent company users: Default to Parent Company (Shehswar)
+      // For Child company users: Default strictly to user's assigned child company
       if (!targetComp) {
-        targetComp = authorized.find((c) => c.isParent || c.code === 'COMP-SHEHSWAR') || authorized[0];
+        if (isParentUser) {
+          targetComp = authorized.find((c) => c.isParent || c.code === 'COMP-SHEHSWAR') || authorized[0];
+        } else {
+          targetComp = authorized.find((c) => c.id === user?.companyId) || authorized[0];
+        }
       }
 
       if (targetComp) {
@@ -110,6 +141,23 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!target) return;
     if (target.id === activeCompanyId) return;
+
+    const isParentUser = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR' ||
+      (user as any)?.company?.companyType === 'PARENT_MANUFACTURING' ||
+      user?.permissions?.includes('company:cross_company_view')
+    );
+
+    // Guard: Child company user cannot switch to Parent Company
+    if (
+      !isParentUser &&
+      (target.isParent || target.code === 'COMP-SHEHSWAR' || target.companyType === 'PARENT_MANUFACTURING')
+    ) {
+      alert('Access Denied: Child company users cannot access parent company data.');
+      return;
+    }
 
     setSwitchingCompanyName(target.name);
     setIsSwitchingCompany(true);

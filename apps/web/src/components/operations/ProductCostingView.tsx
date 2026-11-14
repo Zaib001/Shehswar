@@ -25,6 +25,7 @@ import {
   Modal,
   TableSkeleton,
   SearchableCombobox,
+  Select,
 } from '../ui';
 import {
   IconFlask,
@@ -178,6 +179,13 @@ export interface MasterVendor {
   name: string;
 }
 
+export interface WarehouseOutputSplit {
+  id: string;
+  warehouseId: string;
+  warehouseName?: string;
+  quantity: number;
+}
+
 export interface MasterFinishedProduct {
   id: string;
   productCode: string;
@@ -242,6 +250,10 @@ export function ProductCostingView() {
   // Batch Output Quantity State
   const [actualQuantity, setActualQuantity] = useState<number>(0);
   const [hasManuallyEditedActual, setHasManuallyEditedActual] = useState<boolean>(false);
+
+  // Multi-Warehouse Output Split State (Costing Output Distribution)
+  const [isSplitWarehouseOutput, setIsSplitWarehouseOutput] = useState<boolean>(false);
+  const [warehouseSplits, setWarehouseSplits] = useState<WarehouseOutputSplit[]>([]);
 
   // Costing Table Lines
   const [lines, setLines] = useState<CostingLineItem[]>([]);
@@ -921,6 +933,93 @@ export function ProductCostingView() {
     });
   }, [lines]);
 
+  // Multi-Warehouse Split helper logic
+  const handleToggleSplit = (enabled: boolean) => {
+    setIsSplitWarehouseOutput(enabled);
+    if (enabled && warehouseSplits.length === 0) {
+      const selWh = warehouses.find((w) => w.id === selectedWarehouseId);
+      setWarehouseSplits([
+        {
+          id: `split-${Date.now()}-1`,
+          warehouseId: selectedWarehouseId || (warehouses[0]?.id ?? ''),
+          warehouseName: selWh?.name || warehouses[0]?.name || 'Warehouse',
+          quantity: actualQuantity || 0,
+        },
+      ]);
+    }
+  };
+
+  const handleAddSplitRow = () => {
+    const unusedWh = warehouses.find((w) => !warehouseSplits.some((s) => s.warehouseId === w.id)) || warehouses[0];
+    const currentTotal = warehouseSplits.reduce((acc, s) => acc + (Number(s.quantity) || 0), 0);
+    const remaining = Math.max(0, actualQuantity - currentTotal);
+    setWarehouseSplits((prev) => [
+      ...prev,
+      {
+        id: `split-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        warehouseId: unusedWh?.id || '',
+        warehouseName: unusedWh?.name || '',
+        quantity: remaining,
+      },
+    ]);
+  };
+
+  const handleRemoveSplitRow = (id: string) => {
+    if (warehouseSplits.length <= 1) {
+      showToast({ title: 'Notice', message: 'At least one destination warehouse is required when split is active.', type: 'info' });
+      return;
+    }
+    setWarehouseSplits((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleUpdateSplit = (id: string, field: 'warehouseId' | 'quantity', val: any) => {
+    setWarehouseSplits((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        if (field === 'warehouseId') {
+          const wh = warehouses.find((w) => w.id === val);
+          return { ...s, warehouseId: val, warehouseName: wh?.name || '' };
+        }
+        return { ...s, quantity: Math.max(0, parseFloat(val) || 0) };
+      })
+    );
+  };
+
+  const handleDistributeEvenly = () => {
+    if (warehouseSplits.length === 0 || actualQuantity <= 0) return;
+    const count = warehouseSplits.length;
+    const each = Math.floor(actualQuantity / count);
+    const rem = actualQuantity - each * count;
+    setWarehouseSplits((prev) =>
+      prev.map((s, idx) => ({
+        ...s,
+        quantity: idx === 0 ? each + rem : each,
+      }))
+    );
+  };
+
+  const totalSplitQuantity = useMemo(() => {
+    return warehouseSplits.reduce((acc, s) => acc + (Number(s.quantity) || 0), 0);
+  }, [warehouseSplits]);
+
+  const splitDifference = actualQuantity - totalSplitQuantity;
+  const isSplitBalanced = Math.abs(splitDifference) < 0.0001;
+
+  // Keep single split row synced to actualQuantity if not manually edited multiple splits
+  useEffect(() => {
+    if (isSplitWarehouseOutput && warehouseSplits.length === 1 && warehouseSplits[0]) {
+      const first = warehouseSplits[0];
+      setWarehouseSplits([
+        {
+          id: first.id,
+          warehouseId: first.warehouseId,
+          warehouseName: first.warehouseName,
+          quantity: actualQuantity,
+        },
+      ]);
+    }
+  }, [actualQuantity, isSplitWarehouseOutput, warehouseSplits.length]);
+
   // ==========================================
   // 5. SAVE DRAFT (No Stock Deduction)
   // ==========================================
@@ -946,6 +1045,13 @@ export function ProductCostingView() {
         costingDate,
         warehouseId: selectedWarehouseId || null,
         warehouseName: selectedWh?.name || 'Standard Warehouse',
+        warehouseSplits: isSplitWarehouseOutput
+          ? warehouseSplits.map((s) => ({
+              warehouseId: s.warehouseId,
+              warehouseName: s.warehouseName,
+              quantity: s.quantity,
+            }))
+          : undefined,
         contractorVendorId: selectedContractorId || null,
         contractorVendorName: selectedVen?.name || null,
         finishedProductId: selectedFinishedProductId || null,
@@ -1017,6 +1123,32 @@ export function ProductCostingView() {
       return;
     }
 
+    if (isSplitWarehouseOutput) {
+      if (warehouseSplits.length === 0) {
+        showToast({ title: 'Validation Error', message: 'Please add at least one destination warehouse in the split allocation table.', type: 'error' });
+        return;
+      }
+      for (let i = 0; i < warehouseSplits.length; i++) {
+        const s = warehouseSplits[i];
+        if (!s || !s.warehouseId) {
+          showToast({ title: 'Validation Error', message: `Please select a destination warehouse for split row #${i + 1}.`, type: 'error' });
+          return;
+        }
+        if (s.quantity <= 0) {
+          showToast({ title: 'Validation Error', message: `Quantity for warehouse "${s.warehouseName || 'Warehouse'}" must be greater than zero.`, type: 'error' });
+          return;
+        }
+      }
+      if (!isSplitBalanced) {
+        showToast({
+          title: 'Unbalanced Output Allocation',
+          message: `Total allocated quantity (${totalSplitQuantity.toLocaleString()} units) must exactly equal total confirmed output (${actualQuantity.toLocaleString()} units). Difference: ${splitDifference.toLocaleString()} units.`,
+          type: 'error',
+        });
+        return;
+      }
+    }
+
     setIsPostingProduction(true);
     try {
       const selectedWh = warehouses.find((w) => w.id === selectedWarehouseId);
@@ -1032,6 +1164,13 @@ export function ProductCostingView() {
         costingDate,
         warehouseId: selectedWarehouseId,
         warehouseName: selectedWh?.name || 'Warehouse',
+        warehouseSplits: isSplitWarehouseOutput
+          ? warehouseSplits.map((s) => ({
+              warehouseId: s.warehouseId,
+              warehouseName: s.warehouseName,
+              quantity: s.quantity,
+            }))
+          : undefined,
         contractorVendorId: selectedContractorId || null,
         contractorVendorName: selectedVen?.name || null,
         finishedProductId: selectedFinishedProductId,
@@ -1061,7 +1200,9 @@ export function ProductCostingView() {
 
       showToast({
         title: 'Production Confirmed & Stock Deducted',
-        message: `Voucher ${postedCode} posted (Batch: ${postedBatch})! Deducted components from ${selectedWh?.name || 'Warehouse'} and added ${actualQuantity} units of ${selectedFp?.productName || 'Finished Product'} at PKR ${unitCost.toFixed(2)}/unit.`,
+        message: isSplitWarehouseOutput && warehouseSplits.length > 1
+          ? `Voucher ${postedCode} posted (Batch: ${postedBatch})! Deducted components from ${selectedWh?.name || 'Warehouse'} and distributed ${actualQuantity.toLocaleString()} units across ${warehouseSplits.length} warehouses at PKR ${unitCost.toFixed(2)}/unit.`
+          : `Voucher ${postedCode} posted (Batch: ${postedBatch})! Deducted components from ${selectedWh?.name || 'Warehouse'} and added ${actualQuantity.toLocaleString()} units of ${selectedFp?.productName || 'Finished Product'} at PKR ${unitCost.toFixed(2)}/unit.`,
         type: 'success',
       });
 
@@ -2196,6 +2337,188 @@ export function ProductCostingView() {
               </div>
             </div>
 
+            {/* Multi-Warehouse Output Allocation Option */}
+            <div
+              style={{
+                marginTop: '18px',
+                padding: '14px 16px',
+                backgroundColor: isSplitWarehouseOutput ? '#f0fdf4' : '#f8fafc',
+                borderRadius: '10px',
+                border: isSplitWarehouseOutput ? '1.5px solid #86efac' : '1px solid #e2e8f0',
+                transition: 'all 200ms ease',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    id="checkbox-split-warehouse"
+                    type="checkbox"
+                    checked={isSplitWarehouseOutput}
+                    onChange={(e) => handleToggleSplit(e.target.checked)}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#16a34a' }}
+                  />
+                  <label
+                    htmlFor="checkbox-split-warehouse"
+                    style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <span>Split Finished Goods Output Across Multiple Warehouses</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', backgroundColor: isSplitWarehouseOutput ? '#dcfce7' : '#e2e8f0', color: isSplitWarehouseOutput ? '#15803d' : '#64748b' }}>
+                      {isSplitWarehouseOutput ? 'Active' : 'Optional'}
+                    </span>
+                  </label>
+                </div>
+
+                {isSplitWarehouseOutput && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleDistributeEvenly}
+                      style={{ fontSize: '11.5px', height: '30px', padding: '0 10px', borderColor: '#86efac', color: '#166534' }}
+                      title="Distribute actual confirmed output evenly across all selected destination warehouses"
+                    >
+                      Distribute Evenly
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleAddSplitRow}
+                      style={{ fontSize: '11.5px', height: '30px', padding: '0 10px', backgroundColor: '#16a34a', color: '#ffffff' }}
+                    >
+                      <IconPlus size={13} /> Add Warehouse Destination
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {!isSplitWarehouseOutput ? (
+                <p style={{ margin: '6px 0 0', fontSize: '11.5px', color: '#64748b' }}>
+                  Default: 100% of finished product output ({actualQuantity.toLocaleString()} units) will be credited to selected production warehouse ({selectedWarehouse?.name || 'Production Warehouse'}). Enable this option to divide output among different warehouses (e.g. Faisalabad, Multan, Lahore).
+                </p>
+              ) : (
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#ffffff' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f0fdf4', borderBottom: '1px solid #bbf7d0', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 12px', width: '40px', textAlign: 'center', color: '#166534', fontWeight: 700 }}>#</th>
+                          <th style={{ padding: '8px 12px', color: '#166534', fontWeight: 700 }}>Destination Warehouse *</th>
+                          <th style={{ padding: '8px 12px', width: '180px', textAlign: 'right', color: '#166534', fontWeight: 700 }}>Allocated Units *</th>
+                          <th style={{ padding: '8px 12px', width: '100px', textAlign: 'right', color: '#166534', fontWeight: 700 }}>Share (%)</th>
+                          <th style={{ padding: '8px 12px', width: '60px', textAlign: 'center', color: '#166534', fontWeight: 700 }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {warehouseSplits.map((split, sIdx) => {
+                          const pct = actualQuantity > 0 ? ((Number(split.quantity) || 0) / actualQuantity) * 100 : 0;
+                          return (
+                            <tr key={split.id} style={{ borderBottom: '1px solid #f0fdf4' }}>
+                              <td style={{ padding: '8px 12px', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>{sIdx + 1}</td>
+                              <td style={{ padding: '6px 12px' }}>
+                                <Select
+                                  value={split.warehouseId}
+                                  onChange={(e) => handleUpdateSplit(split.id, 'warehouseId', e?.target?.value !== undefined ? e.target.value : e)}
+                                  options={warehouses.map((w) => ({
+                                    label: `${w.code} - ${w.name}`,
+                                    value: w.id,
+                                  }))}
+                                />
+                              </td>
+                              <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={split.quantity}
+                                    onFocus={(e) => e.target.select()}
+                                    onChange={(e) => handleUpdateSplit(split.id, 'quantity', e.target.value)}
+                                    style={{
+                                      width: '120px',
+                                      height: '34px',
+                                      textAlign: 'right',
+                                      fontSize: '13px',
+                                      fontWeight: 700,
+                                      fontFamily: 'monospace',
+                                      padding: '0 8px',
+                                      border: '1.5px solid #86efac',
+                                      borderRadius: '6px',
+                                      outline: 'none',
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '11.5px', color: '#64748b', fontWeight: 600 }}>Units</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#15803d' }}>
+                                {pct.toFixed(1)}%
+                              </td>
+                              <td style={{ padding: '6px 12px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSplitRow(split.id)}
+                                  title="Remove split destination"
+                                  style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
+                                    padding: '4px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  <IconTrash size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Split Balance Summary Bar */}
+                  <div
+                    style={{
+                      marginTop: '8px',
+                      padding: '8px 12px',
+                      backgroundColor: isSplitBalanced ? '#dcfce7' : '#fee2e2',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: '12px',
+                      color: isSplitBalanced ? '#15803d' : '#b91c1c',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <div>
+                      Allocated: <span style={{ fontFamily: 'monospace' }}>{totalSplitQuantity.toLocaleString()}</span> / Target Output: <span style={{ fontFamily: 'monospace' }}>{actualQuantity.toLocaleString()}</span> Units
+                    </div>
+                    <div>
+                      {isSplitBalanced ? (
+                        <span>✓ Balanced: 100% of confirmed output assigned</span>
+                      ) : (
+                        <span>
+                          ⚠ Unbalanced: Difference of {Math.abs(splitDifference).toLocaleString()} Units {splitDifference > 0 ? 'remaining to allocate' : 'over-allocated'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Save Draft vs Confirm & Post Production */}
             <div
               style={{
@@ -2565,8 +2888,55 @@ export function ProductCostingView() {
               </div>
             </div>
 
+            <div>
+              <p style={{ fontWeight: 700, color: '#334155', margin: '0 0 8px' }}>
+                Finished Goods Stock Addition {isSplitWarehouseOutput && warehouseSplits.length > 1 ? `(Distributed across ${warehouseSplits.length} Warehouses)` : `(Credited to ${selectedWarehouse?.name})`}:
+              </p>
+              <div style={{ border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#f0fdf4' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#dcfce7', borderBottom: '1px solid #bbf7d0' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', color: '#166534' }}>Destination Warehouse</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '120px', color: '#166534' }}>Units Added</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '100px', color: '#166534' }}>Share</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '120px', color: '#166534' }}>Unit Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isSplitWarehouseOutput && warehouseSplits.length > 0 ? (
+                      warehouseSplits.map((ws, i) => (
+                        <tr key={ws.id || i} style={{ borderBottom: '1px solid #dcfce7' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{ws.warehouseName || 'Warehouse'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#15803d' }}>
+                            +{Number(ws.quantity).toLocaleString()} Units
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#166534' }}>
+                            {actualQuantity > 0 ? (((Number(ws.quantity) || 0) / actualQuantity) * 100).toFixed(1) : 0}%
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#64748b' }}>
+                            PKR {unitCost.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{selectedWarehouse?.name || 'Production Warehouse'}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#15803d' }}>
+                          +{actualQuantity.toLocaleString()} Units
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#166534' }}>100%</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace', color: '#64748b' }}>
+                          PKR {unitCost.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
-              This will execute an atomic database transaction: consuming the required materials from the warehouse, generating batch <strong>{customBatchNumber.trim() || 'auto-generated'}</strong>, and crediting {actualQuantity.toLocaleString()} units of {selectedProduct?.productName} into finished goods stock.
+              This will execute an atomic database transaction: consuming the required materials from {selectedWarehouse?.name}, generating batch <strong>{customBatchNumber.trim() || 'auto-generated'}</strong>, and crediting {actualQuantity.toLocaleString()} units of {selectedProduct?.productName} into finished goods stock {isSplitWarehouseOutput && warehouseSplits.length > 1 ? `across ${warehouseSplits.length} destination warehouses` : `at ${selectedWarehouse?.name}`}.
             </p>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '10px' }}>
@@ -3048,6 +3418,37 @@ export function ProductCostingView() {
                     </p>
                   </div>
                 </div>
+
+                {/* Multi-Warehouse Distribution Summary (if split) */}
+                {snap.warehouseSplits && Array.isArray(snap.warehouseSplits) && snap.warehouseSplits.length > 1 && (
+                  <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
+                      Finished Goods Warehouse Allocation ({snap.warehouseSplits.length} Warehouses):
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+                      {snap.warehouseSplits.map((ws: any, idx: number) => (
+                        <div
+                          key={idx}
+                          style={{
+                            backgroundColor: '#ffffff',
+                            border: '1px solid #86efac',
+                            borderRadius: '6px',
+                            padding: '4px 10px',
+                            fontSize: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <span style={{ fontWeight: 600, color: '#0f172a' }}>{ws.warehouseName || 'Warehouse'}:</span>
+                          <span style={{ fontWeight: 800, color: '#15803d', fontFamily: 'monospace' }}>
+                            {Number(ws.quantity).toLocaleString()} Units
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Modal Footer */}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px' }}>

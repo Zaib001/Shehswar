@@ -87,14 +87,26 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
     return entries.filter((e) => e.entryType === typeFilter);
   }, [entries, typeFilter]);
 
-  // Running totals
-  const totalDebits = useMemo(() => {
-    return filteredEntries.reduce((sum, e) => sum + Number(e.debit || 0), 0);
+  // Chronological ascending sorting: earliest entry on top row (e.g. 11/12/2026), latest at bottom
+  const sortedEntries = useMemo(() => {
+    return [...filteredEntries].sort((a, b) => {
+      const timeA = new Date(a.entryDate).getTime();
+      const timeB = new Date(b.entryDate).getTime();
+      if (timeA !== timeB) return timeA - timeB; // Earliest / oldest date first
+      if (a.entryType === 'OPENING_BALANCE') return -1;
+      if (b.entryType === 'OPENING_BALANCE') return 1;
+      return (a.id || '').localeCompare(b.id || '');
+    });
   }, [filteredEntries]);
 
+  // Running totals
+  const totalDebits = useMemo(() => {
+    return sortedEntries.reduce((sum, e) => sum + Number(e.debit || 0), 0);
+  }, [sortedEntries]);
+
   const totalCredits = useMemo(() => {
-    return filteredEntries.reduce((sum, e) => sum + Number(e.credit || 0), 0);
-  }, [filteredEntries]);
+    return sortedEntries.reduce((sum, e) => sum + Number(e.credit || 0), 0);
+  }, [sortedEntries]);
 
   // Export to PDF
   const handleExportPdf = () => {
@@ -118,7 +130,7 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
       },
       startDate: startDate || undefined,
       endDate: endDate || undefined,
-      entries: filteredEntries,
+      entries: sortedEntries,
     });
 
     showToast({
@@ -316,7 +328,7 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
             <div style={{ padding: '24px' }}>
               <TableSkeleton rows={6} columns={6} />
             </div>
-          ) : filteredEntries.length === 0 ? (
+          ) : sortedEntries.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
               <IconFileText size={36} color="#94a3b8" />
               <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '8px' }}>
@@ -340,7 +352,7 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredEntries.map((e, idx) => {
+                {sortedEntries.map((e, idx) => {
                   const debit = Number(e.debit || 0);
                   const credit = Number(e.credit || 0);
                   const bal = Number(e.runningBalance || 0);

@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { IntercompanyService, IntercompanyTransferDto } from './intercompany.service';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
@@ -41,6 +42,16 @@ export class IntercompanyController {
     @Query('endDate') endDate?: string,
     @CurrentUser() user?: AuthUser,
   ) {
+    const isParent = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR'
+    );
+    if (!isParent) {
+      throw new ForbiddenException(
+        'Profit reports and margin calculations are strictly confidential and reserved for the parent manufacturing company.',
+      );
+    }
     const effectiveCompanyId = companyId || user?.companyId;
     return this.intercompanyService.getProfitReport({
       companyId: effectiveCompanyId,

@@ -494,8 +494,18 @@ export class AuthService {
     }
 
     // Query authorized companies for company context switcher
+    // Parent company users have access to Parent Company + ALL child companies.
+    // Child company users can ONLY access their own child company; Parent company is strictly excluded.
+    const isUserFromParent = Boolean(
+      user.isSuperAdmin ||
+      roles.includes('ROLE_SUPER_ADMIN') ||
+      user.company?.isParent === true ||
+      user.company?.code === 'COMP-SHEHSWAR' ||
+      (user.company as any)?.companyType === 'PARENT_MANUFACTURING'
+    );
+
     let authorizedCompanies: any[] = [];
-    if (isSuperOrAdmin || permissionsSet.has('company:cross_company_view')) {
+    if (isUserFromParent || permissionsSet.has('company:cross_company_view')) {
       authorizedCompanies = await this.prisma.company.findMany({
         where: { organizationId: user.organizationId, status: 'ACTIVE' },
         select: { id: true, code: true, name: true, isParent: true, companyType: true },
@@ -503,13 +513,17 @@ export class AuthService {
       });
     } else {
       const assignedCompIds = user.userRoles.map((ur) => ur.companyId).filter(Boolean) as string[];
+      const allowedIds = Array.from(new Set([user.companyId, ...assignedCompIds]));
+
       authorizedCompanies = await this.prisma.company.findMany({
         where: {
-          id: { in: Array.from(new Set([user.companyId, ...assignedCompIds])) },
+          id: { in: allowedIds },
+          isParent: false, // Child can never access parent
+          code: { not: 'COMP-SHEHSWAR' }, // Exclude parent company
           status: 'ACTIVE',
         },
         select: { id: true, code: true, name: true, isParent: true, companyType: true },
-        orderBy: [{ isParent: 'desc' }, { name: 'asc' }],
+        orderBy: [{ name: 'asc' }],
       });
     }
 

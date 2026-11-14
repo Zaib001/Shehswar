@@ -45,12 +45,19 @@ export interface CostingTableLineDto {
   vendorName?: string;
 }
 
+export interface CostingWarehouseSplitInput {
+  warehouseId: string;
+  warehouseName?: string;
+  quantity: number;
+}
+
 export interface SaveCostingRecordInput {
   companyId?: string;
   costingDate?: string;
   serialNumber?: string;
   warehouseId?: string;
   warehouseName?: string;
+  warehouseSplits?: CostingWarehouseSplitInput[];
   contractorVendorId?: string;
   contractorVendorName?: string;
   finishedProductId?: string;
@@ -1481,6 +1488,7 @@ export class CostingService {
       const isPost = dto.postProduction === true || dto.action === 'POST';
       const recordStatus = isPost ? 'POSTED' : 'DRAFT';
       let autoBatchNumber = dto.batchNumber;
+      let resolvedSplits: Array<{ warehouseId: string; warehouseName: string; quantity: number }> = [];
 
       // ==============================================================
       // PRODUCTION EXECUTION & WAREHOUSE INVENTORY MOVEMENTS (POST)
@@ -1504,6 +1512,47 @@ export class CostingService {
         const actualOut = Number(dto.actualOutput || dto.actualQuantity || dto.finishedQuantity || 0);
         if (actualOut <= 0) {
           throw new BadRequestException('Actual Output quantity must be greater than zero to post production.');
+        }
+
+        // Validate and resolve warehouse splits (if user opted to split across multiple warehouses)
+        if (dto.warehouseSplits && Array.isArray(dto.warehouseSplits) && dto.warehouseSplits.length > 0) {
+          let totalSplitQty = 0;
+          let idx = 0;
+          for (const split of dto.warehouseSplits) {
+            idx++;
+            if (!split || !isValidUuid(split.warehouseId)) {
+              throw new BadRequestException(`Invalid warehouse ID specified in split allocation #${idx}.`);
+            }
+            const splitWh = await tx.warehouse.findUnique({ where: { id: split.warehouseId } });
+            if (!splitWh) {
+              throw new BadRequestException(`Warehouse for split allocation #${idx} was not found.`);
+            }
+            const sQty = Number(split.quantity || 0);
+            if (sQty <= 0) {
+              throw new BadRequestException(`Quantity for warehouse split "${splitWh.name}" must be greater than zero.`);
+            }
+            totalSplitQty += sQty;
+            resolvedSplits.push({
+              warehouseId: splitWh.id,
+              warehouseName: splitWh.name,
+              quantity: sQty,
+            });
+          }
+
+          if (Math.abs(totalSplitQty - actualOut) > 0.0001) {
+            throw new BadRequestException(
+              `Total allocated warehouse output (${totalSplitQty.toLocaleString()} units) does not match total production output (${actualOut.toLocaleString()} units). Difference: ${(actualOut - totalSplitQty).toLocaleString()} units.`,
+            );
+          }
+        } else {
+          // Default: 100% of finished goods output allocated to selected warehouse
+          resolvedSplits = [
+            {
+              warehouseId: dto.warehouseId,
+              warehouseName: warehouse.name,
+              quantity: actualOut,
+            },
+          ];
         }
 
         // Generate batch number if not manually provided
@@ -1634,20 +1683,24 @@ export class CostingService {
           });
         }
 
-        // Add finished product output to inventory
-        await this.inventoryService.applyMovement(tx, {
-          organizationId,
-          companyId,
-          warehouseId: dto.warehouseId,
-          itemType: 'FINISHED_PRODUCT',
-          finishedProductId: validFinishedProductId,
-          quantityChange: actualOut,
-          unitCost: Number(dto.costPerUnit || 0),
-          transactionType: 'PRODUCTION_OUTPUT',
-          referenceId: costingCode,
-          referenceNumber: dto.serialNumber || costingCode,
-          notes: `Production output for batch ${autoBatchNumber}`,
-        });
+        // Add finished product output to inventory (distributed across destination warehouses)
+        for (const split of resolvedSplits) {
+          await this.inventoryService.applyMovement(tx, {
+            organizationId,
+            companyId,
+            warehouseId: split.warehouseId,
+            itemType: 'FINISHED_PRODUCT',
+            finishedProductId: validFinishedProductId,
+            quantityChange: split.quantity,
+            unitCost: Number(dto.costPerUnit || 0),
+            transactionType: 'PRODUCTION_OUTPUT',
+            referenceId: costingCode,
+            referenceNumber: dto.serialNumber || costingCode,
+            notes: resolvedSplits.length > 1
+              ? `Production output for batch ${autoBatchNumber} (Split: ${split.quantity.toLocaleString()} units to ${split.warehouseName})`
+              : `Production output for batch ${autoBatchNumber}`,
+          });
+        }
 
         // Update FinishedProduct standardCost
         await tx.finishedProduct.update({
@@ -1673,6 +1726,7 @@ export class CostingService {
         costingDate: dto.costingDate || new Date().toISOString(),
         warehouseId: dto.warehouseId || null,
         warehouseName: dto.warehouseName || null,
+        warehouseSplits: resolvedSplits.length > 0 ? resolvedSplits : (dto.warehouseSplits || undefined),
         contractorVendorId: dto.contractorVendorId || null,
         contractorVendorName: dto.contractorVendorName || null,
         finishedProductId: validFinishedProductId,
@@ -1808,7 +1862,9 @@ export class CostingService {
         status: recordStatus,
         costing: costingRecord,
         message: isPost
-          ? `Batch ${autoBatchNumber} confirmed & posted: ${dto.actualOutput || dto.actualQuantity} units added to stock at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`
+          ? (resolvedSplits.length > 1
+              ? `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units split across ${resolvedSplits.length} warehouses at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`
+              : `Batch ${autoBatchNumber} confirmed & posted: ${(dto.actualOutput || dto.actualQuantity)?.toLocaleString()} units added to stock at PKR ${Number(dto.costPerUnit).toLocaleString()}/unit`)
           : `Costing draft ${costingCode} saved successfully (PKR ${Number(dto.costPerUnit).toLocaleString()}/unit)`,
       };
     });
