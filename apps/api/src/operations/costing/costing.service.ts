@@ -1517,15 +1517,14 @@ export class CostingService {
         // Validate and resolve warehouse splits (if user opted to split across multiple warehouses)
         if (dto.warehouseSplits && Array.isArray(dto.warehouseSplits) && dto.warehouseSplits.length > 0) {
           let totalSplitQty = 0;
-          let idx = 0;
-          for (const split of dto.warehouseSplits) {
-            idx++;
-            if (!split || !isValidUuid(split.warehouseId)) {
-              throw new BadRequestException(`Invalid warehouse ID specified in split allocation #${idx}.`);
+          for (let i = 0; i < dto.warehouseSplits.length; i++) {
+            const split = dto.warehouseSplits[i];
+            if (!isValidUuid(split.warehouseId)) {
+              throw new BadRequestException(`Invalid warehouse ID specified in split allocation #${i + 1}.`);
             }
             const splitWh = await tx.warehouse.findUnique({ where: { id: split.warehouseId } });
             if (!splitWh) {
-              throw new BadRequestException(`Warehouse for split allocation #${idx} was not found.`);
+              throw new BadRequestException(`Warehouse for split allocation #${i + 1} was not found.`);
             }
             const sQty = Number(split.quantity || 0);
             if (sQty <= 0) {
