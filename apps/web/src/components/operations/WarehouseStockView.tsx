@@ -942,7 +942,7 @@ export const WarehouseStockView: React.FC = () => {
               options={[
                 { label: 'All Warehouses', value: 'ALL' },
                 ...warehouses.map((w) => ({
-                  label: w.code ? `${w.code} - ${w.name}` : w.name,
+                  label: `${w.code ? `${w.code} - ` : ''}${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`,
                   value: w.id,
                 })),
               ]}

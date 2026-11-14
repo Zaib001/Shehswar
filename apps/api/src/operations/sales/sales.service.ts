@@ -2751,16 +2751,40 @@ export class SalesService {
 
   async getWarehouseStockReport(companyId?: string, warehouseId?: string) {
     const where: any = {};
-    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+
+    let allowedCompanyIds: string[] = [];
+    if (companyId && companyId !== 'ALL') {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      const isParent = Boolean(
+        comp?.isParent === true ||
+        comp?.code === 'COMP-SHEHSWAR' ||
+        comp?.companyType === 'PARENT_MANUFACTURING' ||
+        (comp && (comp.childCompanies?.length || 0) > 0)
+      );
+
+      if (isParent && comp) {
+        // Parent company can see stock in Parent warehouses PLUS all Child company warehouses!
+        allowedCompanyIds = [companyId, ...comp.childCompanies.map((c) => c.id)];
+      } else {
+        allowedCompanyIds = [companyId];
+      }
+    }
+
     if (warehouseId && warehouseId !== 'ALL') {
-      if (companyId && companyId !== 'ALL') {
+      if (allowedCompanyIds.length > 0) {
         const wh = await this.prisma.warehouse.findUnique({ where: { id: warehouseId } });
-        if (wh && wh.companyId !== companyId) {
-          return []; // Isolated: warehouse belongs to a different company context
+        if (wh && !allowedCompanyIds.includes(wh.companyId)) {
+          return []; // Isolated: warehouse does not belong to authorized company scope
         }
       }
       where.warehouseId = warehouseId;
+    } else if (allowedCompanyIds.length > 0) {
+      where.companyId = allowedCompanyIds.length === 1 ? allowedCompanyIds[0] : { in: allowedCompanyIds };
     }
+
     where.quantityOnHand = { gt: 0 };
 
     return this.prisma.warehouseStock.findMany({

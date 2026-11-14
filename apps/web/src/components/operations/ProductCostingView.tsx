@@ -171,6 +171,8 @@ export interface MasterWarehouse {
   code: string;
   name: string;
   location?: string;
+  companyId?: string;
+  company?: { id: string; code?: string; name: string; isParent?: boolean };
 }
 
 export interface MasterVendor {
@@ -1491,11 +1493,14 @@ export function ProductCostingView() {
                   }}
                 >
                   <option value="">Select Warehouse...</option>
-                  {warehouses.map((wh) => (
-                    <option key={wh.id} value={wh.id}>
-                      {wh.code ? `${wh.code} - ${wh.name}` : wh.name}
-                    </option>
-                  ))}
+                  {warehouses.map((wh) => {
+                    const compTag = wh.company?.name ? ` [${wh.company.name}]` : '';
+                    return (
+                      <option key={wh.id} value={wh.id}>
+                        {wh.code ? `${wh.code} - ${wh.name}` : wh.name}{compTag}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -2429,7 +2434,7 @@ export function ProductCostingView() {
                                   value={split.warehouseId}
                                   onChange={(e) => handleUpdateSplit(split.id, 'warehouseId', e?.target?.value !== undefined ? e.target.value : e)}
                                   options={warehouses.map((w) => ({
-                                    label: `${w.code} - ${w.name}`,
+                                    label: `${w.code ? `${w.code} - ` : ''}${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`,
                                     value: w.id,
                                   }))}
                                 />

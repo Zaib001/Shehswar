@@ -1060,7 +1060,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
                     <Select
                       value={alloc.warehouseId}
                       onChange={(e) => updateSplitRow(idx, 'warehouseId', e.target.value)}
-                      options={warehouses.map((w) => ({ label: `${w.code} - ${w.name}`, value: w.id }))}
+                      options={warehouses.map((w) => ({ label: `${w.code ? `${w.code} - ` : ''}${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`, value: w.id }))}
                     />
                   </td>
                   <td style={{ padding: '8px' }}>
@@ -1479,7 +1479,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
                   onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
                   options={[
                     { label: 'Select Warehouse...', value: '' },
-                    ...warehouses.map((w) => ({ label: w.name, value: w.id })),
+                    ...warehouses.map((w) => ({ label: `${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`, value: w.id })),
                   ]}
                 />
               </div>

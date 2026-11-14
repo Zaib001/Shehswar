@@ -2245,7 +2245,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   placeholder="-- Select Warehouse --"
                   options={[
                     { label: '-- Select Warehouse --', value: '' },
-                    ...warehouses.map((w) => ({ label: `${w.code} - ${w.name}`, value: w.id })),
+                    ...warehouses.map((w) => ({ label: `${w.code ? `${w.code} - ` : ''}${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`, value: w.id })),
                   ]}
                 />
               </div>
@@ -2996,7 +2996,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                     onChange={(val) => setFormWarehouseId(val)}
                     options={warehouses.map((w) => ({
                       value: w.id,
-                      label: `${w.code} - ${w.name}`,
+                      label: `${w.code ? `${w.code} - ` : ''}${w.name}${w.company?.name ? ` [${w.company.name}]` : ''}`,
                     }))}
                     placeholder="Type to search warehouse..."
                     nextFocusId="field-po-date"

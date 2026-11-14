@@ -845,14 +845,34 @@ export class MasterDataService {
   async findWarehouses(companyId?: string) {
     const where: any = {};
     if (companyId) {
-      where.companyId = companyId;
+      // Determine if companyId belongs to Parent Company (e.g. Shehswar)
+      const targetComp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+
+      const isParent = Boolean(
+        targetComp?.isParent === true ||
+        targetComp?.code === 'COMP-SHEHSWAR' ||
+        targetComp?.companyType === 'PARENT_MANUFACTURING' ||
+        (targetComp && (targetComp.childCompanies?.length || 0) > 0)
+      );
+
+      if (isParent && targetComp) {
+        // Parent company has full visibility to see its own warehouse(s) PLUS all child company warehouses!
+        const childIds = (targetComp.childCompanies || []).map((c) => c.id);
+        where.companyId = { in: [companyId, ...childIds] };
+      } else {
+        // Child company: strictly isolated to its own warehouse
+        where.companyId = companyId;
+      }
     }
 
     return this.prisma.warehouse.findMany({
       where,
       include: {
         company: {
-          select: { id: true, code: true, name: true },
+          select: { id: true, code: true, name: true, isParent: true },
         },
         plant: {
           select: { id: true, code: true, name: true },
@@ -861,7 +881,10 @@ export class MasterDataService {
           select: { id: true, code: true, name: true },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { company: { isParent: 'desc' } },
+        { name: 'asc' },
+      ],
     });
   }
 
@@ -878,9 +901,25 @@ export class MasterDataService {
       throw new NotFoundException(`Warehouse with ID ${id} not found`);
     }
     if (expectedCompanyId && expectedCompanyId !== 'ALL' && wh.companyId !== expectedCompanyId) {
-      throw new ForbiddenException(
-        `Data isolation violation: Warehouse '${wh.name}' belongs to company '${wh.company?.name}' and cannot be accessed under active company context.`,
+      // Check if expectedCompanyId is the Parent Company authorized to access child warehouse
+      const parentComp = await this.prisma.company.findUnique({
+        where: { id: expectedCompanyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      const isParent = Boolean(
+        parentComp?.isParent === true ||
+        parentComp?.code === 'COMP-SHEHSWAR' ||
+        parentComp?.companyType === 'PARENT_MANUFACTURING' ||
+        (parentComp && (parentComp.childCompanies?.length || 0) > 0)
       );
+
+      const isChildOfParent = isParent && parentComp?.childCompanies?.some((c) => c.id === wh.companyId);
+
+      if (!isParent && !isChildOfParent) {
+        throw new ForbiddenException(
+          `Data isolation violation: Warehouse '${wh.name}' belongs to company '${wh.company?.name}' and cannot be accessed under active company context.`,
+        );
+      }
     }
     return wh;
   }

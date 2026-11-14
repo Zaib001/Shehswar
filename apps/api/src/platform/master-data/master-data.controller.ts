@@ -552,8 +552,15 @@ export class MasterDataController {
     @CurrentContext() ctx?: SecurityContext,
     @CurrentUser() user?: AuthUser,
   ) {
+    const isParentUser = Boolean(
+      user?.isSuperAdmin ||
+      user?.company?.isParent ||
+      user?.company?.code === 'COMP-SHEHSWAR' ||
+      user?.permissions?.includes('company:cross_company_view')
+    );
+
     const requestedCompany = companyId && companyId !== 'ALL' ? companyId : ctx?.companyId;
-    const filterCompany = requestedCompany || (all === 'true' && user?.isSuperAdmin ? undefined : user?.companyId);
+    const filterCompany = requestedCompany || (all === 'true' && isParentUser ? undefined : user?.companyId);
     return this.masterDataService.findWarehouses(filterCompany);
   }
 
