@@ -49,6 +49,7 @@ import {
   IconAlertTriangle,
   IconBox,
 } from '../icons';
+import { cleanPackSize } from '../operations/PurchaseOrdersView';
 import { ProductImportModal } from './ProductImportModal';
 import { AddBatchModal } from '../operations/AddBatchModal';
 
@@ -758,7 +759,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
             whiteSpace: 'nowrap',
           }}
         >
-          {row.packSize || '—'}
+          {cleanPackSize(row.packSize, row.baseUomSymbol || 'KG') || '—'}
         </span>
       ),
     },
@@ -1732,7 +1733,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
 
               <div>
                 <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Pack Size</div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>{viewingItem.packSize || '—'}</div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>{cleanPackSize(viewingItem.packSize, viewingItem.baseUomSymbol || 'KG') || '—'}</div>
               </div>
 
               <div>

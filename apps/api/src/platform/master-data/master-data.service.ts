@@ -46,6 +46,43 @@ import {
 import { UserContextDto } from '@shehswar/types';
 import { CodeGenerationService } from '../code-generation/code-generation.service';
 
+function cleanPackSize(raw?: string | null, fallbackUnit = 'KG'): string {
+  if (!raw) return `1 ${fallbackUnit}`.trim();
+  let s = String(raw).trim();
+  if (!s || s === '—' || s === '-') return `1 ${fallbackUnit}`.trim();
+
+  // Strip "Pack Size:" or "Packs:" or "Pack:" prefix
+  s = s.replace(/^(?:Packs?|Pack\s*Size)\s*:\s*/i, '').trim();
+
+  // Strip trailing parenthesized info like "(250 KG)" or "(qty...)"
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+  // Strip "/ Bulk" or "/Bulk" or "Bulk /"
+  s = s.replace(/\s*\/\s*Bulk/i, '').replace(/Bulk\s*\/\s*/i, '').trim();
+
+  // If expression has multipliers (e.g. "20 × 10 × 200 LTR" or "10 * 25 KG" or "10 x 25 KG")
+  if (/[×*]|(?:\s+[xX]\s+)/.test(s)) {
+    const parts = s.split(/[×*]|(?:\s+[xX]\s+)/);
+    const lastPart = parts[parts.length - 1]?.trim();
+    if (lastPart) {
+      s = lastPart;
+    }
+  }
+
+  // If it's literally "Bulk" or "Item" or "Unit"
+  if (/^(?:Bulk|Item|Unit)$/i.test(s)) {
+    return `1 ${fallbackUnit}`.trim();
+  }
+
+  // Normalize spacing between number and unit (e.g. "25KG" -> "25 KG", "200LTR" -> "200 LTR")
+  const numUnitMatch = s.match(/^([\d.]+)\s*([a-zA-Z%]+)$/);
+  if (numUnitMatch && numUnitMatch[1] && numUnitMatch[2]) {
+    return `${parseFloat(numUnitMatch[1])} ${numUnitMatch[2].toUpperCase()}`.trim();
+  }
+
+  return s;
+}
+
 @Injectable()
 export class MasterDataService {
   constructor(
@@ -3120,6 +3157,12 @@ export class MasterDataService {
       const itemType = isOther ? 'OTHER' : 'RAW_MATERIAL';
       const itemTypeLabel = isOther ? 'Other Item' : 'Raw Material';
       const baseCost = canViewCost ? Number(rm.costPerBaseUnit ?? rm.unitRate ?? rm.standardCost ?? 0) : null;
+      const rmUnit = rm.baseUom?.symbol || rm.baseUom?.code || rm.uom?.symbol || 'KG';
+      let rmPackRaw = (rm.customFields as any)?.packSize || rm.specifications || rm.bulkPacking;
+      if (!rmPackRaw && rm.purchaseConversionFactor && Number(rm.purchaseConversionFactor) > 0) {
+        rmPackRaw = `${Number(rm.purchaseConversionFactor)} ${rmUnit}`;
+      }
+      const commercialPackSize = cleanPackSize(rmPackRaw, rmUnit);
 
       unifiedList.push({
         id: rm.id,
@@ -3131,12 +3174,12 @@ export class MasterDataService {
         categoryName: rm.category?.name || 'Raw Material',
         categoryCode: rm.category?.code || null,
         categoryId: rm.categoryId || null,
-        baseUomName: rm.baseUom?.name || rm.uom?.name || 'KG',
-        baseUomSymbol: rm.baseUom?.symbol || rm.baseUom?.code || rm.uom?.symbol || 'KG',
+        baseUomName: rm.baseUom?.name || rm.uom?.name || rmUnit,
+        baseUomSymbol: rmUnit,
         rate: baseCost,
         standardCost: baseCost,
         sellingPrice: null,
-        packSize: rm.bulkPacking || (rm.purchaseConversionFactor && Number(rm.purchaseConversionFactor) > 1 ? `${rm.purchaseConversionFactor} ${rm.baseUom?.symbol || 'KG'}` : 'Bulk'),
+        packSize: commercialPackSize,
         grade: rm.grade || null,
         specifications: rm.specifications || null,
         storageRequirements: rm.storageRequirements || null,
@@ -3157,6 +3200,9 @@ export class MasterDataService {
       const itemType = isOther ? 'OTHER' : 'PACKING_MATERIAL';
       const itemTypeLabel = isOther ? 'Other Item' : 'Packing Material';
       const pmCost = canViewCost ? Number(pm.lastPurchaseCost ?? pm.standardCost ?? 0) : null;
+      const pmUnit = pm.baseUom?.symbol || pm.baseUom?.code || pm.uom?.symbol || 'PCS';
+      const pmPackRaw = (pm.customFields as any)?.packSize || pm.packCompatibility || pm.description;
+      const commercialPmPack = cleanPackSize(pmPackRaw, pmUnit);
 
       unifiedList.push({
         id: pm.id,
@@ -3168,12 +3214,12 @@ export class MasterDataService {
         categoryName: pm.category?.name || 'Packing Material',
         categoryCode: pm.category?.code || null,
         categoryId: pm.categoryId || null,
-        baseUomName: pm.baseUom?.name || pm.uom?.name || 'PCS',
-        baseUomSymbol: pm.baseUom?.symbol || pm.baseUom?.code || pm.uom?.symbol || 'PCS',
+        baseUomName: pm.baseUom?.name || pm.uom?.name || pmUnit,
+        baseUomSymbol: pmUnit,
         rate: pmCost,
         standardCost: pmCost,
         sellingPrice: null,
-        packSize: pm.packCompatibility || 'Item',
+        packSize: commercialPmPack,
         grade: null,
         specifications: pm.description || pm.packCompatibility || null,
         storageRequirements: null,
@@ -3190,7 +3236,9 @@ export class MasterDataService {
 
     // 3. Finished Products
     for (const fp of finishedProducts) {
-      const packLabel = fp.packSize?.name || (fp.packingQuantity ? `${fp.packingQuantity} ${fp.packingUnit || 'L'}` : null);
+      const fpUnit = fp.salesUom?.symbol || fp.baseUom?.symbol || fp.packSize?.uom?.symbol || fp.packingUnit || 'Units';
+      const fpPackRaw = fp.packSize?.name || (fp.packingQuantity ? `${Number(fp.packingQuantity)} ${fp.packingUnit || fpUnit}` : ((fp.customFields as any)?.packSize || null));
+      const commercialFpPack = cleanPackSize(fpPackRaw, fpUnit);
       const fpPrice = fp.defaultSellingPrice !== null && fp.defaultSellingPrice !== undefined ? Number(fp.defaultSellingPrice) : null;
       const fpCost = canViewCost && fp.standardCost !== null && fp.standardCost !== undefined ? Number(fp.standardCost) : null;
 
@@ -3204,12 +3252,12 @@ export class MasterDataService {
         categoryName: fp.category?.name || fp.productType || 'Finished Goods',
         categoryCode: fp.category?.code || null,
         categoryId: fp.categoryId || null,
-        baseUomName: fp.baseUom?.name || fp.packingUnit || 'PCS',
-        baseUomSymbol: fp.baseUom?.symbol || fp.baseUom?.code || fp.packingUnit || 'PCS',
+        baseUomName: fp.baseUom?.name || fpUnit,
+        baseUomSymbol: fpUnit,
         rate: fpPrice,
         standardCost: fpCost,
         sellingPrice: fpPrice,
-        packSize: packLabel,
+        packSize: commercialFpPack,
         grade: fp.grade || null,
         specifications: fp.productType ? `${fp.productType} · PPC: ${fp.ppc || 1}` : null,
         storageRequirements: null,

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Modal, Button, TableSkeleton } from '../ui';
-import { IconDownload } from '../icons';
+import { IconDownload, IconEdit, IconCheck, IconClose } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportSourceDocumentToPdf } from '../../lib/pdf-export';
@@ -86,6 +86,8 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
 
   // Editable draft state
   const [editNotes, setEditNotes] = useState<string>('');
+  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editReference, setEditReference] = useState<string>('');
   const [editableItems, setEditableItems] = useState<
     Array<{ id: string; itemName: string; quantity: number; unitRate: number; packSize?: string }>
   >([]);
@@ -117,6 +119,8 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
         const data: ResolvedSourceDocument = res.data?.data || res.data;
         setDoc(data);
         setEditNotes(data.notes || '');
+        setEditAmount(Number(data.netAmount || 0));
+        setEditReference(data.reference || '');
         setEditableItems(
           (data.items || []).map((it) => ({
             id: it.id,
@@ -187,6 +191,8 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
         sourceId: doc.sourceId,
         data: {
           notes: editNotes,
+          amount: editAmount,
+          referenceNumber: editReference,
           items: editableItems.map((it) => ({
             id: it.id,
             quantity: Number(it.quantity),
@@ -239,198 +245,374 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
     });
   };
 
-  if (!isOpen) return null;
+  const currentEditedItemsTotal = useMemo(() => {
+    return editableItems.reduce(
+      (sum, it) => sum + Number(it.quantity || 0) * Number(it.unitRate || 0),
+      0
+    );
+  }, [editableItems]);
 
-  const currentEditedTotal = editableItems.reduce(
-    (sum, it) => sum + Number(it.quantity || 0) * Number(it.unitRate || 0),
-    0
-  );
+  const effectiveTotal = useMemo(() => {
+    if (!doc) return 0;
+    if (editableItems.length > 0) {
+      return isEditing ? currentEditedItemsTotal : Number(doc.netAmount || 0);
+    }
+    return isEditing ? editAmount : Number(doc.netAmount || 0);
+  }, [doc, editableItems.length, isEditing, currentEditedItemsTotal, editAmount]);
+
+  if (!isOpen) return null;
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       size="xl"
-      title={`Original Source Document: ${doc?.sourceNumber || sourceNumber || voucherNumber || 'Document'}`}
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '15px', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
+            {doc?.sourceNumber || sourceNumber || voucherNumber || 'Transaction Document'}
+          </span>
+          {doc?.status && (
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '6px',
+                backgroundColor: doc.isPosted ? '#ECFDF5' : '#FEF3C7',
+                color: doc.isPosted ? '#059669' : '#D97706',
+                border: doc.isPosted ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                textTransform: 'uppercase',
+                letterSpacing: '0.3px',
+              }}
+            >
+              {doc.status}
+            </span>
+          )}
+        </div>
+      }
     >
-      <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '16px 20px', maxHeight: '82vh', overflowY: 'auto' }}>
+        {/* Navigation History Trace */}
         {history.length > 0 && (
-          <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              paddingBottom: '10px',
+              borderBottom: '1px solid #E2E8F0',
+            }}
+          >
             <button
               type="button"
               onClick={handleBack}
-              className="px-2.5 py-1 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 rounded transition-colors"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 600,
+                backgroundColor: '#F1F5F9',
+                color: '#1E293B',
+                borderRadius: '6px',
+                border: '1px solid #CBD5E1',
+                cursor: 'pointer',
+              }}
             >
               ← Back to previous document
             </button>
-            <span className="text-xs text-gray-400">|</span>
-            <span className="text-xs text-gray-500 font-medium">
-              Navigation Depth: {history.length} step(s) back
+            <span style={{ color: '#94A3B8' }}>|</span>
+            <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 500 }}>
+              Audit Depth: {history.length} level(s) deep
             </span>
           </div>
         )}
+
         {isLoading ? (
-          <div className="space-y-4">
+          <div style={{ padding: '24px 0' }}>
             <TableSkeleton rows={8} />
           </div>
         ) : !doc ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500 font-medium">
+          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#475569' }}>
               No matching original document found for this ledger voucher.
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p style={{ fontSize: '12px', color: '#94A3B8', marginTop: '4px' }}>
               Ref: {voucherNumber || sourceNumber || sourceId || 'N/A'}
             </p>
           </div>
         ) : (
           <>
-            {/* Header Status & Control Banner */}
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            {/* Top Classification & Action Control Bar */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                padding: '12px 16px',
+                backgroundColor: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: '10px',
+              }}
+            >
               <div>
-                <div className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                <div style={{ fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: '#64748B' }}>
                   Transaction Classification
                 </div>
-                <div className="text-base font-bold text-slate-900 flex items-center gap-2 mt-0.5">
-                  <span>{doc.sourceType.replace(/_/g, ' ')}</span>
-                  <span className="text-xs text-slate-500 font-normal">
-                    • Date:{' '}
-                    {new Date(doc.documentDate).toLocaleDateString('en-GB', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                  <span style={{ fontSize: '15px', fontWeight: 800, color: '#0F172A' }}>
+                    {doc.sourceType.replace(/_/g, ' ')}
+                  </span>
+                  <span style={{ fontSize: '12px', color: '#64748B' }}>
+                    • Date: {new Date(doc.documentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleExportPdf}
-                  className="flex items-center gap-1.5"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', height: '32px' }}
                 >
-                  <IconDownload size={15} />
-                  Print / Download PDF
+                  <IconDownload size={14} /> Print / Export PDF
                 </Button>
 
-                {doc.isEditable && !isEditing && (
+                {!isEditing ? (
                   <Button
                     variant="primary"
                     size="sm"
                     onClick={() => setIsEditing(true)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      height: '32px',
+                      backgroundColor: '#2563EB',
+                      borderColor: '#2563EB',
+                    }}
                   >
-                    Edit Draft Document
+                    <IconEdit size={14} /> Edit Document / Adjust Values
                   </Button>
-                )}
-
-                {isEditing && (
+                ) : (
                   <>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setIsEditing(false)}
                       disabled={isSaving}
+                      style={{ height: '32px' }}
                     >
-                      Cancel
+                      <IconClose size={13} style={{ marginRight: '4px' }} /> Cancel
                     </Button>
                     <Button
                       variant="primary"
                       size="sm"
                       onClick={handleSaveEdit}
                       disabled={isSaving}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        height: '32px',
+                        backgroundColor: '#059669',
+                        borderColor: '#059669',
+                      }}
                     >
-                      {isSaving ? 'Syncing...' : 'Save & Sync Ledger'}
+                      <IconCheck size={14} /> {isSaving ? 'Syncing...' : 'Save & Sync Ledger'}
                     </Button>
                   </>
                 )}
 
-                {doc.isPosted && (
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-full">
-                    <span>🔒</span>
-                    <span>Posted / Finalized (Protected)</span>
-                  </div>
+                {doc.isPosted && !isEditing && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '3px 8px',
+                      backgroundColor: '#ECFDF5',
+                      border: '1px solid #A7F3D0',
+                      color: '#065F46',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                    }}
+                  >
+                    🔒 Finalized & Reconciled
+                  </span>
                 )}
               </div>
             </div>
 
-            {/* Context & Parties Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Originating Party / Entity */}
-              <div className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {/* Editing Alert Banner */}
+            {isEditing && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  backgroundColor: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '12.5px',
+                  color: '#1E40AF',
+                }}
+              >
+                <IconEdit size={16} />
+                <span>
+                  <strong>Editing Mode Active:</strong> You can adjust line item quantities, unit rates, amount, and remarks. Changes will immediately recalculate the balance and update the associated ledger entries.
+                </span>
+              </div>
+            )}
+
+            {/* Context & Parties Grid (3 Cards) */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gap: '12px',
+              }}
+            >
+              {/* Card 1: Originating Party / Entity */}
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+              >
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Associated Entity / Party
                 </div>
-                <div className="mt-2">
-                  <div className="font-bold text-gray-900 text-sm">
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#0F172A' }}>
                     {doc.party?.name || 'N/A'}
                   </div>
-                  <div className="text-xs text-gray-600 mt-0.5">
-                    Code: <span className="font-mono">{doc.party?.code || '-'}</span> •{' '}
-                    <span className="capitalize">{doc.party?.type?.toLowerCase() || 'Party'}</span>
+                  <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 600 }}>{doc.party?.code || '-'}</span>
+                    <span>•</span>
+                    <span style={{ textTransform: 'capitalize' }}>{doc.party?.type?.toLowerCase() || 'Party'}</span>
                   </div>
                   {doc.party?.phone && (
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '4px' }}>
                       Phone: {doc.party.phone}
                     </div>
                   )}
                   {doc.party?.address && (
-                    <div className="text-xs text-gray-400 mt-0.5 truncate">
+                    <div style={{ fontSize: '11px', color: '#94A3B8', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {doc.party.address}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Warehouse & Company Context */}
-              <div className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              {/* Card 2: Operating Context */}
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+              >
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Operating Context
                 </div>
-                <div className="mt-2 space-y-1 text-xs">
+                <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
                   <div>
-                    <span className="text-gray-500">Company:</span>{' '}
-                    <strong className="text-gray-900">
-                      {doc.company?.name || 'Shehswar'}
-                    </strong>
+                    <span style={{ color: '#64748B' }}>Company:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{doc.company?.name || 'Shehswar Group'}</strong>
                   </div>
                   {doc.warehouse && (
                     <div>
-                      <span className="text-gray-500">Warehouse:</span>{' '}
-                      <strong className="text-gray-900">
-                        {doc.warehouse.name} ({doc.warehouse.code})
-                      </strong>
+                      <span style={{ color: '#64748B' }}>Warehouse:</span>{' '}
+                      <strong style={{ color: '#0F172A' }}>{doc.warehouse.name} ({doc.warehouse.code})</strong>
                     </div>
                   )}
                   <div>
-                    <span className="text-gray-500">Ref / Tracking #:</span>{' '}
-                    <span className="font-mono text-gray-900">
-                      {doc.reference || doc.sourceNumber}
-                    </span>
+                    <span style={{ color: '#64748B' }}>Reference / Tracking:</span>{' '}
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editReference}
+                        onChange={(e) => setEditReference(e.target.value)}
+                        style={{
+                          height: '26px',
+                          padding: '0 6px',
+                          border: '1px solid #3B82F6',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontFamily: 'var(--font-mono, monospace)',
+                        }}
+                      />
+                    ) : (
+                      <span style={{ fontFamily: 'var(--font-mono, monospace)', color: '#0F172A', fontWeight: 600 }}>
+                        {doc.reference || doc.sourceNumber}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Financial Snapshot */}
-              <div className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              {/* Card 3: Financial Snapshot */}
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+              >
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   Total Financial Value
                 </div>
-                <div className="mt-2">
-                  <div className="text-xl font-extrabold text-gray-900">
-                    PKR {(isEditing ? currentEditedTotal : doc.netAmount).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
+                <div style={{ marginTop: '8px' }}>
+                  {isEditing && editableItems.length === 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontWeight: 800, fontSize: '14px', color: '#0F172A' }}>PKR</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                        style={{
+                          height: '34px',
+                          padding: '0 8px',
+                          border: '2px solid #3B82F6',
+                          borderRadius: '6px',
+                          fontSize: '16px',
+                          fontWeight: 800,
+                          fontFamily: 'var(--font-mono, monospace)',
+                          width: '180px',
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
+                      PKR {effectiveTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  )}
+
                   {doc.paidAmount !== undefined && (
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '4px' }}>
                       Settled / Paid: PKR {Number(doc.paidAmount).toLocaleString()}
                     </div>
                   )}
                   {doc.remainingAmount !== undefined && (
-                    <div className="text-xs text-amber-700 font-semibold mt-0.5">
-                      Remaining: PKR {Number(doc.remainingAmount).toLocaleString()}
+                    <div style={{ fontSize: '11.5px', color: '#D97706', fontWeight: 700, marginTop: '2px' }}>
+                      Remaining Balance: PKR {Number(doc.remainingAmount).toLocaleString()}
                     </div>
                   )}
                 </div>
@@ -439,15 +621,40 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
 
             {/* Audit Trail Lifecycle Pipeline Visualizer */}
             {doc.auditChain && doc.auditChain.length > 0 && (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center justify-between">
-                  <span>Audit Trail & Lifecycle Chain (Click node to inspect)</span>
-                  <span className="text-[11px] font-normal text-slate-500">
-                    Complete cross-document traceability
+              <div
+                style={{
+                  padding: '14px 16px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: '#475569',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '10px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span>Audit Trail & Lifecycle Chain (Click step to trace document)</span>
+                  <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>
+                    Full End-to-End Traceability
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '8px',
+                  }}
+                >
                   {doc.auditChain.map((node, idx) => {
                     const isSelected =
                       node.documentNumber === doc.sourceNumber ||
@@ -457,38 +664,41 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
                         key={idx}
                         type="button"
                         onClick={() => handleDrillNode(node)}
-                        className={`text-left p-2.5 rounded-lg border transition-all ${
-                          isSelected
-                            ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-300'
-                            : 'bg-white border-gray-200 hover:border-gray-400 hover:bg-gray-50'
-                        }`}
+                        style={{
+                          textAlign: 'left',
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: isSelected ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                          backgroundColor: isSelected ? '#EFF6FF' : '#FFFFFF',
+                          cursor: 'pointer',
+                          transition: 'all 150ms ease',
+                          boxShadow: isSelected ? '0 0 0 2px rgba(37, 99, 235, 0.2)' : 'none',
+                        }}
                       >
-                        <div className="flex items-center justify-between text-[10px] font-bold text-gray-500">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', fontWeight: 700, color: '#64748B' }}>
                           <span>STEP {idx + 1}</span>
                           <span
-                            className={`px-1.5 py-0.2 rounded font-medium text-[9px] ${
-                              isSelected
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
+                            style={{
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              fontSize: '9.5px',
+                              fontWeight: 700,
+                              backgroundColor: isSelected ? '#2563EB' : '#F1F5F9',
+                              color: isSelected ? '#FFFFFF' : '#475569',
+                            }}
                           >
                             {node.status}
                           </span>
                         </div>
-                        <div className="font-bold text-xs text-gray-900 mt-1 line-clamp-1">
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: '#0F172A', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {node.title}
                         </div>
-                        <div className="font-mono text-[11px] text-blue-700 mt-0.5 truncate">
+                        <div style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: '11px', color: '#2563EB', fontWeight: 600, marginTop: '2px' }}>
                           {node.documentNumber}
                         </div>
                         {node.amount !== undefined && (
-                          <div className="text-xs font-semibold text-gray-800 mt-1">
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: '#0F172A', marginTop: '3px' }}>
                             PKR {Number(node.amount).toLocaleString()}
-                          </div>
-                        )}
-                        {node.description && (
-                          <div className="text-[10px] text-gray-400 mt-0.5 truncate">
-                            {node.description}
                           </div>
                         )}
                       </button>
@@ -500,142 +710,207 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
 
             {/* Document Items Table */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-bold text-gray-900 uppercase tracking-wider">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Document Line Items ({doc.items?.length || 0})
                 </h4>
                 {isEditing && (
-                  <span className="text-xs text-blue-700 font-semibold bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-                    Editing Mode: Quantities and Unit Rates are adjustable
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: '#1D4ED8',
+                      fontWeight: 700,
+                      backgroundColor: '#EFF6FF',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: '1px solid #BFDBFE',
+                    }}
+                  >
+                    Editable Mode: Quantities and Unit Rates are adjustable
                   </span>
                 )}
               </div>
 
-              <div className="border border-gray-200 rounded-lg overflow-x-auto shadow-sm">
-                <table className="min-w-full divide-y divide-gray-200 text-xs">
-                  <thead className="bg-gray-50 font-semibold text-gray-600">
-                    <tr>
-                      <th className="py-2.5 px-3 text-center w-10">#</th>
-                      <th className="py-2.5 px-3 text-left">Product Code</th>
-                      <th className="py-2.5 px-3 text-left">Product / Item Description</th>
-                      <th className="py-2.5 px-3 text-center">Pack Size</th>
-                      <th className="py-2.5 px-3 text-center">Batch</th>
-                      <th className="py-2.5 px-3 text-right">Quantity</th>
-                      <th className="py-2.5 px-3 text-right">Unit Rate (PKR)</th>
-                      <th className="py-2.5 px-3 text-right">Tax (PKR)</th>
-                      <th className="py-2.5 px-3 text-right">Total Amount (PKR)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
-                    {doc.items && doc.items.length > 0 ? (
-                      doc.items.map((it, idx) => {
-                        const editItem = editableItems[idx];
-                        const lineTotal = isEditing && editItem
-                          ? Number(editItem.quantity || 0) * Number(editItem.unitRate || 0)
-                          : it.netAmount;
-
-                        return (
-                          <tr key={it.id || idx} className="hover:bg-gray-50">
-                            <td className="py-2 px-3 text-center text-gray-400 font-medium">
-                              {idx + 1}
-                            </td>
-                            <td className="py-2 px-3 font-mono font-medium text-gray-700">
-                              {it.productCode || '-'}
-                            </td>
-                            <td className="py-2 px-3 font-semibold text-gray-900">
-                              {it.itemName}
-                              {it.materialType && (
-                                <span className="block text-[10px] text-gray-400 font-normal">
-                                  {it.materialType}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-center text-gray-600">
-                              {it.packSize || '-'}
-                            </td>
-                            <td className="py-2 px-3 text-center font-mono text-gray-600">
-                              {it.batchNumber || '-'}
-                            </td>
-                            <td className="py-2 px-3 text-right font-medium">
-                              {isEditing && editItem ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={editItem.quantity}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setEditableItems((items) =>
-                                      items.map((m, i) =>
-                                        i === idx ? { ...m, quantity: val } : m
-                                      )
-                                    );
-                                  }}
-                                  className="w-20 px-2 py-1 text-right border border-blue-400 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
-                                />
-                              ) : (
-                                Number(it.quantity).toLocaleString(undefined, {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2,
-                                })
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-right text-gray-700">
-                              {isEditing && editItem ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  value={editItem.unitRate}
-                                  onChange={(e) => {
-                                    const val = Number(e.target.value);
-                                    setEditableItems((items) =>
-                                      items.map((m, i) =>
-                                        i === idx ? { ...m, unitRate: val } : m
-                                      )
-                                    );
-                                  }}
-                                  className="w-24 px-2 py-1 text-right border border-blue-400 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 font-bold"
-                                />
-                              ) : (
-                                Number(it.unitRate).toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })
-                              )}
-                            </td>
-                            <td className="py-2 px-3 text-right text-gray-500">
-                              {Number(it.taxAmount || 0).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </td>
-                            <td className="py-2 px-3 text-right font-bold text-gray-900">
-                              {Number(lineTotal).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={9} className="py-6 text-center text-gray-400">
-                          No item records attached to this document.
-                        </td>
+              <div
+                style={{
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  overflow: 'hidden',
+                  backgroundColor: '#FFFFFF',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                }}
+              >
+                <div style={{ overflowX: 'auto', maxHeight: '320px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead style={{ position: 'sticky', top: 0, backgroundColor: '#F8FAFC', zIndex: 1 }}>
+                      <tr style={{ borderBottom: '1.5px solid #E2E8F0', color: '#475569', textAlign: 'left' }}>
+                        <th style={{ padding: '9px 10px', textAlign: 'center', width: '36px' }}>#</th>
+                        <th style={{ padding: '9px 10px' }}>Product Code</th>
+                        <th style={{ padding: '9px 10px' }}>Product / Item Description</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'center' }}>Pack Size</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'center' }}>Batch #</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'right' }}>Quantity</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'right' }}>Unit Rate (PKR)</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'right' }}>Tax (PKR)</th>
+                        <th style={{ padding: '9px 10px', textAlign: 'right' }}>Total (PKR)</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {doc.items && doc.items.length > 0 ? (
+                        doc.items.map((it, idx) => {
+                          const editItem = editableItems[idx];
+                          const lineTotal = isEditing && editItem
+                            ? Number(editItem.quantity || 0) * Number(editItem.unitRate || 0)
+                            : it.netAmount;
+
+                          return (
+                            <tr
+                              key={it.id || idx}
+                              style={{
+                                borderBottom: '1px solid #F1F5F9',
+                                backgroundColor: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
+                              }}
+                            >
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#94A3B8', fontWeight: 600 }}>
+                                {idx + 1}
+                              </td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 600, color: '#334155' }}>
+                                {it.productCode || '-'}
+                              </td>
+                              <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0F172A' }}>
+                                {isEditing && editItem ? (
+                                  <input
+                                    type="text"
+                                    value={editItem.itemName}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setEditableItems((items) =>
+                                        items.map((m, i) => (i === idx ? { ...m, itemName: val } : m))
+                                      );
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      height: '28px',
+                                      padding: '0 6px',
+                                      border: '1px solid #3B82F6',
+                                      borderRadius: '4px',
+                                      fontSize: '12px',
+                                    }}
+                                  />
+                                ) : (
+                                  <div>
+                                    <span>{it.itemName}</span>
+                                    {it.materialType && (
+                                      <span style={{ display: 'block', fontSize: '10.5px', color: '#64748B', fontWeight: 400 }}>
+                                        {it.materialType}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569' }}>
+                                {it.packSize || '-'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontFamily: 'var(--font-mono, monospace)', color: '#475569' }}>
+                                {it.batchNumber || '-'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                                {isEditing && editItem ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={editItem.quantity}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setEditableItems((items) =>
+                                        items.map((m, i) => (i === idx ? { ...m, quantity: val } : m))
+                                      );
+                                    }}
+                                    style={{
+                                      width: '80px',
+                                      height: '28px',
+                                      padding: '0 6px',
+                                      border: '1.5px solid #3B82F6',
+                                      borderRadius: '4px',
+                                      textAlign: 'right',
+                                      fontWeight: 700,
+                                      fontFamily: 'var(--font-mono, monospace)',
+                                    }}
+                                  />
+                                ) : (
+                                  Number(it.quantity).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+                                )}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#334155' }}>
+                                {isEditing && editItem ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={editItem.unitRate}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setEditableItems((items) =>
+                                        items.map((m, i) => (i === idx ? { ...m, unitRate: val } : m))
+                                      );
+                                    }}
+                                    style={{
+                                      width: '100px',
+                                      height: '28px',
+                                      padding: '0 6px',
+                                      border: '1.5px solid #3B82F6',
+                                      borderRadius: '4px',
+                                      textAlign: 'right',
+                                      fontWeight: 700,
+                                      fontFamily: 'var(--font-mono, monospace)',
+                                    }}
+                                  />
+                                ) : (
+                                  Number(it.unitRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                )}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', color: '#64748B' }}>
+                                {Number(it.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
+                                {Number(lineTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#94A3B8', fontStyle: 'italic' }}>
+                            No line item records attached to this document.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-            {/* Notes & Financial Summary Bottom Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              {/* Notes */}
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                <div className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+            {/* Bottom Row: Remarks & Financial Breakdown */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: '14px',
+                alignItems: 'start',
+              }}
+            >
+              {/* Document Notes */}
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                }}
+              >
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
                   Document Notes / Remarks
                 </div>
                 {isEditing ? (
@@ -643,56 +918,75 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
                     rows={3}
                     value={editNotes}
                     onChange={(e) => setEditNotes(e.target.value)}
-                    className="w-full p-2 border border-blue-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                    placeholder="Enter updated remarks..."
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      border: '1.5px solid #3B82F6',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      outline: 'none',
+                      fontFamily: 'inherit',
+                      resize: 'vertical',
+                    }}
+                    placeholder="Enter updated transaction remarks..."
                   />
                 ) : (
-                  <p className="text-xs text-gray-600 italic">
+                  <p style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: doc.notes ? 'normal' : 'italic' }}>
                     {doc.notes || 'No remarks provided for this transaction.'}
                   </p>
                 )}
               </div>
 
               {/* Financial Calculation Box */}
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-1.5 text-xs">
-                <div className="flex justify-between text-gray-600">
+              <div
+                style={{
+                  padding: '14px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  fontSize: '12.5px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748B' }}>
                   <span>Gross Subtotal:</span>
-                  <span className="font-semibold">
-                    PKR {(isEditing ? currentEditedTotal : doc.grossAmount).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                  <span style={{ fontWeight: 600, color: '#334155', fontFamily: 'var(--font-mono, monospace)' }}>
+                    PKR {effectiveTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 {doc.taxAmount > 0 && (
-                  <div className="flex justify-between text-gray-600">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748B' }}>
                     <span>Tax:</span>
-                    <span>
-                      PKR {Number(doc.taxAmount).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      PKR {Number(doc.taxAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
                 {doc.discountAmount > 0 && (
-                  <div className="flex justify-between text-emerald-700 font-semibold">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#059669', fontWeight: 600 }}>
                     <span>Discount:</span>
-                    <span>
-                      - PKR {Number(doc.discountAmount).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      - PKR {Number(doc.discountAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
-                <div className="border-t border-gray-300 pt-1.5 flex justify-between text-sm font-extrabold text-gray-900">
-                  <span>Net Total Amount:</span>
-                  <span className="text-blue-700 font-mono">
-                    PKR {(isEditing ? currentEditedTotal : doc.netAmount).toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                <div
+                  style={{
+                    borderTop: '1.5px solid #CBD5E1',
+                    paddingTop: '8px',
+                    marginTop: '4px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A' }}>
+                    Net Total Amount:
+                  </span>
+                  <span style={{ fontSize: '16px', fontWeight: 900, color: '#2563EB', fontFamily: 'var(--font-mono, monospace)' }}>
+                    PKR {effectiveTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
@@ -701,16 +995,36 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
         )}
       </div>
 
-      <div className="flex items-center justify-between p-4 border-t border-gray-200 bg-gray-50">
-        <div className="text-xs text-gray-500">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 20px',
+          borderTop: '1px solid #E2E8F0',
+          backgroundColor: '#F8FAFC',
+          borderRadius: '0 0 12px 12px',
+        }}
+      >
+        <div style={{ fontSize: '12px', color: '#64748B' }}>
           Double-click any ledger row to trace document • Press{' '}
-          <kbd className="px-1.5 py-0.5 bg-gray-200 text-gray-800 rounded font-mono text-[10px]">
+          <kbd
+            style={{
+              padding: '2px 6px',
+              backgroundColor: '#E2E8F0',
+              color: '#334155',
+              borderRadius: '4px',
+              fontFamily: 'var(--font-mono, monospace)',
+              fontSize: '11px',
+              fontWeight: 600,
+            }}
+          >
             Esc
           </kbd>{' '}
           to dismiss
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Button variant="outline" size="sm" onClick={onClose} style={{ height: '32px' }}>
             Close
           </Button>
         </div>

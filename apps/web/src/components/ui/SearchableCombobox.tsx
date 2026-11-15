@@ -401,15 +401,15 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
             position: 'absolute',
             top: 'calc(100% + 4px)',
             left: 0,
-            minWidth: '100%',
+            minWidth: 'max(100%, 340px)',
             width: 'max-content',
-            maxWidth: 'min(480px, 92vw)',
+            maxWidth: 'min(580px, 92vw)',
             zIndex: 9999,
             backgroundColor: 'var(--bg-surface, #FFFFFF)',
             border: '1px solid var(--border-default, #E2E8F0)',
             borderRadius: '8px',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
-            maxHeight: '260px',
+            maxHeight: '280px',
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
@@ -477,7 +477,13 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span
+                          style={{
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
+                            lineHeight: 1.35,
+                          }}
+                        >
                           {opt.label}
                         </span>
                         {isSelected && <IconCheck size={14} style={{ color: '#2563EB', flexShrink: 0 }} />}
@@ -487,9 +493,8 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                           style={{
                             fontSize: '11px',
                             color: 'var(--text-muted, #64748B)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
                           }}
                         >
                           {opt.subtext}
@@ -545,7 +550,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                 }}
               >
                 <IconPlus size={14} />
-                <span>{addNewLabel ? addNewLabel.replace(/^\+\s*/, '') : 'Add New'}</span>
+                <span>{addNewLabel ? addNewLabel.replace(/^[+\s]+/, '') : 'Add New'}</span>
               </li>
             )}
           </ul>

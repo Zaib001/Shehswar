@@ -32,12 +32,74 @@ import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFi
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 
+/**
+ * Clean commercial pack size helper:
+ * Extracts only the actual commercial pack size (e.g. "200 LTR", "25 KG", "1 LTR").
+ * Strips multipliers, "(qty...)", and "/ Bulk" junk.
+ */
+export function cleanPackSize(raw?: string | null, fallbackUnit = 'KG'): string {
+  if (!raw) return `1 ${fallbackUnit}`.trim();
+  let s = String(raw).trim();
+  if (!s || s === '—' || s === '-') return `1 ${fallbackUnit}`.trim();
+
+  // Strip "Pack Size:" or "Packs:" or "Pack:" prefix
+  s = s.replace(/^(?:Packs?|Pack\s*Size)\s*:\s*/i, '').trim();
+
+  // Strip trailing parenthesized info like "(250 KG)" or "(qty...)"
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+  // Strip "/ Bulk" or "/Bulk" or "Bulk /"
+  s = s.replace(/\s*\/\s*Bulk/i, '').replace(/Bulk\s*\/\s*/i, '').trim();
+
+  // If expression has multipliers (e.g. "20 × 10 × 200 LTR" or "10 * 25 KG" or "10 x 25 KG")
+  if (/[×*]|(?:\s+[xX]\s+)/.test(s)) {
+    const parts = s.split(/[×*]|(?:\s+[xX]\s+)/);
+    const lastPart = parts[parts.length - 1]?.trim();
+    if (lastPart) {
+      s = lastPart;
+    }
+  }
+
+  // If it's literally "Bulk" or "Item" or "Unit"
+  if (/^(?:Bulk|Item|Unit)$/i.test(s)) {
+    return `1 ${fallbackUnit}`.trim();
+  }
+
+  // Normalize spacing between number and unit (e.g. "25KG" -> "25 KG", "200LTR" -> "200 LTR")
+  const numUnitMatch = s.match(/^([\d.]+)\s*([a-zA-Z%]+)$/);
+  if (numUnitMatch && numUnitMatch[1] && numUnitMatch[2]) {
+    return `${parseFloat(numUnitMatch[1])} ${numUnitMatch[2].toUpperCase()}`.trim();
+  }
+
+  return s;
+}
+
+/**
+ * Timezone-safe calendar date display formatter:
+ * Formats YYYY-MM-DD or ISO strings into "DD-MMM-YYYY" (e.g. "01-Nov-2026")
+ * without any off-by-one timezone shifting.
+ */
+export function formatDisplayDate(val?: string | Date | null): string {
+  if (!val) return '—';
+  const s = typeof val === 'string' ? val : val.toISOString();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m && m[1] && m[2] && m[3]) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const y = m[1];
+    const mon = months[parseInt(m[2], 10) - 1];
+    const d = m[3];
+    return `${d}-${mon}-${y}`;
+  }
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+}
+
 export function parsePackSize(
   packSizeStr: string | null | undefined,
   defaultUnit = 'KG'
 ): { capacity: number; unit: string } {
   if (!packSizeStr) return { capacity: 1, unit: defaultUnit };
-  const clean = packSizeStr.replace(/^Pack Size:\s*/i, '').trim();
+  const clean = cleanPackSize(packSizeStr, defaultUnit);
 
   // Pattern: e.g. "25 KG", "500 ML", "2.5 L", "100 PCS", "50KG", "2L"
   const match = clean.match(/^([\d.]+)\s*([a-zA-Z%]+)?$/);
@@ -51,7 +113,7 @@ export function parsePackSize(
   }
 
   // Pattern for "Drum (200L)" or "Bag (50KG)"
-  const drumMatch = clean.match(/(\d+)\s*(L|KG|LTR|GM|ML|PCS)/i);
+  const drumMatch = clean.match(/(\d+(?:\.\d+)?)\s*(L|KG|LTR|GM|ML|PCS|NOS|BAG|BTL)/i);
   if (drumMatch && drumMatch[1]) {
     return {
       capacity: parseFloat(drumMatch[1]) || 1,
@@ -463,6 +525,7 @@ export interface PurchaseOrderItemRow {
 export interface PurchaseOrderRecord {
   id: string;
   poNumber: string;
+  orderDate?: string;
   poDate?: string;
   createdAt: string;
   vendorId: string;
@@ -502,6 +565,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
 
   // Form State
   const [formPoNumber, setFormPoNumber] = useState<string>('');
+  const [formPoDate, setFormPoDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [formVendorId, setFormVendorId] = useState<string>('');
   const [formWarehouseId, setFormWarehouseId] = useState<string>('');
   const [formExpectedDate, setFormExpectedDate] = useState<string>('');
@@ -744,50 +808,45 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   });
 
   const normalizeMaterial = (m: any) => {
-    let packSize = m.packSize || m.bulkPacking || m.packCompatibility || m.specifications || m.description || '';
-    if (packSize && typeof packSize === 'string' && packSize.startsWith('Pack Size:')) {
-      packSize = packSize.replace(/^Pack Size:\s*/i, '').trim();
-    }
     const unit = m.baseUom?.symbol || m.baseUom?.code || m.uom?.symbol || m.uom?.code || m.unit || 'KG';
-    if (!packSize) {
-      packSize = `1 ${unit}`;
-    }
+    const rawPack = m.packSize || m.specifications || m.customFields?.packSize || m.bulkPacking || m.packCompatibility || m.description || '';
+    const packSize = cleanPackSize(rawPack, unit);
+
     return {
       id: m.id,
       materialCode: m.materialCode || m.code || '',
       materialName: m.materialName || m.name || 'Unnamed Material',
-      packSize: String(packSize).trim(),
+      packSize,
       standardCost: Number(m.standardCost) || 0,
       lastPurchaseCost: Number(m.lastPurchaseCost) || 0,
-      specifications: m.specifications || m.description || m.bulkPacking || '',
+      specifications: packSize,
       unit,
     };
   };
 
   const normalizeFinishedProduct = (p: any) => {
-    let packLabel = '';
+    const unit = p.salesUom?.symbol || p.baseUom?.symbol || p.packSize?.uom?.symbol || p.packingUnit || 'Units';
+    let rawPack = '';
     if (p.packSize?.name) {
-      packLabel = p.packSize.name;
+      rawPack = p.packSize.name;
     } else if (p.packSize?.quantity || p.packSize?.sizeValue) {
       const q = p.packSize.quantity || p.packSize.sizeValue;
-      const u = p.packSize.unit || p.packSize.uom?.symbol || p.packSize.uom?.name || '';
-      packLabel = `${q} ${u}`.trim();
+      const u = p.packSize.unit || p.packSize.uom?.symbol || p.packSize.uom?.name || unit;
+      rawPack = `${q} ${u}`.trim();
     } else if (p.packingQuantity) {
-      packLabel = `${p.packingQuantity} ${p.packingUnit || ''}`.trim();
+      rawPack = `${p.packingQuantity} ${p.packingUnit || unit}`.trim();
     } else if (p.packSize) {
-      packLabel = typeof p.packSize === 'string' ? p.packSize : (p.packSize.name || '');
+      rawPack = typeof p.packSize === 'string' ? p.packSize : (p.packSize.name || '');
     } else {
-      packLabel = p.packing || '';
+      rawPack = p.packing || '';
     }
-    const unit = p.salesUom?.symbol || p.baseUom?.symbol || p.packSize?.uom?.symbol || p.packingUnit || 'Units';
-    if (!packLabel) {
-      packLabel = `1 ${unit}`;
-    }
+    const packSize = cleanPackSize(rawPack, unit);
+
     return {
       id: p.id,
       productCode: p.productCode || p.code || '',
       productName: p.productName || p.name || 'Unnamed Product',
-      packSize: String(packLabel).trim(),
+      packSize,
       unit,
       standardCost: Number(p.standardCost) || Number(p.lastPurchaseCost) || 0,
       mrp: Number(p.mrp) || 0,
@@ -1221,8 +1280,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
 
       if (selectedItem) {
         // 1. Pack Size & Base UoM automatically fetched from Product Master
-        item.packSize = selectedItem.packSize || `1 ${selectedItem.unit || 'KG'}`;
         item.unit = selectedItem.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG');
+        item.packSize = cleanPackSize(selectedItem.packSize, item.unit);
 
         // 2. Parse pack capacity (e.g. 25 from "25 KG", 2 from "2 L", 50 from "50 KG")
         const parsed = parsePackSize(item.packSize, item.unit);
@@ -1238,7 +1297,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
 
         // 4. Calculate Total Quantity: Packs × Pack Capacity
         item.quantity = item.numberOfPacks * (item.packCapacity || 1);
-        item.packing = `${item.numberOfPacks} × ${item.packSize}`;
+        item.packing = cleanPackSize(item.packSize, item.unit);
 
         // 5. If Total Amount exists, calculate Cost/Pack & Cost/UoM
         if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0) {
@@ -1259,7 +1318,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       item.numberOfPacks = packs;
       const cap = item.packCapacity || 1;
       item.quantity = packs * cap;
-      item.packing = `${packs} × ${item.packSize || `${cap} ${item.unit || 'KG'}`}`;
+      item.packing = cleanPackSize(item.packSize, item.unit);
 
       if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0 && packs > 0) {
         item.costPerPack = item.totalPurchaseAmount / packs;
@@ -1290,13 +1349,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
       const qty = item.quantity || (packs * (item.packCapacity || 1));
       item.unitRate = qty > 0 ? item.totalPurchaseAmount / qty : 0;
     } else if (field === 'packSize') {
-      item.packSize = value;
-      const parsed = parsePackSize(value, item.unit || 'KG');
+      const cleaned = cleanPackSize(value, item.unit || 'KG');
+      item.packSize = cleaned;
+      const parsed = parsePackSize(cleaned, item.unit || 'KG');
       item.packCapacity = parsed.capacity;
       if (parsed.unit) item.unit = parsed.unit;
       const packs = item.numberOfPacks || 1;
       item.quantity = packs * item.packCapacity;
-      item.packing = `${packs} × ${value}`;
+      item.packing = cleaned;
 
       if (item.totalPurchaseAmount && item.totalPurchaseAmount > 0) {
         item.costPerPack = packs > 0 ? item.totalPurchaseAmount / packs : 0;
@@ -1370,6 +1430,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     try {
       await ApiClient.post('/api/v1/operations/purchase-orders', {
         poNumber: effectivePoNumber,
+        poDate: formPoDate || undefined,
         vendorId: formVendorId,
         warehouseId: formWarehouseId || undefined,
         deliveryLocation: extractedExtraFields.address || undefined,
@@ -1377,24 +1438,27 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
         expectedDeliveryDate: formExpectedDate || undefined,
         notes: formNotes,
         extraFields: extractedExtraFields,
-        items: validItems.map((it) => ({
-          itemName: it.itemName || 'Material Item',
-          materialId: it.materialId || undefined,
-          materialType: it.materialType || 'RAW_MATERIAL',
-          packSize: it.packSize || undefined,
-          numberOfPacks: Number(it.numberOfPacks) || 1,
-          packing: `${it.numberOfPacks || 1} × ${it.packSize || `${it.packCapacity || 1} ${it.unit || 'KG'}`} (${it.quantity || 1} ${it.unit || 'KG'})`.trim(),
-          unit: it.unit || 'KG',
-          quantity: Number(it.quantity) || 1,
-          unitRate: Number(it.unitRate) || 0,
-          totalPurchaseAmount: Number(it.totalPurchaseAmount) || Number(it.lineTotal) || 0,
-          costPerPack: Number(it.costPerPack) || 0,
-          lineTotal: Number(it.lineTotal) || Number(it.totalPurchaseAmount) || 0,
-          rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
-          packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
-          finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
-          warehouseId: formWarehouseId || undefined,
-        })),
+        items: validItems.map((it) => {
+          const cleanPack = cleanPackSize(it.packSize, it.unit);
+          return {
+            itemName: it.itemName || 'Material Item',
+            materialId: it.materialId || undefined,
+            materialType: it.materialType || 'RAW_MATERIAL',
+            packSize: cleanPack,
+            numberOfPacks: Number(it.numberOfPacks) || 1,
+            packing: cleanPack,
+            unit: it.unit || 'KG',
+            quantity: Number(it.quantity) || 1,
+            unitRate: Number(it.unitRate) || 0,
+            totalPurchaseAmount: Number(it.totalPurchaseAmount) || Number(it.lineTotal) || 0,
+            costPerPack: Number(it.costPerPack) || 0,
+            lineTotal: Number(it.lineTotal) || Number(it.totalPurchaseAmount) || 0,
+            rawMaterialId: it.materialType === 'RAW_MATERIAL' ? it.materialId : undefined,
+            packingMaterialId: it.materialType === 'PACKING_MATERIAL' ? it.materialId : undefined,
+            finishedProductId: it.materialType === 'FINISHED_PRODUCT' ? it.materialId : undefined,
+            warehouseId: formWarehouseId || undefined,
+          };
+        }),
         status: 'CONFIRMED',
       });
 
@@ -1643,6 +1707,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const handleOpenEditOrder = (order: PurchaseOrderRecord) => {
     setSelectedOrder(order);
     setFormPoNumber(order.poNumber);
+    setFormPoDate(order.orderDate ? order.orderDate.slice(0, 10) : (order.poDate ? order.poDate.slice(0, 10) : order.createdAt.slice(0, 10)));
     setFormVendorId(order.vendorId || order.vendor?.id || '');
     setFormWarehouseId(order.warehouseId || order.warehouse?.id || '');
     setFormExpectedDate(order.expectedDeliveryDate ? order.expectedDeliveryDate.slice(0, 10) : '');
@@ -1650,13 +1715,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     setFormItems(
       order.items && order.items.length > 0
         ? order.items.map((it) => {
-            const parsed = parsePackSize(it.packSize, it.unit);
+            const cleanPack = cleanPackSize(it.packSize, it.unit);
+            const parsed = parsePackSize(cleanPack, it.unit);
             const packCap = it.packCapacity || parsed.capacity;
             const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
             return {
               ...it,
               materialType: it.materialType || 'RAW_MATERIAL',
-              packSize: it.packSize || `${packCap} ${it.unit || 'KG'}`,
+              packSize: cleanPack,
               packCapacity: packCap,
               numberOfPacks: packs,
               costPerPack: it.costPerPack || (Number(it.unitRate) || 0) * packCap,
@@ -1699,7 +1765,15 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
 
   const columns: ColumnDef<PurchaseOrderRecord>[] = [
     { key: 'poNumber', header: 'PO Number', render: (o) => <span style={{ fontWeight: 600 }}>{o.poNumber}</span> },
-    { key: 'createdAt', header: 'Date', render: (o) => new Date(o.createdAt).toLocaleDateString() },
+    {
+      key: 'orderDate',
+      header: 'Date',
+      render: (o) => (
+        <span style={{ fontWeight: 600, color: '#0f172a' }}>
+          {formatDisplayDate(o.orderDate || o.poDate || o.createdAt)}
+        </span>
+      ),
+    },
     { key: 'vendor', header: 'Vendor', render: (o) => o.vendor?.name || 'Unknown' },
     { key: 'warehouse', header: 'Warehouse', render: (o) => o.warehouse?.name || '-' },
     {
@@ -2964,7 +3038,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   </div>
                 </div>
 
-                <div style={{ minWidth: '260px' }}>
+                <div style={{ minWidth: '280px', flex: '1 1 280px' }}>
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                     Supplier / Vendor *
                   </label>
@@ -3005,10 +3079,30 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
 
                 <div>
                   <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                    Expected Delivery Date / PO Date
+                    PO Date *
                   </label>
                   <Input
                     id="field-po-date"
+                    type="date"
+                    value={formPoDate}
+                    onChange={(e) => setFormPoDate(e.target.value)}
+                    style={{ height: '36px' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const nextEl = document.getElementById('field-po-expected-date') as HTMLInputElement | null;
+                        if (nextEl) nextEl.focus();
+                      }
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Expected Delivery Date
+                  </label>
+                  <Input
+                    id="field-po-expected-date"
                     type="date"
                     value={formExpectedDate}
                     onChange={(e) => setFormExpectedDate(e.target.value)}
@@ -3534,6 +3628,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
             <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '4px 0 0 0' }}>
               Supplier: <strong style={{ color: '#0f172a' }}>{selectedOrder.vendor?.name}</strong>
               <span style={{ color: '#cbd5e1', margin: '0 8px' }}>&bull;</span>
+              PO Date: <strong style={{ color: '#0f172a' }}>{formatDisplayDate(selectedOrder.orderDate || selectedOrder.poDate || selectedOrder.createdAt)}</strong>
+              <span style={{ color: '#cbd5e1', margin: '0 8px' }}>&bull;</span>
               Warehouse: <strong style={{ color: '#0f172a' }}>{selectedOrder.warehouse?.name || 'Factory'}</strong>
             </p>
           </div>
@@ -3542,6 +3638,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
               variant="secondary"
               onClick={() => {
                 setFormPoNumber(selectedOrder.poNumber);
+                setFormPoDate(selectedOrder.orderDate ? selectedOrder.orderDate.slice(0, 10) : (selectedOrder.poDate ? selectedOrder.poDate.slice(0, 10) : selectedOrder.createdAt.slice(0, 10)));
                 setFormVendorId(selectedOrder.vendorId || selectedOrder.vendor?.id || '');
                 setFormWarehouseId(selectedOrder.warehouseId || selectedOrder.warehouse?.id || '');
                 setFormExpectedDate(selectedOrder.expectedDeliveryDate ? selectedOrder.expectedDeliveryDate.slice(0, 10) : '');
@@ -3611,7 +3708,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                   <th style={{ padding: '10px 14px', width: '44px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>#</th>
                   <th style={{ padding: '10px 14px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Material Description</th>
                   <th style={{ padding: '10px 14px', width: '140px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Type</th>
-                  <th style={{ padding: '10px 14px', width: '180px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Pack Breakdown</th>
+                  <th style={{ padding: '10px 14px', width: '180px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Pack Size</th>
                   <th style={{ padding: '10px 14px', width: '130px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Total Quantity</th>
                   <th style={{ padding: '10px 14px', width: '140px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Cost / UoM</th>
                   <th style={{ padding: '10px 14px', width: '150px', textAlign: 'right', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Total (PKR)</th>
@@ -3627,7 +3724,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         {i.materialType === 'PACKING_MATERIAL' ? 'Packaging' : i.materialType === 'FINISHED_PRODUCT' ? 'Finished Good' : 'Raw Material'}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 14px', color: '#475569', fontWeight: 500 }}>{i.packing || (i as any).specificationSnapshot || '-'}</td>
+                    <td style={{ padding: '10px 14px', color: '#475569', fontWeight: 500 }}>{cleanPackSize(i.packSize || (i as any).specificationSnapshot || i.packing, i.unit)}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#0284c7' }}>
                       {Number(i.quantity).toLocaleString()} {i.unit || ''}
                     </td>

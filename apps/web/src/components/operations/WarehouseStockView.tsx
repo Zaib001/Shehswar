@@ -35,6 +35,7 @@ import {
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
+import { cleanPackSize } from './PurchaseOrdersView';
 
 export interface WarehouseStockRecord {
   id: string;
@@ -50,6 +51,9 @@ export interface WarehouseStockRecord {
     materialName: string;
     urduName?: string;
     description?: string;
+    specifications?: string;
+    bulkPacking?: string;
+    purchaseConversionFactor?: number;
     grade?: string;
     customFields?: any;
     baseUom?: { id: string; name: string; code: string; symbol?: string };
@@ -124,28 +128,40 @@ export function getItemCategory(s: WarehouseStockRecord): string | undefined {
 export function getItemPackSize(s: WarehouseStockRecord): string {
   if (s.itemType === 'FINISHED_PRODUCT' && s.finishedProduct) {
     const fp = s.finishedProduct;
+    const uom = (fp as any).salesUom?.symbol || fp.baseUom?.symbol || fp.baseUom?.code || fp.packingUnit || 'LTR';
+    if (fp.packSize?.name) return cleanPackSize(fp.packSize.name, uom);
     if (fp.packingQuantity) {
-      return `${Number(fp.packingQuantity)} ${fp.packingUnit || 'LTR'}`.trim();
+      return cleanPackSize(`${Number(fp.packingQuantity)} ${fp.packingUnit || uom}`, uom);
     }
-    if (fp.packSize?.name) return fp.packSize.name;
-    if (fp.customFields?.packSize) return String(fp.customFields.packSize);
-    return '1 Unit';
+    if (fp.customFields?.packSize) return cleanPackSize(String(fp.customFields.packSize), uom);
+    return cleanPackSize(uom ? `1 ${uom}` : '1 Unit', uom);
   }
 
   if (s.itemType === 'PACKING_MATERIAL' && s.packingMaterial) {
     const pm = s.packingMaterial;
-    if (pm.customFields?.packSize) return String(pm.customFields.packSize);
-    if (pm.packCompatibility) return pm.packCompatibility;
-    if (pm.description && pm.description.length <= 20) return pm.description;
-    return '1 NOS';
+    const uom = pm.baseUom?.symbol || pm.baseUom?.code || 'PCS';
+    if (pm.customFields?.packSize) return cleanPackSize(String(pm.customFields.packSize), uom);
+    if (pm.packCompatibility) return cleanPackSize(pm.packCompatibility, uom);
+    if (pm.description && pm.description.length <= 20) return cleanPackSize(pm.description, uom);
+    return `1 ${uom}`;
   }
 
   if (s.itemType === 'RAW_MATERIAL' && s.rawMaterial) {
     const rm = s.rawMaterial;
-    if (rm.customFields?.packSize) return String(rm.customFields.packSize);
-    if (rm.grade) return rm.grade;
-    if (rm.description && rm.description.length <= 20) return rm.description;
-    return 'Bulk';
+    const uom = rm.baseUom?.symbol || rm.baseUom?.code || 'KG';
+    if (rm.customFields?.packSize) return cleanPackSize(String(rm.customFields.packSize), uom);
+    if (rm.specifications) {
+      const cleaned = cleanPackSize(rm.specifications, uom);
+      if (cleaned && cleaned !== 'Bulk' && cleaned !== '1 Bulk') return cleaned;
+    }
+    if (rm.bulkPacking) {
+      const cleaned = cleanPackSize(rm.bulkPacking, uom);
+      if (cleaned && cleaned !== 'Bulk' && cleaned !== '1 Bulk') return cleaned;
+    }
+    if (rm.purchaseConversionFactor && Number(rm.purchaseConversionFactor) > 0) {
+      return `${Number(rm.purchaseConversionFactor)} ${uom}`;
+    }
+    return `1 ${uom}`;
   }
 
   return '1 Unit';

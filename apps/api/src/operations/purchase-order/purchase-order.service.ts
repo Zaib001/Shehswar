@@ -43,7 +43,7 @@ export function cleanPackSize(raw?: string | null, fallbackUnit = 'KG'): string 
   // If expression has multipliers (e.g. "20 × 10 × 200 LTR" or "10 * 25 KG" or "10 x 25 KG")
   if (/[×*]|(?:\s+[xX]\s+)/.test(s)) {
     const parts = s.split(/[×*]|(?:\s+[xX]\s+)/);
-    const lastPart = parts[parts.length - 1].trim();
+    const lastPart = parts[parts.length - 1]?.trim();
     if (lastPart) {
       s = lastPart;
     }
@@ -56,7 +56,7 @@ export function cleanPackSize(raw?: string | null, fallbackUnit = 'KG'): string 
 
   // Normalize spacing between number and unit (e.g. "25KG" -> "25 KG", "200LTR" -> "200 LTR")
   const numUnitMatch = s.match(/^([\d.]+)\s*([a-zA-Z%]+)$/);
-  if (numUnitMatch) {
+  if (numUnitMatch && numUnitMatch[1] && numUnitMatch[2]) {
     return `${parseFloat(numUnitMatch[1])} ${numUnitMatch[2].toUpperCase()}`.trim();
   }
 
@@ -73,7 +73,7 @@ export function parseDateOnly(val?: string | Date | null): Date {
   if (val instanceof Date) return val;
   const s = String(val).trim();
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) {
+  if (m && m[1] && m[2] && m[3]) {
     const year = parseInt(m[1], 10);
     const month = parseInt(m[2], 10) - 1;
     const day = parseInt(m[3], 10);
@@ -192,19 +192,6 @@ export class OperationalPoService {
         ...i,
         packSize: cleanPackSize(i.specificationSnapshot, i.unit),
         specificationSnapshot: cleanPackSize(i.specificationSnapshot, i.unit),
-        quantity: Number(i.quantity),
-        unitRate: Number(i.unitRate),
-        lineTotal: Number(i.lineTotal),
-        taxAmount: Number(i.taxAmount),
-        discountAmount: Number(i.discountAmount),
-      })),
-    };
-      subtotal: Number(po.subtotal),
-      taxAmount: Number(po.taxAmount),
-      discountAmount: Number(po.discountAmount),
-      totalAmount: Number(po.totalAmount),
-      items: po.items.map((i) => ({
-        ...i,
         quantity: Number(i.quantity),
         unitRate: Number(i.unitRate),
         lineTotal: Number(i.lineTotal),
