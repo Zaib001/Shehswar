@@ -58,25 +58,33 @@ export interface StockBalance {
 
 export type DealerLedgerEntryType =
   | 'SALE_INVOICE'
+  | 'SALES_INVOICE'
+  | 'SALES_ORDER'
   | 'PAYMENT_RECEIPT'
   | 'SALES_RETURN'
   | 'OPENING_BALANCE'
   | 'ADJUSTMENT'
   | 'PR_ALLOCATION'
-  | 'PR_REVERSAL';
+  | 'PR_REVERSAL'
+  | 'PROVISIONAL_RECEIPT'
+  | 'INTERCOMPANY_TRANSFER'
+  | 'FINANCIAL_TRANSACTION';
 
 export type VendorLedgerEntryType =
   | 'PURCHASE_INVOICE'
+  | 'PURCHASE_ORDER'
   | 'VENDOR_PAYMENT'
   | 'PURCHASE_RETURN'
   | 'OPENING_BALANCE'
-  | 'ADJUSTMENT';
+  | 'ADJUSTMENT'
+  | 'INTERCOMPANY_TRANSFER'
+  | 'FINANCIAL_TRANSACTION';
 
 export interface DealerLedgerInput {
   organizationId: string;
   companyId: string;
   dealerId: string;
-  entryType: DealerLedgerEntryType;
+  entryType: DealerLedgerEntryType | string;
   referenceId: string;
   voucherNumber: string;
   description?: string;
@@ -87,13 +95,16 @@ export interface DealerLedgerInput {
   dealerPaymentId?: string;
   salesReturnId?: string;
   provisionalReceiptAllocationId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  sourceNumber?: string;
 }
 
 export interface VendorLedgerInput {
   organizationId: string;
   companyId: string;
   vendorId: string;
-  entryType: VendorLedgerEntryType;
+  entryType: VendorLedgerEntryType | string;
   referenceId: string;
   voucherNumber: string;
   description?: string;
@@ -103,6 +114,9 @@ export interface VendorLedgerInput {
   purchaseInvoiceId?: string;
   vendorPaymentId?: string;
   purchaseReturnId?: string;
+  sourceType?: string;
+  sourceId?: string;
+  sourceNumber?: string;
 }
 
 // ============================================================

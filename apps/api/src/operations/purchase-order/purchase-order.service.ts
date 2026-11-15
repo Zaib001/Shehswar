@@ -17,6 +17,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { DocumentNumberingService } from '../../platform/document-numbering/document-numbering.service';
 import { CodeGenerationService } from '../../platform/code-generation/code-generation.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { VendorLedgerService } from '../ledger/vendor-ledger.service';
 import { uuidv7 } from '@shehswar/shared';
 import { AuthUser } from '@shehswar/types';
 
@@ -59,6 +60,7 @@ export class OperationalPoService {
     private readonly documentNumbering: DocumentNumberingService,
     private readonly codeGen: CodeGenerationService,
     private readonly inventoryService: InventoryService,
+    private readonly vendorLedger: VendorLedgerService,
   ) {}
 
   async findAll(companyId?: string, filters?: { status?: string; vendorId?: string; search?: string }) {
@@ -627,6 +629,32 @@ export class OperationalPoService {
             this.logger.warn(`Could not apply inventory movement for PO item ${item.itemName}: ${err.message}`);
           });
         }
+      }
+    }
+
+    // Automatically post to Vendor Ledger so PO is visible and traceable directly from Vendor Ledger (Final Acceptance Test & Req 1-3)
+    if (po.vendorId && (po.status === 'CONFIRMED' || !dto.status)) {
+      const netAmount = Number(po.totalAmount || 0);
+      if (netAmount > 0) {
+        await this.vendorLedger
+          .postEntry(this.prisma as any, {
+            organizationId: po.organizationId,
+            companyId: po.companyId,
+            vendorId: po.vendorId,
+            entryType: 'PURCHASE_ORDER',
+            referenceId: po.id,
+            voucherNumber: po.poNumber,
+            sourceType: 'PURCHASE_ORDER',
+            sourceId: po.id,
+            sourceNumber: po.poNumber,
+            description: `Purchase Order ${po.poNumber} (${po.items?.length || 0} items)`,
+            credit: netAmount,
+            debit: 0,
+            entryDate: (po as any).orderDate ? new Date((po as any).orderDate) : po.createdAt,
+          })
+          .catch((err) => {
+            this.logger.warn(`Could not post PO ${po.poNumber} to Vendor Ledger: ${err.message}`);
+          });
       }
     }
 

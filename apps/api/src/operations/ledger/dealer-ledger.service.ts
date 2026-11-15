@@ -41,7 +41,25 @@ export class DealerLedgerService {
     // debit increases what dealer owes; credit reduces it
     const runningBalance = previousBalance + Number(input.debit) - Number(input.credit);
 
-    // 2. Create immutable ledger entry
+    // 2. Create immutable ledger entry with full source references (Requirement 3)
+    const effectiveSourceType =
+      input.sourceType ||
+      (input.voucherNumber.startsWith('SO-')
+        ? 'SALES_ORDER'
+        : input.voucherNumber.startsWith('PR-')
+        ? 'PROVISIONAL_RECEIPT'
+        : input.voucherNumber.startsWith('IC-')
+        ? 'INTERCOMPANY_TRANSFER'
+        : input.entryType || 'SALE_INVOICE');
+    const effectiveSourceId =
+      input.sourceId ||
+      input.salesInvoiceId ||
+      input.dealerPaymentId ||
+      input.salesReturnId ||
+      input.provisionalReceiptAllocationId ||
+      input.referenceId;
+    const effectiveSourceNumber = input.sourceNumber || input.voucherNumber;
+
     await tx.dealerLedgerEntry.create({
       data: {
         organizationId: input.organizationId,
@@ -59,6 +77,9 @@ export class DealerLedgerService {
         dealerPaymentId: input.dealerPaymentId ?? null,
         salesReturnId: input.salesReturnId ?? null,
         provisionalReceiptAllocationId: input.provisionalReceiptAllocationId ?? null,
+        sourceType: effectiveSourceType,
+        sourceId: effectiveSourceId,
+        sourceNumber: effectiveSourceNumber,
       },
     });
 
@@ -69,7 +90,7 @@ export class DealerLedgerService {
     });
 
     this.logger.log(
-      `Dealer ledger: ${input.entryType} | dealer=${input.dealerId} | debit=${input.debit} | credit=${input.credit} | balance=${runningBalance}`,
+      `Dealer ledger: ${input.entryType} | dealer=${input.dealerId} | debit=${input.debit} | credit=${input.credit} | balance=${runningBalance} | source=${effectiveSourceType} #${effectiveSourceNumber}`,
     );
 
     return { runningBalance };
@@ -77,6 +98,7 @@ export class DealerLedgerService {
 
   /**
    * Get ledger statement for a dealer (non-transactional, for display/mobile).
+   * Chronological ascending: earliest on top row, latest at bottom.
    */
   async getLedger(
     dealerId: string,
@@ -102,22 +124,56 @@ export class DealerLedgerService {
 
     const entries = await this.prisma.dealerLedgerEntry.findMany({
       where,
-      orderBy: { entryDate: 'desc' },
-      take: options?.limit ?? 200,
+      orderBy: [{ entryDate: 'asc' }, { createdAt: 'asc' }],
+      take: options?.limit ?? 500,
     });
 
     return {
       dealer,
-      entries: entries.map((e) => ({
-        id: e.id,
-        entryType: e.entryType,
-        voucherNumber: e.voucherNumber,
-        description: e.description,
-        debit: Number(e.debit),
-        credit: Number(e.credit),
-        runningBalance: Number(e.runningBalance),
-        entryDate: e.entryDate,
-      })),
+      entries: entries.map((e) => {
+        const sourceType =
+          e.sourceType ||
+          (e.voucherNumber.startsWith('SO-')
+            ? 'SALES_ORDER'
+            : e.voucherNumber.startsWith('PR-')
+            ? 'PROVISIONAL_RECEIPT'
+            : e.voucherNumber.startsWith('IC-')
+            ? 'INTERCOMPANY_TRANSFER'
+            : e.salesInvoiceId
+            ? 'SALE_INVOICE'
+            : e.dealerPaymentId
+            ? 'PAYMENT_RECEIPT'
+            : e.salesReturnId
+            ? 'SALES_RETURN'
+            : e.entryType || 'SALE_INVOICE');
+        const sourceId =
+          e.sourceId ||
+          e.salesInvoiceId ||
+          e.dealerPaymentId ||
+          e.salesReturnId ||
+          e.provisionalReceiptAllocationId ||
+          e.referenceId;
+        const sourceNumber = e.sourceNumber || e.voucherNumber;
+
+        return {
+          id: e.id,
+          entryType: e.entryType,
+          voucherNumber: e.voucherNumber,
+          referenceId: e.referenceId,
+          sourceType,
+          sourceId,
+          sourceNumber,
+          salesInvoiceId: e.salesInvoiceId,
+          dealerPaymentId: e.dealerPaymentId,
+          salesReturnId: e.salesReturnId,
+          provisionalReceiptAllocationId: e.provisionalReceiptAllocationId,
+          description: e.description,
+          debit: Number(e.debit),
+          credit: Number(e.credit),
+          runningBalance: Number(e.runningBalance),
+          entryDate: e.entryDate,
+        };
+      }),
       currentBalance: Number(dealer.currentBalance ?? 0),
     };
   }

@@ -42,11 +42,13 @@ import { FinancialTransactionsController } from './finance/financial-transaction
 import { ProvisionalReceiptsController } from './provisional-receipts/provisional-receipts.controller';
 import { EmployeeCostController } from './employee-cost/employee-cost.controller';
 import { BatchesController } from './batches/batches.controller';
+import { LedgerDrilldownController } from './ledger/ledger-drilldown.controller';
 
 // Services
 import { InventoryService } from './inventory/inventory.service';
 import { DealerLedgerService } from './ledger/dealer-ledger.service';
 import { VendorLedgerService } from './ledger/vendor-ledger.service';
+import { LedgerDrilldownService } from './ledger/ledger-drilldown.service';
 import { CostingService } from './costing/costing.service';
 import { PurchaseService } from './purchase/purchase.service';
 import { SalesService } from './sales/sales.service';
@@ -95,11 +97,13 @@ import { BatchesService } from './batches/batches.service';
     ProvisionalReceiptsController,
     EmployeeCostController,
     BatchesController,
+    LedgerDrilldownController,
   ],
   providers: [
     InventoryService,
     DealerLedgerService,
     VendorLedgerService,
+    LedgerDrilldownService,
     CostingService,
     PurchaseService,
     OperationalPoService,
@@ -123,6 +127,7 @@ import { BatchesService } from './batches/batches.service';
     InventoryService,
     DealerLedgerService,
     VendorLedgerService,
+    LedgerDrilldownService,
     CostingService,
     PurchaseService,
     OperationalPoService,

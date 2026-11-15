@@ -2683,10 +2683,15 @@ model DealerLedgerEntry {
   salesReturn                    SalesReturn?          @relation(fields: [salesReturnId], references: [id], onDelete: SetNull)
   salesReturnId                  String?               @db.Uuid
   provisionalReceiptAllocationId String?               @db.Uuid
+  sourceType                     String?               @db.VarChar(50)
+  sourceId                       String?               @db.VarChar(100)
+  sourceNumber                   String?               @db.VarChar(100)
 
   @@index([organizationId])
   @@index([companyId])
   @@index([dealerId])
+  @@index([sourceId])
+  @@index([sourceNumber])
   @@map("dealer_ledger_entries")
 }
 
@@ -2714,10 +2719,15 @@ model VendorLedgerEntry {
   vendorPaymentId   String?          @db.Uuid
   purchaseReturn    PurchaseReturn?  @relation(fields: [purchaseReturnId], references: [id], onDelete: SetNull)
   purchaseReturnId  String?          @db.Uuid
+  sourceType        String?          @db.VarChar(50)
+  sourceId          String?          @db.VarChar(100)
+  sourceNumber      String?          @db.VarChar(100)
 
   @@index([organizationId])
   @@index([companyId])
   @@index([vendorId])
+  @@index([sourceId])
+  @@index([sourceNumber])
   @@map("vendor_ledger_entries")
 }
 

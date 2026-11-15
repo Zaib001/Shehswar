@@ -319,16 +319,46 @@ export class VendorService {
     const currentBalance = latestEntry ? Number(latestEntry.runningBalance) : 0;
 
     return {
-      entries: entries.map((e) => ({
-        id: e.id,
-        entryType: e.entryType,
-        voucherNumber: e.voucherNumber,
-        description: e.description,
-        credit: Number(e.credit),
-        debit: Number(e.debit),
-        runningBalance: Number(e.runningBalance),
-        entryDate: e.entryDate,
-      })),
+      entries: entries.map((e) => {
+        const sourceType =
+          e.sourceType ||
+          (e.voucherNumber.startsWith('PO-')
+            ? 'PURCHASE_ORDER'
+            : e.voucherNumber.startsWith('IC-')
+            ? 'INTERCOMPANY_TRANSFER'
+            : e.purchaseInvoiceId
+            ? 'PURCHASE_INVOICE'
+            : e.vendorPaymentId
+            ? 'VENDOR_PAYMENT'
+            : e.purchaseReturnId
+            ? 'PURCHASE_RETURN'
+            : e.entryType || 'PURCHASE_INVOICE');
+        const sourceId =
+          e.sourceId ||
+          e.purchaseInvoiceId ||
+          e.vendorPaymentId ||
+          e.purchaseReturnId ||
+          e.referenceId;
+        const sourceNumber = e.sourceNumber || e.voucherNumber;
+
+        return {
+          id: e.id,
+          entryType: e.entryType,
+          voucherNumber: e.voucherNumber,
+          referenceId: e.referenceId,
+          sourceType,
+          sourceId,
+          sourceNumber,
+          purchaseInvoiceId: e.purchaseInvoiceId,
+          vendorPaymentId: e.vendorPaymentId,
+          purchaseReturnId: e.purchaseReturnId,
+          description: e.description,
+          credit: Number(e.credit),
+          debit: Number(e.debit),
+          runningBalance: Number(e.runningBalance),
+          entryDate: e.entryDate,
+        };
+      }),
       currentBalance,
     };
   }

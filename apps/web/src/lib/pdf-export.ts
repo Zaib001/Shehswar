@@ -6139,3 +6139,294 @@ export const exportRateListToPdf = (rateList: any) => {
     printWindow.document.close();
   }
 };
+
+export interface SourceDocumentExportData {
+  sourceType: string;
+  sourceNumber: string;
+  documentDate: string;
+  status: string;
+  company?: { name: string; code?: string };
+  party?: { name: string; code?: string; type?: string; phone?: string; address?: string };
+  warehouse?: { name: string; code?: string };
+  reference?: string;
+  notes?: string;
+  grossAmount: number;
+  taxAmount: number;
+  discountAmount: number;
+  netAmount: number;
+  paidAmount?: number;
+  remainingAmount?: number;
+  items: Array<{
+    productCode?: string;
+    itemName: string;
+    materialType?: string;
+    packSize?: string;
+    batchNumber?: string;
+    quantity: number;
+    unitRate: number;
+    taxPercent?: number;
+    taxAmount?: number;
+    grossAmount?: number;
+    netAmount: number;
+  }>;
+  auditChain?: Array<{
+    step: string;
+    title: string;
+    documentNumber: string;
+    status: string;
+    date: string;
+    amount?: number;
+  }>;
+}
+
+export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
+  const formattedDate = new Date(doc.documentDate).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  const printDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const documentTitle = doc.sourceType.replace(/_/g, ' ');
+
+  const rowsHtml = doc.items
+    .map(
+      (it, idx) => `
+    <tr>
+      <td style="text-align: center;">${idx + 1}</td>
+      <td style="font-family: monospace; font-size: 8pt; font-weight: 600;">${it.productCode || '-'}</td>
+      <td>
+        <div style="font-weight: 600; color: #0f172a;">${it.itemName}</div>
+        ${it.materialType ? `<div style="font-size: 7.5pt; color: #64748b;">${it.materialType}</div>` : ''}
+      </td>
+      <td style="text-align: center;">${it.packSize || '-'}</td>
+      <td style="text-align: center; font-family: monospace; font-size: 8pt;">${it.batchNumber || '-'}</td>
+      <td style="text-align: right; font-weight: 600;">${Number(it.quantity).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+      <td style="text-align: right;">${Number(it.unitRate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="text-align: right;">${Number(it.taxAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="text-align: right; font-weight: 700; color: #0f172a;">${Number(it.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+    </tr>
+  `
+    )
+    .join('');
+
+  const chainHtml = (doc.auditChain || [])
+    .map(
+      (node, idx) => `
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 8pt; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px;">
+      <div style="font-weight: 700; color: #0284c7; background: #e0f2fe; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 7.5pt;">${idx + 1}</div>
+      <div>
+        <div style="font-weight: 600; color: #0f172a;">${node.title}</div>
+        <div style="color: #64748b; font-family: monospace;">${node.documentNumber} • ${node.status}</div>
+      </div>
+      ${node.amount !== undefined ? `<div style="margin-left: auto; font-weight: 700; color: #0f172a;">PKR ${Number(node.amount).toLocaleString()}</div>` : ''}
+    </div>
+  `
+    )
+    .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${doc.sourceNumber}_${documentTitle.replace(/\\s+/g, '_')}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm 10mm 12mm;
+    }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a; margin: 0; padding: 0; font-size: 8.5pt; line-height: 1.35; width: 100%; background: #f8fafc;
+    }
+    .screen-toolbar {
+      position: sticky; top: 0; background: #0f172a; color: #ffffff; padding: 10px 24px;
+      display: flex; justify-content: space-between; align-items: center; z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); font-size: 13px;
+    }
+    .screen-toolbar button {
+      background: #1e293b; color: #ffffff; border: 1px solid #475569; padding: 7px 16px;
+      font-weight: 600; border-radius: 6px; cursor: pointer; font-size: 13px;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .screen-toolbar button:hover { background: #334155; }
+    .page-container {
+      max-width: 210mm; margin: 16px auto; background: #ffffff; padding: 16mm 14mm;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); border-radius: 4px; position: relative;
+    }
+    @media print {
+      body { background: #ffffff !important; }
+      .screen-toolbar { display: none !important; }
+      .page-container { max-width: 100% !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+    }
+    .header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 14px;
+    }
+    .logo-block img { max-height: 48px; width: auto; object-fit: contain; }
+    .company-title { font-size: 16pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; }
+    .company-subtitle { font-size: 8.5pt; color: #475569; font-weight: 500; }
+    .doc-badge-block { text-align: right; }
+    .doc-type-pill {
+      display: inline-block; background: #0f172a; color: #ffffff; font-weight: 700;
+      font-size: 9pt; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .doc-number { font-size: 14pt; font-weight: 800; font-family: monospace; color: #0284c7; margin-top: 4px; }
+    .meta-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 14px;
+    }
+    .meta-row { display: flex; justify-content: space-between; padding: 2px 0; }
+    .meta-label { color: #64748b; font-weight: 500; }
+    .meta-value { font-weight: 600; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+    th {
+      background: #f1f5f9; color: #334155; font-weight: 700; text-transform: uppercase;
+      font-size: 7.5pt; letter-spacing: 0.5px; padding: 6px 8px; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1;
+    }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; font-size: 8pt; vertical-align: middle; }
+    tr:nth-child(even) { background-color: #fbfcfe; }
+    .totals-box {
+      margin-left: auto; width: 280px; background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 6px; padding: 8px 12px; margin-bottom: 16px;
+    }
+    .totals-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 8.5pt; }
+    .grand-total {
+      border-top: 1.5px solid #0f172a; margin-top: 4px; padding-top: 6px;
+      font-weight: 800; font-size: 10.5pt; color: #0f172a;
+    }
+    .chain-section { margin-bottom: 16px; }
+    .chain-title { font-size: 8.5pt; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; }
+    .signatures {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+      margin-top: 24px; padding-top: 24px; border-top: 1px dashed #cbd5e1;
+    }
+    .sig-box { text-align: center; }
+    .sig-line { border-top: 1px solid #94a3b8; width: 80%; margin: 0 auto 6px auto; }
+    .sig-label { font-weight: 600; font-size: 8pt; color: #334155; }
+    .sig-sub { font-size: 7pt; color: #64748b; }
+    .footer {
+      margin-top: 20px; text-align: center; font-size: 7pt; color: #94a3b8;
+      border-top: 1px solid #f1f5f9; padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen-toolbar">
+    <div><strong>SHEHSWAR ONE360 ERP</strong> • Official Source Document Voucher (${doc.sourceNumber})</div>
+    <div>
+      <button onclick="window.print()">Print Document</button>
+      <button onclick="window.close()" style="margin-left: 8px;">Close Window</button>
+    </div>
+  </div>
+
+  <div class="page-container">
+    <div class="header">
+      <div class="logo-block">
+        <img src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar Chemicals" />
+        <div class="company-title">${doc.company?.name || 'Shehswar Chemicals (Pvt) Ltd'}</div>
+        <div class="company-subtitle">One360 Authoritative Integrated ERP System</div>
+      </div>
+      <div class="doc-badge-block">
+        <div class="doc-type-pill">${documentTitle}</div>
+        <div class="doc-number">${doc.sourceNumber}</div>
+        <div style="font-size: 8pt; color: #64748b; margin-top: 2px;">Status: <strong style="color: #0f172a;">${doc.status}</strong></div>
+      </div>
+    </div>
+
+    <div class="meta-grid">
+      <div>
+        <div class="meta-row"><span class="meta-label">Party / Entity:</span><span class="meta-value">${doc.party?.name || 'N/A'} (${doc.party?.code || doc.party?.type || '-'})</span></div>
+        ${doc.party?.phone ? `<div class="meta-row"><span class="meta-label">Phone:</span><span class="meta-value">${doc.party.phone}</span></div>` : ''}
+        ${doc.party?.address ? `<div class="meta-row"><span class="meta-label">Address:</span><span class="meta-value">${doc.party.address}</span></div>` : ''}
+        ${doc.warehouse ? `<div class="meta-row"><span class="meta-label">Warehouse:</span><span class="meta-value">${doc.warehouse.name} (${doc.warehouse.code})</span></div>` : ''}
+      </div>
+      <div>
+        <div class="meta-row"><span class="meta-label">Document Date:</span><span class="meta-value">${formattedDate}</span></div>
+        <div class="meta-row"><span class="meta-label">Reference / Bill #:</span><span class="meta-value">${doc.reference || doc.sourceNumber}</span></div>
+        <div class="meta-row"><span class="meta-label">Printed On:</span><span class="meta-value">${printDate}</span></div>
+        ${doc.notes ? `<div class="meta-row"><span class="meta-label">Remarks:</span><span class="meta-value">${doc.notes}</span></div>` : ''}
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 30px; text-align: center;">#</th>
+          <th style="width: 90px;">Item Code</th>
+          <th>Description & Specification</th>
+          <th style="width: 70px; text-align: center;">Pack Size</th>
+          <th style="width: 80px; text-align: center;">Batch</th>
+          <th style="width: 70px; text-align: right;">Quantity</th>
+          <th style="width: 85px; text-align: right;">Rate (PKR)</th>
+          <th style="width: 75px; text-align: right;">Tax (PKR)</th>
+          <th style="width: 95px; text-align: right;">Total (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml || '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #94a3b8;">No line items in this document.</td></tr>'}
+      </tbody>
+    </table>
+
+    <div class="totals-box">
+      <div class="totals-row"><span>Gross Subtotal:</span><span>PKR ${Number(doc.grossAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+      ${doc.taxAmount > 0 ? `<div class="totals-row"><span>Sales Tax:</span><span>PKR ${Number(doc.taxAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      ${doc.discountAmount > 0 ? `<div class="totals-row"><span>Discount:</span><span>- PKR ${Number(doc.discountAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>` : ''}
+      <div class="totals-row grand-total"><span>Net Payable / Total:</span><span>PKR ${Number(doc.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+    </div>
+
+    ${doc.auditChain && doc.auditChain.length > 0 ? `
+    <div class="chain-section">
+      <div class="chain-title">Verified Transaction Lifecycle & Audit Trail</div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        ${chainHtml}
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="signatures">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Prepared By</div>
+        <div class="sig-sub">Data Entry & Officer</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Verified By</div>
+        <div class="sig-sub">Department Incharge</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-label">Authorized Signatory</div>
+        <div class="sig-sub">Finance & Audit Approval</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      OFFICIAL SHEHSWAR ONE360 ERP • COMPUTER GENERATED AUDITABLE TRANSACTION VOUCHER • FULL TRACEABILITY
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+};
