@@ -63,6 +63,15 @@ interface FinishedProductItem {
   productType?: string;
   defaultSellingPrice?: number;
   standardCost?: number;
+  availableStock?: number;
+  stockOnHand?: number;
+  stockBreakdown?: Array<{
+    warehouseId: string;
+    warehouseName: string;
+    warehouseCode: string;
+    quantityOnHand: number;
+    averageCost?: number | null;
+  }>;
   customFields?: Record<string, any>;
   status: string;
   createdAt?: string;
@@ -85,6 +94,7 @@ export const FinishedProductsView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [mTypeFilter, setMTypeFilter] = useState('ALL');
   const [costingFilter, setCostingFilter] = useState('ALL');
+  const [stockFilter, setStockFilter] = useState('ALL');
 
   // Modals
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
@@ -238,6 +248,8 @@ export const FinishedProductsView: React.FC = () => {
   // Executive KPI Calculations
   const totalCount = products.length;
   const activeCount = products.filter((p) => p.status === 'ACTIVE' || !p.status).length;
+  const totalPhysicalStock = products.reduce((sum, p) => sum + Number(p.availableStock ?? p.stockOnHand ?? 0), 0);
+  const inStockCount = products.filter((p) => Number(p.availableStock ?? p.stockOnHand ?? 0) > 0).length;
   const costedCount = products.filter((p) => Number(p.standardCost || 0) > 0).length;
   const uncostedCount = totalCount - costedCount;
   const pricedCount = products.filter((p) => Number(p.defaultSellingPrice || 0) > 0).length;
@@ -270,9 +282,15 @@ export const FinishedProductsView: React.FC = () => {
         (costingFilter === 'COSTED' && hasCost) ||
         (costingFilter === 'UNCOSTED' && !hasCost);
 
-      return matchesSearch && matchesMType && matchesCosting;
+      const stockQty = Number(p.availableStock ?? p.stockOnHand ?? 0);
+      const matchesStock =
+        stockFilter === 'ALL' ||
+        (stockFilter === 'IN_STOCK' && stockQty > 0) ||
+        (stockFilter === 'OUT_OF_STOCK' && stockQty === 0);
+
+      return matchesSearch && matchesMType && matchesCosting && matchesStock;
     });
-  }, [products, searchQuery, mTypeFilter, costingFilter]);
+  }, [products, searchQuery, mTypeFilter, costingFilter, stockFilter]);
 
   // Navigate to Product Costing Engine for a specific product
   const handleNavigateToCosting = (productId: string) => {
@@ -509,6 +527,69 @@ export const FinishedProductsView: React.FC = () => {
               </span>
             )}
           </button>
+        );
+      },
+    },
+    {
+      key: 'availableStock',
+      label: 'Warehouse Stock',
+      sortable: true,
+      align: 'right' as const,
+      render: (row: FinishedProductItem) => {
+        const stockQty = Number(row.availableStock ?? row.stockOnHand ?? 0);
+        const hasStock = stockQty > 0;
+        const breakdowns = row.stockBreakdown || [];
+
+        return (
+          <div style={{ textAlign: 'right' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '3px 10px',
+                borderRadius: '6px',
+                fontWeight: 700,
+                fontSize: '0.82rem',
+                fontFamily: 'var(--font-mono, monospace)',
+                backgroundColor: hasStock ? '#ECFDF5' : '#F8FAFC',
+                color: hasStock ? '#047857' : '#64748B',
+                border: hasStock ? '1px solid #A7F3D0' : '1px solid #E2E8F0',
+                cursor: breakdowns.length > 0 ? 'help' : 'default',
+              }}
+              title={
+                breakdowns.length > 0
+                  ? breakdowns
+                      .map((b) => `${b.warehouseName}: ${Number(b.quantityOnHand).toLocaleString()} ${row.packingUnit || 'Units'}`)
+                      .join('\n')
+                  : hasStock
+                  ? `${stockQty.toLocaleString()} ${row.packingUnit || 'Units'} available`
+                  : 'Zero stock in warehouse'
+              }
+            >
+              {hasStock ? (
+                <>
+                  <span
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10B981',
+                      display: 'inline-block',
+                    }}
+                  />
+                  {stockQty.toLocaleString()} {row.packingUnit || 'Units'}
+                </>
+              ) : (
+                <span style={{ color: '#94A3B8' }}>0 {row.packingUnit || 'Units'}</span>
+              )}
+            </span>
+            {breakdowns.length > 1 && (
+              <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                {breakdowns.length} warehouses
+              </div>
+            )}
+          </div>
         );
       },
     },
@@ -753,18 +834,18 @@ export const FinishedProductsView: React.FC = () => {
           accentColor="#10B981"
         />
         <KpiCard
+          title="Warehouse Stock"
+          value={`${totalPhysicalStock.toLocaleString()} Units`}
+          subtitle={`${inStockCount} of ${totalCount} Products in Stock`}
+          icon={<IconPackage size={20} />}
+          accentColor="#059669"
+        />
+        <KpiCard
           title="Costed Formulations"
           value={costedCount}
           subtitle={`${uncostedCount} Pending Batch Costing`}
           icon={<IconTrendingUp size={20} />}
           accentColor="#6366F1"
-        />
-        <KpiCard
-          title="Packaging Types"
-          value={products.filter((p) => p.packagingMaterialId).length}
-          subtitle={`Linked to Material Inventory`}
-          icon={<IconPackage size={20} />}
-          accentColor="#F59E0B"
         />
         <KpiCard
           title="Commercial Rate Coverage"
@@ -845,6 +926,18 @@ export const FinishedProductsView: React.FC = () => {
                   { label: 'All Costing States', value: 'ALL' },
                   { label: 'Cost Configured', value: 'COSTED' },
                   { label: 'Not Configured', value: 'UNCOSTED' },
+                ]}
+              />
+            </div>
+
+            <div style={{ minWidth: '160px' }}>
+              <Select
+                value={stockFilter}
+                onChange={(e) => setStockFilter(typeof e === 'string' ? e : e.target?.value || 'ALL')}
+                options={[
+                  { label: 'All Stock Levels', value: 'ALL' },
+                  { label: 'In Stock Only', value: 'IN_STOCK' },
+                  { label: 'Out of Stock', value: 'OUT_OF_STOCK' },
                 ]}
               />
             </div>
@@ -979,7 +1072,65 @@ export const FinishedProductsView: React.FC = () => {
                   Quantity from latest finalized costing
                 </div>
               </div>
+
+              <div style={{ padding: '14px', background: '#F0FDF4', borderRadius: '10px', border: '1.5px solid #86EFAC' }}>
+                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Warehouse Stock
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '1.4rem', fontWeight: 900, color: '#15803D', fontFamily: 'var(--font-mono, monospace)' }}>
+                  {Number(viewingProduct.availableStock ?? viewingProduct.stockOnHand ?? 0).toLocaleString()} {viewingProduct.packingUnit || 'Units'}
+                </div>
+                <div style={{ fontSize: '11px', color: '#16A34A', marginTop: '4px' }}>
+                  {(viewingProduct.stockBreakdown || []).length > 0
+                    ? `${(viewingProduct.stockBreakdown || []).length} warehouse(s) on hand`
+                    : 'Physical available stock'}
+                </div>
+              </div>
             </div>
+
+            {/* Live Warehouse Breakdown */}
+            {(viewingProduct.stockBreakdown || []).length > 0 && (
+              <div style={{ padding: '14px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: '0.72rem', color: '#047857', fontWeight: 700, textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Warehouse Locations & Quantities on Hand
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                  {viewingProduct.stockBreakdown!.map((wh) => (
+                    <div
+                      key={wh.warehouseId}
+                      style={{
+                        padding: '8px 12px',
+                        background: '#FFFFFF',
+                        borderRadius: '6px',
+                        border: '1px solid #CBD5E1',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#0F172A', fontSize: '0.82rem' }}>{wh.warehouseName}</div>
+                        {wh.warehouseCode && (
+                          <div style={{ fontSize: '0.7rem', color: '#64748B', fontFamily: 'var(--font-mono, monospace)' }}>
+                            {wh.warehouseCode}
+                          </div>
+                        )}
+                      </div>
+                      <span
+                        style={{
+                          fontWeight: 800,
+                          color: '#047857',
+                          fontFamily: 'var(--font-mono, monospace)',
+                          fontSize: '0.9rem',
+                        }}
+                      >
+                        {Number(wh.quantityOnHand).toLocaleString()} {viewingProduct.packingUnit || 'Units'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Specifications Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>

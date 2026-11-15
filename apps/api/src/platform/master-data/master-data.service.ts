@@ -2284,15 +2284,28 @@ export class MasterDataService {
     if (companyId && companyId !== 'ALL') where.companyId = companyId;
     if (organizationId) where.organizationId = organizationId;
 
-    return this.prisma.packingMaterial.findMany({
+    const materials = await this.prisma.packingMaterial.findMany({
       where,
       include: {
         category: true,
         baseUom: true,
         purchaseUom: true,
         company: { select: { id: true, name: true, code: true } },
+        warehouseStocks: { select: { quantityOnHand: true, companyId: true, warehouseId: true } },
       },
       orderBy: { materialCode: 'asc' },
+    });
+
+    return materials.map((m) => {
+      const stockOnHand = (m.warehouseStocks || []).reduce(
+        (sum, ws) => sum + Number(ws.quantityOnHand || 0),
+        0
+      );
+      return {
+        ...m,
+        stockOnHand,
+        availableQuantity: stockOnHand,
+      };
     });
   }
 
@@ -2610,10 +2623,48 @@ export class MasterDataService {
     }
   }
 
-  // 17. FINISHED PRODUCTS (With Cost RBAC - Part 33)
+  // 17. FINISHED PRODUCTS (With Live Warehouse Stock & Cost RBAC)
   async findFinishedProducts(companyId?: string, organizationId?: string, canViewCost = true) {
     const where: any = { deletedAt: null };
-    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+    let isParent = false;
+    let targetCompany: any = null;
+
+    if (companyId && companyId !== 'ALL') {
+      targetCompany = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      isParent = Boolean(
+        targetCompany?.isParent === true ||
+        targetCompany?.code === 'COMP-SHEHSWAR' ||
+        targetCompany?.companyType === 'PARENT_MANUFACTURING' ||
+        (targetCompany && (targetCompany.childCompanies?.length || 0) > 0)
+      );
+
+      if (isParent) {
+        // Parent company: see parent finished products (or if viewing ALL, all)
+        where.companyId = companyId;
+      } else {
+        // Child company: see products belonging to child, OR products with stock in child warehouse, OR group catalog products
+        where.OR = [
+          { companyId: companyId },
+          {
+            warehouseStocks: {
+              some: {
+                OR: [
+                  { companyId: companyId },
+                  { warehouse: { companyId: companyId } },
+                ],
+                quantityOnHand: { gt: 0 },
+              },
+            },
+          },
+          {
+            company: { isParent: true },
+          },
+        ];
+      }
+    }
     if (organizationId) where.organizationId = organizationId;
 
     const products = await this.prisma.finishedProduct.findMany({
@@ -2624,21 +2675,72 @@ export class MasterDataService {
         packagingMaterial: true,
         baseUom: true,
         salesUom: true,
-        company: { select: { id: true, name: true, code: true } },
+        company: { select: { id: true, name: true, code: true, isParent: true } },
         batches: {
           orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        },
+        warehouseStocks: {
+          where: {
+            quantityOnHand: { gt: 0 },
+          },
+          include: {
+            warehouse: { select: { id: true, name: true, code: true, companyId: true } },
+          },
         },
       },
       orderBy: { productCode: 'asc' },
     });
 
-    if (!canViewCost) {
-      return products.map((p) => ({
-        ...p,
-        standardCost: null,
-      }));
+    // Deduplicate: If child company has its own record for a productCode, prefer child record over parent catalog record
+    const seenCodes = new Set<string>();
+    const deduplicatedProducts: typeof products = [];
+    const sorted = [...products].sort((a, b) => {
+      if (companyId && a.companyId === companyId && b.companyId !== companyId) return -1;
+      if (companyId && b.companyId === companyId && a.companyId !== companyId) return 1;
+      return (a.productCode || '').localeCompare(b.productCode || '');
+    });
+
+    for (const p of sorted) {
+      const codeKey = (p.productCode || p.id).toUpperCase();
+      if (!seenCodes.has(codeKey)) {
+        seenCodes.add(codeKey);
+        deduplicatedProducts.push(p);
+      }
     }
-    return products;
+
+    return deduplicatedProducts.map((p) => {
+      // Calculate stock strictly relevant to active company context
+      const relevantStocks = (p.warehouseStocks || []).filter((ws: any) => {
+        if (!companyId || companyId === 'ALL') return Number(ws.quantityOnHand) > 0;
+        if (isParent) return Number(ws.quantityOnHand) > 0;
+        // Child company context: only count stock physically in this child company's warehouses
+        return (
+          Number(ws.quantityOnHand) > 0 &&
+          (ws.companyId === companyId || ws.warehouse?.companyId === companyId)
+        );
+      });
+
+      const availableStock = relevantStocks.reduce(
+        (sum: number, ws: any) => sum + Number(ws.quantityOnHand || 0),
+        0
+      );
+
+      const stockBreakdown = relevantStocks.map((ws: any) => ({
+        warehouseId: ws.warehouseId,
+        warehouseName: ws.warehouse?.name || 'Warehouse',
+        warehouseCode: ws.warehouse?.code || '',
+        quantityOnHand: Number(ws.quantityOnHand || 0),
+        averageCost: canViewCost ? Number(ws.averageCost || 0) : null,
+      }));
+
+      return {
+        ...p,
+        availableStock,
+        stockOnHand: availableStock,
+        stockBreakdown,
+        standardCost: canViewCost ? p.standardCost : null,
+      };
+    });
   }
 
   async findOneFinishedProduct(id: string, canViewCost = true) {
@@ -2656,16 +2758,35 @@ export class MasterDataService {
         batches: {
           orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
         },
+        warehouseStocks: {
+          where: { quantityOnHand: { gt: 0 } },
+          include: {
+            warehouse: { select: { id: true, name: true, code: true, companyId: true } },
+          },
+        },
       },
     });
     if (!product) throw new NotFoundException(`Finished product with ID ${id} not found`);
-    if (!canViewCost) {
-      return {
-        ...product,
-        standardCost: null,
-      };
-    }
-    return product;
+
+    const availableStock = (product.warehouseStocks || []).reduce(
+      (sum, ws) => sum + Number(ws.quantityOnHand || 0),
+      0
+    );
+    const stockBreakdown = (product.warehouseStocks || []).map((ws: any) => ({
+      warehouseId: ws.warehouseId,
+      warehouseName: ws.warehouse?.name || 'Warehouse',
+      warehouseCode: ws.warehouse?.code || '',
+      quantityOnHand: Number(ws.quantityOnHand || 0),
+      averageCost: canViewCost ? Number(ws.averageCost || 0) : null,
+    }));
+
+    return {
+      ...product,
+      availableStock,
+      stockOnHand: availableStock,
+      stockBreakdown,
+      standardCost: canViewCost ? product.standardCost : null,
+    };
   }
 
   async createFinishedProduct(dto: any, actor: { id: string; email?: string }) {
@@ -2983,6 +3104,7 @@ export class MasterDataService {
         storageRequirements: rm.storageRequirements || null,
         isHazardous: Boolean(rm.isHazardous),
         batchesCount: 0,
+        availableStock: Number(rm.stockOnHand ?? rm.availableQuantity ?? 0),
         status: rm.status || (rm.isActive ? 'ACTIVE' : 'INACTIVE'),
         isActive: rm.status === 'ACTIVE' || rm.isActive === true,
         createdAt: rm.createdAt,
@@ -3019,6 +3141,7 @@ export class MasterDataService {
         storageRequirements: null,
         isHazardous: false,
         batchesCount: 0,
+        availableStock: Number(pm.stockOnHand ?? pm.availableQuantity ?? 0),
         status: pm.status || (pm.isActive ? 'ACTIVE' : 'INACTIVE'),
         isActive: pm.status === 'ACTIVE' || pm.isActive === true,
         createdAt: pm.createdAt,
@@ -3054,6 +3177,8 @@ export class MasterDataService {
         storageRequirements: null,
         isHazardous: false,
         batchesCount: Array.isArray(fp.batches) ? fp.batches.length : 0,
+        availableStock: Number(fp.availableStock ?? fp.stockOnHand ?? 0),
+        stockBreakdown: fp.stockBreakdown || [],
         status: fp.status || 'ACTIVE',
         isActive: fp.status === 'ACTIVE',
         createdAt: fp.createdAt,

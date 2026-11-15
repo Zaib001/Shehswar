@@ -71,6 +71,8 @@ export interface UnifiedProductItem {
   storageRequirements?: string | null;
   isHazardous?: boolean;
   batchesCount?: number;
+  availableStock?: number;
+  stockBreakdown?: any[];
   status: string;
   isActive: boolean;
   createdAt?: string;
@@ -770,6 +772,62 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
           {row.baseUomSymbol || row.baseUomName || '—'}
         </span>
       ),
+    },
+    {
+      key: 'availableStock',
+      label: 'Warehouse Stock',
+      align: 'right' as const,
+      render: (row: UnifiedProductItem) => {
+        const stockQty = Number(row.availableStock || 0);
+        const hasStock = stockQty > 0;
+        const breakdowns = row.stockBreakdown || [];
+
+        return (
+          <div style={{ textAlign: 'right' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                fontWeight: 700,
+                fontSize: '11.5px',
+                fontFamily: 'var(--font-mono, monospace)',
+                backgroundColor: hasStock ? '#ecfdf5' : '#f8fafc',
+                color: hasStock ? '#047857' : '#64748b',
+                border: hasStock ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
+              }}
+              title={
+                breakdowns.length > 0
+                  ? breakdowns
+                      .map((b: any) => `${b.warehouseName}: ${Number(b.quantityOnHand).toLocaleString()} ${row.baseUomSymbol || ''}`)
+                      .join('\n')
+                  : hasStock
+                  ? `${stockQty.toLocaleString()} ${row.baseUomSymbol || ''} available`
+                  : 'Zero stock in warehouse'
+              }
+            >
+              {hasStock ? (
+                <>
+                  <span
+                    style={{
+                      width: '5px',
+                      height: '5px',
+                      borderRadius: '50%',
+                      backgroundColor: '#10b981',
+                      display: 'inline-block',
+                    }}
+                  />
+                  {stockQty.toLocaleString()} {row.baseUomSymbol || ''}
+                </>
+              ) : (
+                <span style={{ color: '#94a3b8' }}>0 {row.baseUomSymbol || ''}</span>
+              )}
+            </span>
+          </div>
+        );
+      },
     },
     {
       key: 'status',
