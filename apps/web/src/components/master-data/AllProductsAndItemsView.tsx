@@ -21,6 +21,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ListPageTemplate } from '../templates';
 import {
   Card,
@@ -88,9 +89,16 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
   defaultTab = 'ALL',
 }) => {
   const { showToast } = useToast();
+  const { activeCompany, isParentActive } = useCompany();
 
   // Active Category Tab
   const [activeTab, setActiveTab] = useState<ProductTab>(defaultTab);
+
+  useEffect(() => {
+    if (!isParentActive && (activeTab === 'RAW_MATERIAL' || activeTab === 'PACKING_MATERIAL' || activeTab === 'OTHER')) {
+      setActiveTab('ALL');
+    }
+  }, [isParentActive, activeTab]);
 
   // Data State
   const [items, setItems] = useState<UnifiedProductItem[]>([]);
@@ -901,31 +909,39 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
   return (
     <ListPageTemplate
       title="All Products & Items Master"
-      subtitle="Central product master catalog — Identity, specifications, categories, pack sizes, and units of measure without pricing."
+      subtitle={
+        !isParentActive
+          ? `Catalog of Finished Products received by ${activeCompany?.name || 'child company'} from Shehswar via Intercompany Transfers.`
+          : 'Central product master catalog — Identity, specifications, categories, pack sizes, and units of measure without pricing.'
+      }
       actions={
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <Button variant="outline" size="sm" onClick={handleExportCatalog} icon={<IconDownload size={15} />}>
             Export
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setIsImportOpen(true)}>
-            Import
-          </Button>
+          {isParentActive && (
+            <Button variant="outline" size="sm" onClick={() => setIsImportOpen(true)}>
+              Import
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={loadData} icon={<IconRefresh size={15} />}>
             Refresh
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => handleOpenCreateModal()}
-            icon={<IconPlus size={15} />}
-            style={{ backgroundColor: '#0284c7', borderColor: '#0284c7' }}
-          >
-            + Add Product / Item
-          </Button>
+          {isParentActive && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => handleOpenCreateModal()}
+              icon={<IconPlus size={15} />}
+              style={{ backgroundColor: '#0284c7', borderColor: '#0284c7' }}
+            >
+              + Add Product / Item
+            </Button>
+          )}
         </div>
       }
     >
-      {/* 4 Executive KPI Metric Cards (Item Counts Only — No Pricing/Costs) */}
+      {/* 4 Executive KPI Metric Cards */}
       <div
         style={{
           display: 'grid',
@@ -935,8 +951,8 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
         }}
       >
         <KpiCard
-          title="Total Catalog Items"
-          value={tabCounts.ALL}
+          title={isParentActive ? "Total Catalog Items" : "Total Finished Goods"}
+          value={isParentActive ? tabCounts.ALL : tabCounts.FINISHED_PRODUCT}
           icon={<IconPackage size={20} />}
           subtitle={items.filter((i) => i.isActive).length ? `${items.filter((i) => i.isActive).length} Active` : undefined}
         />
@@ -946,18 +962,37 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
           icon={<IconFlask size={20} />}
           status="success"
         />
-        <KpiCard
-          title="Raw Materials"
-          value={tabCounts.RAW_MATERIAL}
-          icon={<IconBox size={20} />}
-          status="info"
-        />
-        <KpiCard
-          title="Packing Materials"
-          value={tabCounts.PACKING_MATERIAL}
-          icon={<IconTag size={20} />}
-          status="warning"
-        />
+        {isParentActive ? (
+          <>
+            <KpiCard
+              title="Raw Materials"
+              value={tabCounts.RAW_MATERIAL}
+              icon={<IconBox size={20} />}
+              status="info"
+            />
+            <KpiCard
+              title="Packing Materials"
+              value={tabCounts.PACKING_MATERIAL}
+              icon={<IconTag size={20} />}
+              status="warning"
+            />
+          </>
+        ) : (
+          <>
+            <KpiCard
+              title="In Stock Items"
+              value={items.filter((i) => Number(i.availableStock || 0) > 0).length}
+              icon={<IconBox size={20} />}
+              status="info"
+            />
+            <KpiCard
+              title="Warehouse Stock Units"
+              value={items.reduce((sum, i) => sum + Number(i.availableStock || 0), 0)}
+              icon={<IconTag size={20} />}
+              status="warning"
+            />
+          </>
+        )}
       </div>
 
       {/* Main Workspace Card */}
@@ -975,13 +1010,18 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
           }}
         >
           {(
-            [
-              { id: 'ALL', label: 'All Products', count: tabCounts.ALL },
-              { id: 'RAW_MATERIAL', label: 'Raw Materials', count: tabCounts.RAW_MATERIAL },
-              { id: 'PACKING_MATERIAL', label: 'Packing Materials', count: tabCounts.PACKING_MATERIAL },
-              { id: 'FINISHED_PRODUCT', label: 'Finished Products', count: tabCounts.FINISHED_PRODUCT },
-              { id: 'OTHER', label: 'Other', count: tabCounts.OTHER },
-            ] as const
+            isParentActive
+              ? [
+                  { id: 'ALL' as const, label: 'All Products', count: tabCounts.ALL },
+                  { id: 'RAW_MATERIAL' as const, label: 'Raw Materials', count: tabCounts.RAW_MATERIAL },
+                  { id: 'PACKING_MATERIAL' as const, label: 'Packing Materials', count: tabCounts.PACKING_MATERIAL },
+                  { id: 'FINISHED_PRODUCT' as const, label: 'Finished Products', count: tabCounts.FINISHED_PRODUCT },
+                  { id: 'OTHER' as const, label: 'Other', count: tabCounts.OTHER },
+                ]
+              : [
+                  { id: 'ALL' as const, label: 'All Products (Finished Goods)', count: tabCounts.FINISHED_PRODUCT },
+                  { id: 'FINISHED_PRODUCT' as const, label: 'Finished Products', count: tabCounts.FINISHED_PRODUCT },
+                ]
           ).map((tab) => {
             const isActive = activeTab === tab.id;
             return (

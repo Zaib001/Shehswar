@@ -21,9 +21,72 @@ import { VendorLedgerService } from '../ledger/vendor-ledger.service';
 import { uuidv7 } from '@shehswar/shared';
 import { AuthUser } from '@shehswar/types';
 
+/**
+ * Standard clean pack size helper:
+ * Extracts only the actual commercial pack size (e.g. "200 LTR", "25 KG", "1 LTR").
+ * Strips multipliers, "(qty...)", and "/ Bulk" junk.
+ */
+export function cleanPackSize(raw?: string | null, fallbackUnit = 'KG'): string {
+  if (!raw) return `1 ${fallbackUnit}`.trim();
+  let s = String(raw).trim();
+  if (!s || s === '—' || s === '-') return `1 ${fallbackUnit}`.trim();
+
+  // Strip "Pack Size:" or "Packs:" or "Pack:" prefix
+  s = s.replace(/^(?:Packs?|Pack\s*Size)\s*:\s*/i, '').trim();
+
+  // Strip trailing parenthesized info like "(250 KG)" or "(qty...)"
+  s = s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+
+  // Strip "/ Bulk" or "/Bulk" or "Bulk /"
+  s = s.replace(/\s*\/\s*Bulk/i, '').replace(/Bulk\s*\/\s*/i, '').trim();
+
+  // If expression has multipliers (e.g. "20 × 10 × 200 LTR" or "10 * 25 KG" or "10 x 25 KG")
+  if (/[×*]|(?:\s+[xX]\s+)/.test(s)) {
+    const parts = s.split(/[×*]|(?:\s+[xX]\s+)/);
+    const lastPart = parts[parts.length - 1].trim();
+    if (lastPart) {
+      s = lastPart;
+    }
+  }
+
+  // If it's literally "Bulk" or "Item" or "Unit"
+  if (/^(?:Bulk|Item|Unit)$/i.test(s)) {
+    return `1 ${fallbackUnit}`.trim();
+  }
+
+  // Normalize spacing between number and unit (e.g. "25KG" -> "25 KG", "200LTR" -> "200 LTR")
+  const numUnitMatch = s.match(/^([\d.]+)\s*([a-zA-Z%]+)$/);
+  if (numUnitMatch) {
+    return `${parseFloat(numUnitMatch[1])} ${numUnitMatch[2].toUpperCase()}`.trim();
+  }
+
+  return s;
+}
+
+/**
+ * Timezone-safe calendar date parser:
+ * Parses YYYY-MM-DD into a UTC midday timestamp so it never crosses
+ * date boundaries regardless of local timezone.
+ */
+export function parseDateOnly(val?: string | Date | null): Date {
+  if (!val) return new Date();
+  if (val instanceof Date) return val;
+  const s = String(val).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const year = parseInt(m[1], 10);
+    const month = parseInt(m[2], 10) - 1;
+    const day = parseInt(m[3], 10);
+    return new Date(Date.UTC(year, month, day, 12, 0, 0));
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
+
 export interface CreateOperationalPoDto {
   poNumber?: string;
   poDate?: string;
+  orderDate?: string;
   companyId?: string;
   vendorId: string;
   warehouseId?: string;
@@ -82,17 +145,21 @@ export class OperationalPoService {
         warehouse: { select: { id: true, name: true, code: true } },
         items: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ orderDate: 'desc' }, { createdAt: 'desc' }],
     });
 
     return pos.map((po) => ({
       ...po,
+      orderDate: po.orderDate || po.createdAt,
+      poDate: po.orderDate ? po.orderDate.toISOString().slice(0, 10) : po.createdAt.toISOString().slice(0, 10),
       subtotal: Number(po.subtotal),
       taxAmount: Number(po.taxAmount),
       discountAmount: Number(po.discountAmount),
       totalAmount: Number(po.totalAmount),
       items: po.items.map((i) => ({
         ...i,
+        packSize: cleanPackSize(i.specificationSnapshot, i.unit),
+        specificationSnapshot: cleanPackSize(i.specificationSnapshot, i.unit),
         quantity: Number(i.quantity),
         unitRate: Number(i.unitRate),
         lineTotal: Number(i.lineTotal),
@@ -115,6 +182,23 @@ export class OperationalPoService {
 
     return {
       ...po,
+      orderDate: po.orderDate || po.createdAt,
+      poDate: po.orderDate ? po.orderDate.toISOString().slice(0, 10) : po.createdAt.toISOString().slice(0, 10),
+      subtotal: Number(po.subtotal),
+      taxAmount: Number(po.taxAmount),
+      discountAmount: Number(po.discountAmount),
+      totalAmount: Number(po.totalAmount),
+      items: po.items.map((i) => ({
+        ...i,
+        packSize: cleanPackSize(i.specificationSnapshot, i.unit),
+        specificationSnapshot: cleanPackSize(i.specificationSnapshot, i.unit),
+        quantity: Number(i.quantity),
+        unitRate: Number(i.unitRate),
+        lineTotal: Number(i.lineTotal),
+        taxAmount: Number(i.taxAmount),
+        discountAmount: Number(i.discountAmount),
+      })),
+    };
       subtotal: Number(po.subtotal),
       taxAmount: Number(po.taxAmount),
       discountAmount: Number(po.discountAmount),

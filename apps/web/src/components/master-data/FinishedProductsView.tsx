@@ -15,6 +15,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ListPageTemplate } from '../templates';
 import {
   Card,
@@ -86,6 +87,7 @@ interface FinishedProductItem {
 
 export const FinishedProductsView: React.FC = () => {
   const { showToast } = useToast();
+  const { activeCompany, isParentActive } = useCompany();
   const [products, setProducts] = useState<FinishedProductItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,9 +111,9 @@ export const FinishedProductsView: React.FC = () => {
   const [isLoadingProductCostHistory, setIsLoadingProductCostHistory] = useState(false);
   const [viewingRecipeRecord, setViewingRecipeRecord] = useState<any | null>(null);
 
-  // Fetch live product cost history and latest batches whenever a product is viewed (Requirement 14)
+  // Fetch live product cost history only for parent manufacturing company (child companies do not see manufacturing BOMs)
   useEffect(() => {
-    if (viewingProduct?.id) {
+    if (viewingProduct?.id && isParentActive) {
       setIsLoadingProductCostHistory(true);
       ApiClient.get<any>(`/api/v1/costing/product/${viewingProduct.id}/cost-history`)
         .then((res) => {
@@ -127,7 +129,7 @@ export const FinishedProductsView: React.FC = () => {
     } else {
       setProductCostHistory(null);
     }
-  }, [viewingProduct]);
+  }, [viewingProduct, isParentActive]);
 
   // Load Products
   const loadData = useCallback(async () => {
@@ -637,8 +639,36 @@ export const FinishedProductsView: React.FC = () => {
     },
     {
       key: 'costingStatus',
-      label: 'Manufacturing Cost',
+      label: isParentActive ? 'Manufacturing Cost' : 'Transfer Rate',
       render: (row: FinishedProductItem) => {
+        if (!isParentActive) {
+          const rate = Number(row.standardCost || row.customFields?.lastTransferRate || row.customFields?.intercompanyTransferRate || 0);
+          const srcName = row.customFields?.sourceCompanyName || 'Shehswar Group';
+          const lastDate = row.customFields?.lastTransferredAt || row.customFields?.transferredAt || row.createdAt;
+          return (
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  backgroundColor: '#ECFDF5',
+                  color: '#059669',
+                  border: '1px solid #A7F3D0',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                }}
+              >
+                PKR {rate.toLocaleString()} / Pack
+              </span>
+              <div style={{ fontSize: '0.68rem', color: '#64748B', marginTop: '2px' }}>
+                From {srcName} {lastDate ? `• ${new Date(lastDate).toLocaleDateString()}` : ''}
+              </div>
+            </div>
+          );
+        }
+
         const hasCost = Number(row.standardCost || 0) > 0;
         if (hasCost) {
           return (
@@ -721,16 +751,18 @@ export const FinishedProductsView: React.FC = () => {
       align: 'right' as const,
       render: (row: FinishedProductItem) => (
         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={<IconEdit size={14} />}
-            onClick={() => setEditingProduct(row)}
-            title="Edit Finished Product (or Double-Click row)"
-            style={{ color: '#047857', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
-          >
-            Edit
-          </Button>
+          {isParentActive && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<IconEdit size={14} />}
+              onClick={() => setEditingProduct(row)}
+              title="Edit Finished Product (or Double-Click row)"
+              style={{ color: '#047857', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
+            >
+              Edit
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -740,30 +772,34 @@ export const FinishedProductsView: React.FC = () => {
           >
             View
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => handleNavigateToCosting(row.id)}
-            style={{ fontSize: '0.75rem', height: '28px' }}
-          >
-            Cost Engine
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setProductToDelete(row)}
-            style={{
-              color: '#DC2626',
-              backgroundColor: '#FEF2F2',
-              borderColor: '#FEE2E2',
-              fontSize: '0.75rem',
-              height: '28px',
-              padding: '0 8px',
-            }}
-            title="Delete Finished Product"
-          >
-            Delete
-          </Button>
+          {isParentActive && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleNavigateToCosting(row.id)}
+                style={{ fontSize: '0.75rem', height: '28px' }}
+              >
+                Cost Engine
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setProductToDelete(row)}
+                style={{
+                  color: '#DC2626',
+                  backgroundColor: '#FEF2F2',
+                  borderColor: '#FEE2E2',
+                  fontSize: '0.75rem',
+                  height: '28px',
+                  padding: '0 8px',
+                }}
+                title="Delete Finished Product"
+              >
+                Delete
+              </Button>
+            </>
+          )}
         </div>
       ),
     },
@@ -771,32 +807,40 @@ export const FinishedProductsView: React.FC = () => {
 
   return (
     <ListPageTemplate
-      title="Product & Item Master"
-      subtitle="Commercial finished formulations, packaging configurations, PPC, and sales base prices. Cost calculation is segregated into Product Costing."
+      title={!isParentActive ? `${activeCompany?.name || 'Child Entity'} — Finished Products` : "Product & Item Master"}
+      subtitle={
+        !isParentActive
+          ? "Finished Products received from Shehswar via Intercompany Transfers & Sales. Stock is segregated per warehouse."
+          : "Commercial finished formulations, packaging configurations, PPC, and sales base prices. Cost calculation is segregated into Product Costing."
+      }
       breadcrumbs={[
         { label: 'Master Data', href: '#' },
         { label: 'Finished Products Catalog' },
       ]}
       actions={
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button
-            variant="outline"
-            size="sm"
-            startIcon={<IconDownload size={14} />}
-            onClick={() => setIsImportOpen(true)}
-          >
-            Import Products
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            style={{ color: '#ef4444', borderColor: '#fca5a5' }}
-            startIcon={<IconTrash size={14} />}
-            onClick={handleDeleteAll}
-            disabled={products.length === 0}
-          >
-            Delete All
-          </Button>
+          {isParentActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              startIcon={<IconDownload size={14} />}
+              onClick={() => setIsImportOpen(true)}
+            >
+              Import Products
+            </Button>
+          )}
+          {isParentActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+              startIcon={<IconTrash size={14} />}
+              onClick={handleDeleteAll}
+              disabled={products.length === 0}
+            >
+              Delete All
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -805,15 +849,34 @@ export const FinishedProductsView: React.FC = () => {
           >
             Refresh
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            startIcon={<IconPlus size={14} />}
-            onClick={() => setIsAddItemOpen(true)}
-            style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
-          >
-            + Add Product
-          </Button>
+          {isParentActive ? (
+            <Button
+              variant="primary"
+              size="sm"
+              startIcon={<IconPlus size={14} />}
+              onClick={() => setIsAddItemOpen(true)}
+              style={{ backgroundColor: '#10B981', borderColor: '#10B981', color: '#fff' }}
+            >
+              + Add Product
+            </Button>
+          ) : (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                backgroundColor: '#EEF2FF',
+                color: '#4F46E5',
+                fontSize: '12px',
+                fontWeight: 600,
+                border: '1px solid #C7D2FE',
+              }}
+            >
+              Received via Intercompany Transfers
+            </span>
+          )}
         </div>
       }
     >
@@ -1175,130 +1238,171 @@ export const FinishedProductsView: React.FC = () => {
               </div>
             </div>
 
-            {/* COST HISTORY TABLE (Requirement 14) */}
-            <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Cost History
-                </h4>
-                <span style={{ fontSize: '11px', color: '#64748B' }}>
-                  {(productCostHistory?.history || []).length} Recorded cost change(s)
-                </span>
-              </div>
-
-              {isLoadingProductCostHistory ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading cost history...</div>
-              ) : (productCostHistory?.history || []).length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
-                  No historical cost transitions recorded yet. Costings finalized with &ldquo;Add Cost to Product&rdquo; will show here.
+            {!isParentActive ? (
+              <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Intercompany Receipt & Sourcing
+                  </h4>
+                  <span style={{ fontSize: '11px', color: '#059669', fontWeight: 600 }}>
+                    Received from Shehswar
+                  </span>
                 </div>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
-                    <thead>
-                      <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #E2E8F0' }}>
-                        <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Date</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Batch</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Previous Cost</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>New Cost</th>
-                        <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Difference</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productCostHistory.history.map((h: any, idx: number) => (
-                        <tr key={h.id || idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                          <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
-                            {h.date ? h.date.split('T')[0] : ''}
-                          </td>
-                          <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: '#1D4ED8' }}>
-                            {h.batchNumber || '—'}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
-                            {h.previousCost !== null ? `PKR ${Number(h.previousCost).toFixed(2)}` : '—'}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 800, color: '#059669' }}>
-                            PKR {Number(h.newCost).toFixed(2)}
-                          </td>
-                          <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>
-                            {h.costDifference !== null ? (
-                              <span style={{ color: h.costDifference > 0 ? '#DC2626' : h.costDifference < 0 ? '#059669' : '#64748B' }}>
-                                {h.costDifference > 0 ? `+PKR ${Number(h.costDifference).toFixed(2)}` : `PKR ${Number(h.costDifference).toFixed(2)}`}
-                                {h.costDifferencePct !== null && ` (${h.costDifferencePct}%)`}
-                              </span>
-                            ) : (
-                              <span style={{ color: '#94A3B8' }}>—</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* RECIPE HISTORY SECTION (Requirement 14) */}
-            <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Recipe History
-                </h4>
-                <span style={{ fontSize: '11px', color: '#64748B' }}>
-                  Immutable Production Compositions
-                </span>
-              </div>
-
-              {isLoadingProductCostHistory ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading recipes...</div>
-              ) : (productCostHistory?.history || []).length === 0 ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
-                  No saved costing recipes found for this product. Cost this product in the Costing Engine to generate recipes.
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
-                  {productCostHistory.history.map((h: any, idx: number) => (
-                    <div
-                      key={h.id || idx}
-                      style={{
-                        padding: '12px',
-                        borderRadius: '8px',
-                        border: '1px solid #E2E8F0',
-                        background: '#F8FAFC',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
-                          {h.date ? h.date.split('T')[0] : ''}
-                        </span>
-                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#0F766E', fontFamily: 'var(--font-mono, monospace)' }}>
-                          {h.costingCode}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Batch: {h.batchNumber}</span>
-                        <span style={{ fontSize: '13px', fontWeight: 800, color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
-                          PKR {Number(h.newCost).toFixed(2)}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: '4px' }}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setViewingRecipeRecord(h)}
-                          style={{ width: '100%', justifyContent: 'center', fontSize: '11.5px', height: '28px' }}
-                        >
-                          <IconEye size={12} style={{ marginRight: '4px' }} />
-                          View Recipe
-                        </Button>
-                      </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                  <div style={{ padding: '10px 14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>SOURCE ENTITY</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginTop: '4px' }}>
+                      {viewingProduct.customFields?.sourceCompanyName || 'Shehswar Group (Parent)'}
                     </div>
-                  ))}
+                  </div>
+                  <div style={{ padding: '10px 14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>INTERCOMPANY TRANSFER RATE</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#059669', marginTop: '4px', fontFamily: 'var(--font-mono, monospace)' }}>
+                      PKR {Number(viewingProduct.standardCost || viewingProduct.customFields?.lastTransferRate || viewingProduct.customFields?.intercompanyTransferRate || 0).toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ padding: '10px 14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>ACTIVE BATCH NUMBER</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#2563EB', marginTop: '4px', fontFamily: 'var(--font-mono, monospace)' }}>
+                      {viewingProduct.batches?.[0]?.batchNumber || viewingProduct.customFields?.batchNumber || 'Assigned via Transfer'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '10px 14px', backgroundColor: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: 600 }}>CURRENT WAREHOUSE STOCK</div>
+                    <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', marginTop: '4px', fontFamily: 'var(--font-mono, monospace)' }}>
+                      {Number(viewingProduct.availableStock || 0).toLocaleString()} {viewingProduct.packingUnit || 'Units'}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <>
+                {/* COST HISTORY TABLE (Requirement 14) */}
+                <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Cost History
+                    </h4>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>
+                      {(productCostHistory?.history || []).length} Recorded cost change(s)
+                    </span>
+                  </div>
+
+                  {isLoadingProductCostHistory ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading cost history...</div>
+                  ) : (productCostHistory?.history || []).length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
+                      No historical cost transitions recorded yet. Costings finalized with &ldquo;Add Cost to Product&rdquo; will show here.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                        <thead>
+                          <tr style={{ background: '#F8FAFC', borderBottom: '1.5px solid #E2E8F0' }}>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Date</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Batch</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Previous Cost</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>New Cost</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Difference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productCostHistory.history.map((h: any, idx: number) => (
+                            <tr key={h.id || idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                              <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                                {h.date ? h.date.split('T')[0] : ''}
+                              </td>
+                              <td style={{ padding: '8px 10px', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700, color: '#1D4ED8' }}>
+                                {h.batchNumber || '—'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                                {h.previousCost !== null ? `PKR ${Number(h.previousCost).toFixed(2)}` : '—'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 800, color: '#059669' }}>
+                                PKR {Number(h.newCost).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>
+                                {h.costDifference !== null ? (
+                                  <span style={{ color: h.costDifference > 0 ? '#DC2626' : h.costDifference < 0 ? '#059669' : '#64748B' }}>
+                                    {h.costDifference > 0 ? `+PKR ${Number(h.costDifference).toFixed(2)}` : `PKR ${Number(h.costDifference).toFixed(2)}`}
+                                    {h.costDifferencePct !== null && ` (${h.costDifferencePct}%)`}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: '#94A3B8' }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* RECIPE HISTORY SECTION (Requirement 14) */}
+                <div style={{ padding: '16px', background: '#FFFFFF', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Recipe History
+                    </h4>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>
+                      Immutable Production Compositions
+                    </span>
+                  </div>
+
+                  {isLoadingProductCostHistory ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#64748B' }}>Loading recipes...</div>
+                  ) : (productCostHistory?.history || []).length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', color: '#94A3B8', fontSize: '12.5px', background: '#F8FAFC', borderRadius: '6px' }}>
+                      No saved costing recipes found for this product. Cost this product in the Costing Engine to generate recipes.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                      {productCostHistory.history.map((h: any, idx: number) => (
+                        <div
+                          key={h.id || idx}
+                          style={{
+                            padding: '12px',
+                            borderRadius: '8px',
+                            border: '1px solid #E2E8F0',
+                            background: '#F8FAFC',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono, monospace)', color: '#64748B' }}>
+                              {h.date ? h.date.split('T')[0] : ''}
+                            </span>
+                            <span style={{ fontSize: '11px', fontWeight: 800, color: '#0F766E', fontFamily: 'var(--font-mono, monospace)' }}>
+                              {h.costingCode}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>Batch: {h.batchNumber}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 800, color: '#059669', fontFamily: 'var(--font-mono, monospace)' }}>
+                              PKR {Number(h.newCost).toFixed(2)}
+                            </span>
+                          </div>
+                          <div style={{ marginTop: '4px' }}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setViewingRecipeRecord(h)}
+                              style={{ width: '100%', justifyContent: 'center', fontSize: '11.5px', height: '28px' }}
+                            >
+                              <IconEye size={12} style={{ marginRight: '4px' }} />
+                              View Recipe
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             {viewingProduct.customFields && Object.keys(viewingProduct.customFields).length > 0 && (
               <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0' }}>

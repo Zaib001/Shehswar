@@ -1428,14 +1428,14 @@ export const exportSalesInvoiceToPdf = (
   const docTitleBadge = isBasicDelivery
     ? 'DELIVERY CHALLAN & GATE PASS'
     : isStandardSales
-    ? 'SALES RECEIPT / SLIP'
-    : 'SALES TAX COMMERCIAL INVOICE';
+      ? 'SALES RECEIPT / SLIP'
+      : 'SALES TAX COMMERCIAL INVOICE';
 
   const docSubtitle = isBasicDelivery
     ? 'Physical Stock Dispatch Note • Non-Financial Gate Pass'
     : isStandardSales
-    ? 'Commercial Customer Sales Slip'
-    : 'Comprehensive Commercial Tax Invoice & STRN Filing Copy';
+      ? 'Commercial Customer Sales Slip'
+      : 'Comprehensive Commercial Tax Invoice & STRN Filing Copy';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2121,7 +2121,7 @@ export interface PurchaseInvoiceExportData {
 export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) => {
   const gross = Number(
     invoice.grossAmount ??
-      invoice.items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.rate || 0), 0)
+    invoice.items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.rate || 0), 0)
   );
   const discount = Number(invoice.discountAmount || 0);
   const tax = Number(invoice.taxAmount || 0);
@@ -2631,15 +2631,15 @@ export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) =
         </thead>
         <tbody>
           ${invoice.items.map((item, idx) => {
-            const matTypeLabel =
-              item.materialType === 'PACKING_MATERIAL'
-                ? 'Packaging'
-                : item.materialType === 'FINISHED_PRODUCT'
-                ? 'Finished Good'
-                : item.materialType === 'OTHER'
-                ? 'Other Product'
-                : 'Raw Material';
-            return `
+    const matTypeLabel =
+      item.materialType === 'PACKING_MATERIAL'
+        ? 'Packaging'
+        : item.materialType === 'FINISHED_PRODUCT'
+          ? 'Finished Good'
+          : item.materialType === 'OTHER'
+            ? 'Other Product'
+            : 'Raw Material';
+    return `
             <tr>
               <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
               <td style="font-weight: 600; color: #0f172a;">${item.itemName}</td>
@@ -2651,7 +2651,7 @@ export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) =
               <td class="text-right mono" style="font-weight: 700;">PKR ${Number(item.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
           `;
-          }).join('')}
+  }).join('')}
         </tbody>
       </table>
 
@@ -2787,10 +2787,10 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
   const periodLabel = startDate && endDate
     ? `${startDate} to ${endDate}`
     : startDate
-    ? `From ${startDate}`
-    : endDate
-    ? `Up to ${endDate}`
-    : 'All Recorded Transactions';
+      ? `From ${startDate}`
+      : endDate
+        ? `Up to ${endDate}`
+        : 'All Recorded Transactions';
 
   const generatedDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -3223,13 +3223,13 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
               </td>
             </tr>
           ` : entries.map((entry) => {
-            const dateStr = new Date(entry.entryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-            const debitNum = Number(entry.debit || 0);
-            const creditNum = Number(entry.credit || 0);
-            const balNum = Number(entry.runningBalance || 0);
-            const balType = balNum >= 0 ? 'Dr' : 'Cr';
+    const dateStr = new Date(entry.entryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const debitNum = Number(entry.debit || 0);
+    const creditNum = Number(entry.credit || 0);
+    const balNum = Number(entry.runningBalance || 0);
+    const balType = balNum >= 0 ? 'Dr' : 'Cr';
 
-            return `
+    return `
               <tr>
                 <td class="text-center mono" style="color: #475569;">${dateStr}</td>
                 <td><span style="font-weight: 600;">${entry.entryType}</span></td>
@@ -3240,7 +3240,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
                 <td class="text-right mono" style="font-weight: 700;">${Math.abs(balNum).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${balType}</td>
               </tr>
             `;
-          }).join('')}
+  }).join('')}
         </tbody>
         <tfoot>
           <tr>
@@ -3359,10 +3359,10 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
   const periodLabel = startDate && endDate
     ? `${startDate} to ${endDate}`
     : startDate
-    ? `From ${startDate}`
-    : endDate
-    ? `Up to ${endDate}`
-    : 'All Recorded Transactions';
+      ? `From ${startDate}`
+      : endDate
+        ? `Up to ${endDate}`
+        : 'All Recorded Transactions';
 
   const generatedDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
@@ -3820,12 +3820,12 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
               </td>
             </tr>
           ` : sortedEntries.map((entry) => {
-            const dateStr = new Date(entry.entryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-            const debitNum = Number(entry.debit || 0);
-            const creditNum = Number(entry.credit || 0);
-            const balNum = Number(entry.runningBalance || 0);
-            const balType = balNum >= 0 ? 'Cr' : 'Dr';
-            return `
+    const dateStr = new Date(entry.entryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const debitNum = Number(entry.debit || 0);
+    const creditNum = Number(entry.credit || 0);
+    const balNum = Number(entry.runningBalance || 0);
+    const balType = balNum >= 0 ? 'Cr' : 'Dr';
+    return `
               <tr>
                 <td class="text-center mono" style="color: #475569;">${dateStr}</td>
                 <td><span style="font-weight: 600;">${entry.entryType.replace(/_/g, ' ')}</span></td>
@@ -3836,7 +3836,7 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
                 <td class="text-right mono" style="font-weight: 700;">${Math.abs(balNum).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${balType}</td>
               </tr>
             `;
-          }).join('')}
+  }).join('')}
         </tbody>
         <tfoot>
           <tr>
@@ -4232,20 +4232,20 @@ export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
         ` : data.rows.map((row) => `
           <tr>
             ${row.map((cell) => {
-              const alignClass = `text-${cell.align || 'left'}`;
-              const boldStyle = cell.bold ? 'font-weight: 700;' : '';
-              const colorStyle = cell.color ? `color: ${cell.color};` : '';
-              if (cell.isBadge) {
-                return `
+    const alignClass = `text-${cell.align || 'left'}`;
+    const boldStyle = cell.bold ? 'font-weight: 700;' : '';
+    const colorStyle = cell.color ? `color: ${cell.color};` : '';
+    if (cell.isBadge) {
+      return `
                   <td class="${alignClass}">
                     <span class="badge" style="background: ${cell.badgeBg || '#e0f2fe'}; color: ${cell.badgeColor || '#0369a1'};">
                       ${cell.text}
                     </span>
                   </td>
                 `;
-              }
-              return `<td class="${alignClass} ${cell.align === 'right' ? 'mono' : ''}" style="${boldStyle} ${colorStyle}">${cell.text}</td>`;
-            }).join('')}
+    }
+    return `<td class="${alignClass} ${cell.align === 'right' ? 'mono' : ''}" style="${boldStyle} ${colorStyle}">${cell.text}</td>`;
+  }).join('')}
           </tr>
         `).join('')}
       </tbody>
@@ -4273,20 +4273,20 @@ export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
           ` : sec.rows.map((row) => `
             <tr>
               ${row.map((cell) => {
-                const alignClass = `text-${cell.align || 'left'}`;
-                const boldStyle = cell.bold ? 'font-weight: 700;' : '';
-                const colorStyle = cell.color ? `color: ${cell.color};` : '';
-                if (cell.isBadge) {
-                  return `
+    const alignClass = `text-${cell.align || 'left'}`;
+    const boldStyle = cell.bold ? 'font-weight: 700;' : '';
+    const colorStyle = cell.color ? `color: ${cell.color};` : '';
+    if (cell.isBadge) {
+      return `
                     <td class="${alignClass}">
                       <span class="badge" style="background: ${cell.badgeBg || '#e0f2fe'}; color: ${cell.badgeColor || '#0369a1'};">
                         ${cell.text}
                       </span>
                     </td>
                   `;
-                }
-                return `<td class="${alignClass} ${cell.align === 'right' ? 'mono' : ''}" style="${boldStyle} ${colorStyle}">${cell.text}</td>`;
-              }).join('')}
+    }
+    return `<td class="${alignClass} ${cell.align === 'right' ? 'mono' : ''}" style="${boldStyle} ${colorStyle}">${cell.text}</td>`;
+  }).join('')}
             </tr>
           `).join('')}
         </tbody>
@@ -5461,10 +5461,10 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
       </thead>
       <tbody>
         ${dealers.map((d) => {
-          const terr = d.territory;
-          const officer = d.assignedOfficer;
-          const isOverLimit = Number(d.creditLimit || 0) > 0 && Number(d.currentBalance || 0) > Number(d.creditLimit || 0);
-          return `
+    const terr = d.territory;
+    const officer = d.assignedOfficer;
+    const isOverLimit = Number(d.creditLimit || 0) > 0 && Number(d.currentBalance || 0) > Number(d.creditLimit || 0);
+    return `
             <tr>
               <td class="mono" style="font-weight: 700; color: #0369a1;">${d.code}</td>
               <td>
@@ -5490,7 +5490,7 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
               </td>
             </tr>
           `;
-        }).join('')}
+  }).join('')}
         <tr class="total-row">
           <td colspan="4" style="text-align: right; font-weight: 800;">PORTFOLIO TOTAL:</td>
           <td class="text-right mono" style="font-weight: 800;">PKR ${formatPKR(totalCreditLimit)}</td>
@@ -5829,8 +5829,8 @@ export const exportRateListToPdf = (rateList: any) => {
   const items = (rateList.items && rateList.items.length > 0)
     ? rateList.items
     : (activeVersion?.items && activeVersion.items.length > 0)
-    ? activeVersion.items
-    : rateList.versions?.[0]?.items || [];
+      ? activeVersion.items
+      : rateList.versions?.[0]?.items || [];
 
   const rowsHtml = items.map((item: any, index: number) => {
     const product = item.finishedProduct || item.product || {};
@@ -5841,21 +5841,21 @@ export const exportRateListToPdf = (rateList: any) => {
       product.packSize?.name
         ? product.packSize.name
         : typeof product.packSize === 'string'
-        ? product.packSize
-        : item.packSize?.name
-        ? item.packSize.name
-        : typeof item.packSize === 'string'
-        ? item.packSize
-        : product.packingQuantity
-        ? `${product.packingQuantity} ${product.packingUnit || ''}`.trim()
-        : '-';
+          ? product.packSize
+          : item.packSize?.name
+            ? item.packSize.name
+            : typeof item.packSize === 'string'
+              ? item.packSize
+              : product.packingQuantity
+                ? `${product.packingQuantity} ${product.packingUnit || ''}`.trim()
+                : '-';
 
     const packagingStr =
       product.packagingMaterial?.materialName
         ? product.packagingMaterial.materialName
         : typeof product.packagingMaterial === 'string'
-        ? product.packagingMaterial
-        : '';
+          ? product.packagingMaterial
+          : '';
 
     const fullPackText = packagingStr && !packSizeStr.toLowerCase().includes(packagingStr.toLowerCase())
       ? `${packSizeStr} • ${packagingStr}`

@@ -13,6 +13,7 @@
  */
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../../context/auth-context';
+import { useCompany } from '../../context/company-context';
 import {
   IconDashboard,
   IconShield,
@@ -114,6 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onMobileClose,
 }) => {
   const { user } = useAuth();
+  const { isParentActive } = useCompany();
   const [navSearch, setNavSearch] = useState('');
 
   // Single active open dropdown group - all false (null) by default.
@@ -286,12 +288,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
     []
   );
 
-  // Filter items based on navigation search
+  // Filter items based on navigation search & company role (parent manufacturing vs. child distributor)
   const filteredNavItems = useMemo(() => {
     return navItems
+      .filter((item) => {
+        // Child companies do not manufacture or cost products
+        if (!isParentActive && item.id === 'costing-mgmt') {
+          return false;
+        }
+        return true;
+      })
       .map((item) => {
         if (item.children) {
-          const permittedChildren = item.children.filter((c) => isRoutePermitted(c.id, user));
+          let permittedChildren = item.children.filter((c) => isRoutePermitted(c.id, user));
+
+          // Child companies do NOT use or see Raw Materials, Packing Materials, or Material Categories
+          if (!isParentActive && item.id === 'products-master') {
+            permittedChildren = permittedChildren.filter(
+              (c) => c.id !== 'raw-materials' && c.id !== 'packing-materials' && c.id !== 'material-categories'
+            );
+          }
+
           if (permittedChildren.length === 0) return null;
 
           if (!navSearch) return { ...item, children: permittedChildren };
@@ -310,7 +327,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return item.label.toLowerCase().includes(navSearch.toLowerCase()) ? item : null;
       })
       .filter(Boolean) as NavItemConfig[];
-  }, [navItems, user, navSearch]);
+  }, [navItems, user, navSearch, isParentActive]);
 
   return (
     <>

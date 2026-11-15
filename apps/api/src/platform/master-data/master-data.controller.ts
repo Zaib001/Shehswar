@@ -919,7 +919,8 @@ export class MasterDataController {
     @Query('organizationId') orgId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     // Sensitive cost check: super admin, or parent company user, or user with view_cost/view_product_cost permission
     const canViewCost =
@@ -979,7 +980,8 @@ export class MasterDataController {
     @Query('organizationId') orgId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     return this.masterDataService.findPackingMaterials(filterCompany, organizationId);
   }
@@ -1097,7 +1099,8 @@ export class MasterDataController {
     @Query('search') search?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     const canViewCost =
       user?.isSuperAdmin ||
@@ -1116,7 +1119,8 @@ export class MasterDataController {
     @Query('organizationId') orgId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     const canViewCost =
       user?.isSuperAdmin ||
@@ -1207,7 +1211,8 @@ export class MasterDataController {
     @Query('companyId') companyId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     return this.masterDataService.findProductionLines(filterCompany);
   }
 
@@ -1240,7 +1245,8 @@ export class MasterDataController {
     @Query('companyId') companyId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     return this.masterDataService.findShifts(filterCompany);
   }
 
@@ -1274,7 +1280,8 @@ export class MasterDataController {
     @Query('organizationId') orgId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     return this.masterDataService.findQcSpecifications(filterCompany, organizationId);
   }
@@ -1315,7 +1322,8 @@ export class MasterDataController {
     @Query('organizationId') orgId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     const organizationId = orgId || ctx?.organizationId;
     return this.masterDataService.findFormulaBoms(filterCompany, organizationId);
   }
@@ -1355,7 +1363,8 @@ export class MasterDataController {
     @Query('companyId') companyId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     return this.masterDataService.findPaymentTerms(filterCompany);
   }
 
@@ -1388,7 +1397,8 @@ export class MasterDataController {
     @Query('companyId') companyId?: string,
     @Query('all') all?: string,
   ) {
-    const filterCompany = all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId);
+    const effectiveCompany = companyId || ctx?.companyId;
+    const filterCompany = (all === 'true' || companyId === 'ALL') && !ctx?.companyId ? undefined : effectiveCompany;
     return this.masterDataService.findTaxCategories(filterCompany);
   }
 

@@ -1140,6 +1140,7 @@ model PurchaseOrder {
   prId                 String?   @db.Uuid
   rfqId                String?   @db.Uuid
   poNumber             String    @db.VarChar(50) // e.g. SH-PO-2026-000001
+  orderDate            DateTime  @default(now()) @db.Timestamptz(6)
   currency             String    @default("PKR") @db.VarChar(10)
   paymentTerms         String    @default("30_DAYS_CREDIT") @db.VarChar(100)
   deliveryLocation     String?   @db.VarChar(255)
@@ -1172,6 +1173,7 @@ model PurchaseOrder {
   @@index([organizationId, status])
   @@index([vendorId])
   @@index([companyId, createdAt])
+  @@index([companyId, orderDate])
   @@map("purchase_orders")
 }
 

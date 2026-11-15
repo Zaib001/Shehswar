@@ -27,6 +27,7 @@ export interface CompanyContextType {
   activeCompany: CompanyRecord | null;
   activeCompanyId: string;
   activeCompanyName: string;
+  isParentActive: boolean;
   authorizedCompanies: CompanyRecord[];
   isLoading: boolean;
   isSwitchingCompany: boolean;
@@ -192,12 +193,20 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const isParentActive = Boolean(
+    activeCompany?.isParent === true ||
+    activeCompany?.code === 'COMP-SHEHSWAR' ||
+    activeCompany?.companyType === 'PARENT_MANUFACTURING' ||
+    (!activeCompany && Boolean(user?.isSuperAdmin || user?.company?.isParent))
+  );
+
   return (
     <CompanyContext.Provider
       value={{
         activeCompany,
         activeCompanyId,
         activeCompanyName,
+        isParentActive,
         authorizedCompanies,
         isLoading,
         isSwitchingCompany,

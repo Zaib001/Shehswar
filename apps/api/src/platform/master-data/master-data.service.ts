@@ -2645,24 +2645,8 @@ export class MasterDataService {
         // Parent company: see parent finished products (or if viewing ALL, all)
         where.companyId = companyId;
       } else {
-        // Child company: see products belonging to child, OR products with stock in child warehouse, OR group catalog products
-        where.OR = [
-          { companyId: companyId },
-          {
-            warehouseStocks: {
-              some: {
-                OR: [
-                  { companyId: companyId },
-                  { warehouse: { companyId: companyId } },
-                ],
-                quantityOnHand: { gt: 0 },
-              },
-            },
-          },
-          {
-            company: { isParent: true },
-          },
-        ];
+        // Child company: strictly see ONLY products registered to this child company via Intercompany Transfer/Sale
+        where.companyId = companyId;
       }
     }
     if (organizationId) where.organizationId = organizationId;
@@ -2733,12 +2717,21 @@ export class MasterDataService {
         averageCost: canViewCost ? Number(ws.averageCost || 0) : null,
       }));
 
+      const custom = (p.customFields && typeof p.customFields === 'object') ? (p.customFields as any) : {};
+      const intercompanyRate = custom.lastTransferRate || custom.intercompanyTransferRate || (canViewCost ? p.standardCost : null);
+      const sourceCompanyName = custom.sourceCompanyName || (isParent ? null : 'Shehswar Group (Parent)');
+      const lastReceivedDate = custom.lastTransferredAt || custom.transferredAt || (isParent ? null : p.createdAt);
+
       return {
         ...p,
         availableStock,
         stockOnHand: availableStock,
         stockBreakdown,
-        standardCost: canViewCost ? p.standardCost : null,
+        standardCost: isParent ? (canViewCost ? p.standardCost : null) : intercompanyRate,
+        intercompanyRate,
+        sourceCompanyName,
+        lastReceivedDate,
+        isChildProduct: !isParent,
       };
     });
   }
@@ -2768,6 +2761,12 @@ export class MasterDataService {
     });
     if (!product) throw new NotFoundException(`Finished product with ID ${id} not found`);
 
+    const isParent = Boolean(product.company?.isParent);
+    const custom = (product.customFields && typeof product.customFields === 'object') ? (product.customFields as any) : {};
+    const intercompanyRate = custom.lastTransferRate || custom.intercompanyTransferRate || (canViewCost ? product.standardCost : null);
+    const sourceCompanyName = custom.sourceCompanyName || (isParent ? null : 'Shehswar Group (Parent)');
+    const lastReceivedDate = custom.lastTransferredAt || custom.transferredAt || (isParent ? null : product.createdAt);
+
     const availableStock = (product.warehouseStocks || []).reduce(
       (sum, ws) => sum + Number(ws.quantityOnHand || 0),
       0
@@ -2782,14 +2781,38 @@ export class MasterDataService {
 
     return {
       ...product,
+      // Hide secret parent BOM recipes if this is a child product
+      formulaBoms: isParent ? product.formulaBoms : [],
       availableStock,
       stockOnHand: availableStock,
       stockBreakdown,
-      standardCost: canViewCost ? product.standardCost : null,
+      standardCost: isParent ? (canViewCost ? product.standardCost : null) : intercompanyRate,
+      intercompanyRate,
+      sourceCompanyName,
+      lastReceivedDate,
+      isChildProduct: !isParent,
     };
   }
 
   async createFinishedProduct(dto: any, actor: { id: string; email?: string }) {
+    if (dto.companyId) {
+      const targetCompany = await this.prisma.company.findUnique({
+        where: { id: dto.companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      const isParent = Boolean(
+        targetCompany?.isParent === true ||
+        targetCompany?.code === 'COMP-SHEHSWAR' ||
+        targetCompany?.companyType === 'PARENT_MANUFACTURING' ||
+        (targetCompany && (targetCompany.childCompanies?.length || 0) > 0)
+      );
+      if (!isParent) {
+        throw new BadRequestException(
+          `Finished Products cannot be created manually for child company '${targetCompany?.name || dto.companyId}'. Child companies receive Finished Products via Intercompany Transfer or Sale from Shehswar.`
+        );
+      }
+    }
+
     let productCode = (dto.productCode || '').trim().toUpperCase();
     if (!productCode || productCode === 'AUTO') {
       productCode = await this.codeGen.generateCode({
@@ -3063,15 +3086,30 @@ export class MasterDataService {
     const activeTab = (tab || 'ALL').toUpperCase();
     const query = (search || '').trim().toLowerCase();
 
-    const fetchRaw = activeTab === 'ALL' || activeTab === 'RAW_MATERIAL' || activeTab === 'RAW_MATERIALS';
-    const fetchPacking = activeTab === 'ALL' || activeTab === 'PACKING_MATERIAL' || activeTab === 'PACKING_MATERIALS';
+    let isParent = true;
+    if (companyId && companyId !== 'ALL') {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      isParent = Boolean(
+        comp?.isParent === true ||
+        comp?.code === 'COMP-SHEHSWAR' ||
+        comp?.companyType === 'PARENT_MANUFACTURING' ||
+        (comp && (comp.childCompanies?.length || 0) > 0)
+      );
+    }
+
+    // Child companies do NOT use RM, PM, or Other; they deal ONLY with Finished Products received from Shehswar
+    const fetchRaw = isParent && (activeTab === 'ALL' || activeTab === 'RAW_MATERIAL' || activeTab === 'RAW_MATERIALS');
+    const fetchPacking = isParent && (activeTab === 'ALL' || activeTab === 'PACKING_MATERIAL' || activeTab === 'PACKING_MATERIALS');
     const fetchFinished = activeTab === 'ALL' || activeTab === 'FINISHED_PRODUCT' || activeTab === 'FINISHED_PRODUCTS';
-    const fetchOther = activeTab === 'ALL' || activeTab === 'OTHER' || activeTab === 'OTHERS';
+    const fetchOther = isParent && (activeTab === 'ALL' || activeTab === 'OTHER' || activeTab === 'OTHERS');
 
     const [rawMaterials, packingMaterials, finishedProducts] = await Promise.all([
       fetchRaw || fetchOther ? this.findRawMaterials(companyId, organizationId, canViewCost) : Promise.resolve([]),
       fetchPacking || fetchOther ? this.findPackingMaterials(companyId, organizationId) : Promise.resolve([]),
-      fetchFinished || fetchOther ? this.findFinishedProducts(companyId, organizationId, canViewCost) : Promise.resolve([]),
+      fetchFinished ? this.findFinishedProducts(companyId, organizationId, canViewCost) : Promise.resolve([]),
     ]);
 
     const unifiedList: any[] = [];

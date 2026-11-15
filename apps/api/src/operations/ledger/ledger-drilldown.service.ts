@@ -80,7 +80,7 @@ export interface ResolvedSourceDocument {
 export class LedgerDrilldownService {
   private readonly logger = new Logger(LedgerDrilldownService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Universal resolution of any source document by type, id, or voucher number
@@ -1011,27 +1011,27 @@ export class LedgerDrilldownService {
 
     const items = parentInvoice
       ? parentInvoice.items.map((it) => ({
-          id: it.id,
-          productCode: it.finishedProduct?.productCode || undefined,
-          itemName: it.productName,
-          materialType: 'FINISHED_PRODUCT',
-          packSize: it.packing || undefined,
-          batchNumber: it.batchNumber || undefined,
-          quantity: Number(it.quantity),
-          unitRate: Number(it.rate),
-          grossAmount: Number(it.grossAmount),
-          netAmount: Number(it.netAmount),
-        }))
+        id: it.id,
+        productCode: it.finishedProduct?.productCode || undefined,
+        itemName: it.productName,
+        materialType: 'FINISHED_PRODUCT',
+        packSize: it.packing || undefined,
+        batchNumber: it.batchNumber || undefined,
+        quantity: Number(it.quantity),
+        unitRate: Number(it.rate),
+        grossAmount: Number(it.grossAmount),
+        netAmount: Number(it.netAmount),
+      }))
       : childPurchase!.items.map((it) => ({
-          id: it.id,
-          itemName: it.itemName,
-          materialType: it.materialType || undefined,
-          packSize: it.packing || undefined,
-          quantity: Number(it.quantity),
-          unitRate: Number(it.rate),
-          grossAmount: Number(it.grossAmount || Number(it.quantity) * Number(it.rate)),
-          netAmount: Number(it.netAmount || it.grossAmount),
-        }));
+        id: it.id,
+        itemName: it.itemName,
+        materialType: it.materialType || undefined,
+        packSize: it.packing || undefined,
+        quantity: Number(it.quantity),
+        unitRate: Number(it.rate),
+        grossAmount: Number(it.grossAmount || Number(it.quantity) * Number(it.rate)),
+        netAmount: Number(it.netAmount || it.grossAmount),
+      }));
 
     const netAmount = Number(parentInvoice?.netAmount || childPurchase?.netAmount || 0);
 
@@ -1044,8 +1044,8 @@ export class LedgerDrilldownService {
       company: parentInvoice?.company
         ? { id: parentInvoice.company.id, name: parentInvoice.company.name, code: parentInvoice.company.code }
         : childPurchase?.company
-        ? { id: childPurchase.company.id, name: childPurchase.company.name, code: childPurchase.company.code }
-        : undefined,
+          ? { id: childPurchase.company.id, name: childPurchase.company.name, code: childPurchase.company.code }
+          : undefined,
       party: childPurchase?.company
         ? { id: childPurchase.company.id, name: childPurchase.company.name, code: childPurchase.company.code, type: 'CHILD_COMPANY' }
         : { id: 'CHILD', name: 'Child Company', code: 'CHILD', type: 'CHILD_COMPANY' },
