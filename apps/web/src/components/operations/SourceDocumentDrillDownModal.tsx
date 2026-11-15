@@ -267,12 +267,12 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
       isOpen={isOpen}
       onClose={onClose}
       size="xl"
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '15px', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--font-mono, monospace)' }}>
-            {doc?.sourceNumber || sourceNumber || voucherNumber || 'Transaction Document'}
-          </span>
-          {doc?.status && (
+      title={String(doc?.sourceNumber || sourceNumber || voucherNumber || 'Transaction Document')}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '16px 20px', maxHeight: '82vh', overflowY: 'auto' }}>
+        {/* Status header if present */}
+        {doc?.status && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span
               style={{
                 fontSize: '11px',
@@ -288,11 +288,8 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
             >
               {doc.status}
             </span>
-          )}
-        </div>
-      }
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '16px 20px', maxHeight: '82vh', overflowY: 'auto' }}>
+          </div>
+        )}
         {/* Navigation History Trace */}
         {history.length > 0 && (
           <div
