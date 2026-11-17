@@ -368,16 +368,43 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         remarks: formDescription.trim() || undefined,
       };
 
+      const savedVoucher = nextVoucherNo;
       await ApiClient.post('/api/v1/financial-transactions/cash-payment', payload);
 
       showToast({
-        title: 'Cash Payment Recorded',
-        message: `Successfully posted ${nextVoucherNo} for PKR ${amountNum.toLocaleString()}. Cash balance and ledger updated.`,
+        title: 'Success',
+        message: `✓ Cash Payment ${savedVoucher} (PKR ${amountNum.toLocaleString()}) recorded successfully. Ready for the next payment.`,
         type: 'success',
       });
 
-      setIsModalOpen(false);
-      await loadData();
+      // Do NOT close modal - reset transaction fields for next continuous entry
+      setFormCashPaid('');
+      setFormDescription('');
+      setFormReferenceNumber('');
+      setCustomHead('');
+      if (formPartyType === 'OTHER') {
+        setFormPartyName('');
+      }
+
+      // Refresh next sequential voucher number
+      try {
+        const q = activeCompanyId ? `?companyId=${activeCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
+        const nextRes = await ApiClient.get<any>(`/api/v1/financial-transactions/next-voucher${q}`);
+        setNextVoucherNo(nextRes.data?.voucherNumber || 'CP-AUTO');
+      } catch {
+        setNextVoucherNo('CP-AUTO');
+      }
+
+      // Refresh list & summary report in background
+      loadData();
+
+      // Automatically focus Cash Paid input for continuous typing
+      setTimeout(() => {
+        const cashInput = document.getElementById('field-cash-paid');
+        if (cashInput) {
+          (cashInput as HTMLElement).focus();
+        }
+      }, 100);
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to record cash payment', type: 'error' });
     } finally {
@@ -946,6 +973,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 Cash Paid (PKR) *
               </label>
               <Input
+                id="field-cash-paid"
                 type="number"
                 placeholder="e.g. 50000"
                 value={formCashPaid}
