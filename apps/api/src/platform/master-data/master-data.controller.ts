@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Param,
@@ -1523,12 +1524,13 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createRegion(finalDto, { id: user?.id || 'system', email: user?.email });
   }
 
   @Patch('regions/:id')
+  @Put('regions/:id')
   async updateRegion(
     @Param('id') id: string,
     @Body() dto: UpdateRegionDto,
@@ -1574,6 +1576,7 @@ export class MasterDataController {
   }
 
   @Patch('zones/:id')
+  @Put('zones/:id')
   async updateZone(
     @Param('id') id: string,
     @Body() dto: UpdateZoneDto,
@@ -1619,6 +1622,7 @@ export class MasterDataController {
   }
 
   @Patch('territories/:id')
+  @Put('territories/:id')
   async updateTerritory(
     @Param('id') id: string,
     @Body() dto: UpdateTerritoryDto,

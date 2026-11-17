@@ -40,10 +40,12 @@ import {
   IconMapPin,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 
 export const MarketManagementView: React.FC = () => {
   const { showToast } = useToast();
+  const { activeCompanyId } = useCompany();
   const [activeTab, setActiveTab] = useState<'hierarchy' | 'regions' | 'zones' | 'territories' | 'assignments'>('hierarchy');
 
   // Data states
@@ -106,7 +108,7 @@ export const MarketManagementView: React.FC = () => {
 
   useEffect(() => {
     loadAll();
-  }, [loadAll]);
+  }, [loadAll, activeCompanyId]);
 
   // Handlers for Region
   const handleSaveRegion = async () => {
@@ -118,6 +120,7 @@ export const MarketManagementView: React.FC = () => {
       const payload: any = {
         name: regionForm.name.trim(),
         code: regionForm.code?.trim() || 'AUTO',
+        companyId: activeCompanyId || undefined,
         managerId: regionForm.managerMode === 'SELECT' ? (regionForm.managerId || undefined) : undefined,
         managerName: regionForm.managerMode === 'NAME' ? (regionForm.managerName?.trim() || undefined) : undefined,
       };

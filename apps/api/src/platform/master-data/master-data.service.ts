@@ -4002,20 +4002,28 @@ export class MasterDataService {
   }
 
   async createRegion(dto: CreateRegionDto, actor: { id: string; email?: string }) {
-    const company = await this.prisma.company.findUnique({ where: { id: dto.companyId } });
+    let companyId = dto.companyId;
+    if (!companyId || companyId === 'ALL') {
+      const parent = await this.prisma.company.findFirst({ where: { isParent: true } });
+      companyId = parent ? parent.id : (await this.prisma.company.findFirst())?.id;
+    }
+    if (!companyId) {
+      throw new BadRequestException('A valid company ID is required to create a region');
+    }
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found');
 
     let code = (dto.code || '').trim().toUpperCase();
     if (!code || code === 'AUTO') {
       code = await this.codeGen.generateCode({
-        companyId: dto.companyId,
+        companyId,
         organizationId: company.organizationId,
         entityType: 'REGION',
       });
     }
 
     const managerId = await this.resolveManagerUserId(
-      dto.companyId,
+      companyId,
       company.organizationId,
       dto.managerId,
       dto.managerName,
@@ -4024,7 +4032,7 @@ export class MasterDataService {
     const created = await this.prisma.region.create({
       data: {
         id: uuidv7(),
-        companyId: dto.companyId,
+        companyId,
         code,
         name: dto.name,
         managerId,
@@ -4039,7 +4047,7 @@ export class MasterDataService {
         data: {
           id: uuidv7(),
           organizationId: company.organizationId,
-          companyId: dto.companyId,
+          companyId: company.id,
           userId: managerId,
           regionId: created.id,
           roleScope: 'BUSINESS_MANAGER',
@@ -4051,7 +4059,7 @@ export class MasterDataService {
 
     await this.auditService.record({
       organizationId: company.organizationId,
-      companyId: dto.companyId,
+      companyId: company.id,
       actorId: actor.id,
       actorEmail: actor.email,
       resource: 'REGION',

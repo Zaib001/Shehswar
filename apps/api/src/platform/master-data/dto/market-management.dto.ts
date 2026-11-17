@@ -11,8 +11,8 @@ import {
 
 export class CreateRegionDto {
   @IsUUID()
-  @IsNotEmpty()
-  companyId!: string;
+  @IsOptional()
+  companyId?: string;
 
   @IsString()
   @IsOptional()
