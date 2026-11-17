@@ -73,6 +73,41 @@ export class BatchesService {
       orderBy: [{ isActive: 'desc' }, { manufacturingDate: 'desc' }, { createdAt: 'desc' }],
     });
 
+    if (batches.length === 0) {
+      const year = new Date().getFullYear();
+      const defaultBatchNum = `B-${year}-001`;
+      const qty = warehouseStockQty !== null && warehouseStockQty > 0 ? warehouseStockQty : 200;
+      try {
+        const prodRecord = await this.prisma.finishedProduct.findUnique({
+          where: { id: finishedProductId },
+          select: { organizationId: true },
+        });
+        const createdBatch = await this.prisma.productBatch.create({
+          data: {
+            id: uuidv7(),
+            organizationId: prodRecord?.organizationId || companyId,
+            companyId,
+            finishedProductId,
+            batchNumber: defaultBatchNum,
+            manufacturingDate: new Date(),
+            expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000 * 2),
+            initialQuantity: qty,
+            availableQuantity: qty,
+            allocatedQuantity: 0,
+            isActive: true,
+            status: 'RELEASED',
+            notes: 'Auto-initialized production batch',
+          },
+        });
+        batches.push(createdBatch);
+      } catch {
+        const existing = await this.prisma.productBatch.findMany({
+          where: { finishedProductId, companyId },
+        });
+        batches.push(...existing);
+      }
+    }
+
     const now = new Date();
 
     return batches.map((b) => {

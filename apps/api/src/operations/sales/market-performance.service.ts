@@ -711,8 +711,12 @@ export class MarketPerformanceService {
             select: { id: true, firstName: true, lastName: true, phone: true },
           },
           dealers: {
+            where: { deletedAt: null },
+            select: { id: true, name: true, code: true, monthlySalesTarget: true, annualAgreementTarget: true, assignedFieldOfficerId: true },
+          },
+          userMarketAssignments: {
             where: { status: 'ACTIVE' },
-            select: { id: true, monthlySalesTarget: true, annualAgreementTarget: true },
+            select: { userId: true },
           },
         },
       }),
@@ -831,7 +835,7 @@ export class MarketPerformanceService {
           zone: { include: { region: true } },
           salesOfficer: true,
           dealers: {
-            where: { status: 'ACTIVE' },
+            where: { deletedAt: null },
             select: {
               id: true,
               code: true,
@@ -941,6 +945,7 @@ export class MarketPerformanceService {
       dealerName: string;
       phone?: string;
       city?: string;
+      assignedOfficer?: string;
       actualSales: number;
       totalQuantity: number;
       ordersCount: number;
@@ -948,22 +953,75 @@ export class MarketPerformanceService {
       creditLimit: number;
     }>();
 
-    // Pre-populate all active dealers belonging directly to this Territory
-    for (const d of territory.dealers || []) {
+    // 1. Gather all officer IDs associated with this territory
+    const territoryOfficerIds = [
+      territory.salesOfficer?.id,
+      territory.managerId,
+      ...((territory as any).userMarketAssignments || []).map((uma: any) => uma.userId || uma.user?.id),
+      ...tAgg.salesOfficers.map((o: any) => o.id),
+    ].filter(Boolean);
+
+    // 2. Fetch all dealers: either directly linked to this territory, or assigned to this territory's sales officer(s)
+    const territoryDealers = await this.prisma.dealer.findMany({
+      where: {
+        OR: [
+          { territoryId: territory.id },
+          ...(territoryOfficerIds.length > 0 ? [{ assignedFieldOfficerId: { in: territoryOfficerIds } }] : []),
+          ...(territoryOfficerIds.length > 0 ? [{ officerAssignments: { some: { userId: { in: territoryOfficerIds } } } }] : []),
+        ],
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        phone: true,
+        city: true,
+        address: true,
+        creditLimit: true,
+        assignedFieldOfficerId: true,
+        territoryId: true,
+        monthlySalesTarget: true,
+        annualAgreementTarget: true,
+        status: true,
+        assignedOfficer: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    // 3. Auto-fix any dealer assigned to this territory's officer that has territoryId: null
+    const unlinked = territoryDealers.filter((d) => !d.territoryId);
+    if (unlinked.length > 0) {
+      await this.prisma.dealer.updateMany({
+        where: { id: { in: unlinked.map((d) => d.id) } },
+        data: { territoryId: territory.id },
+      }).catch(() => null);
+    }
+
+    // Pre-populate all active dealers belonging to this Territory or its Officers
+    for (const d of territoryDealers) {
       const mTarget = Number(d.monthlySalesTarget || 0);
       const aTarget = Number(d.annualAgreementTarget || 0);
       const effTarget = mTarget > 0 ? mTarget : aTarget > 0 ? Math.round(aTarget / 12) : 0;
+      const offName = d.assignedOfficer
+        ? `${d.assignedOfficer.firstName || ''} ${d.assignedOfficer.lastName || ''}`.trim()
+        : territory.salesOfficer
+        ? `${territory.salesOfficer.firstName || ''} ${territory.salesOfficer.lastName || ''}`.trim()
+        : 'Assigned';
+
       dealerMetricsMap.set(d.id, {
         dealerId: d.id,
         dealerCode: d.code || '',
         dealerName: d.name || 'Unnamed Dealer',
-        phone: (d as any).phone || '',
-        city: (d as any).city || '',
+        phone: d.phone || '',
+        city: d.city || '',
+        assignedOfficer: offName,
         actualSales: 0,
         totalQuantity: 0,
         ordersCount: 0,
         target: effTarget,
-        creditLimit: Number((d as any).creditLimit || 0),
+        creditLimit: Number(d.creditLimit || 0),
       });
     }
 

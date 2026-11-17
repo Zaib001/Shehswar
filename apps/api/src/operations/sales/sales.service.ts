@@ -87,6 +87,13 @@ export class SalesService {
         { name: { contains: filters.search, mode: 'insensitive' } },
         { code: { contains: filters.search, mode: 'insensitive' } },
         { phone: { contains: filters.search, mode: 'insensitive' } },
+        { city: { contains: filters.search, mode: 'insensitive' } },
+        { territory: { name: { contains: filters.search, mode: 'insensitive' } } },
+        { territory: { code: { contains: filters.search, mode: 'insensitive' } } },
+        { territory: { zone: { name: { contains: filters.search, mode: 'insensitive' } } } },
+        { territory: { zone: { code: { contains: filters.search, mode: 'insensitive' } } } },
+        { territory: { zone: { region: { name: { contains: filters.search, mode: 'insensitive' } } } } },
+        { territory: { zone: { region: { code: { contains: filters.search, mode: 'insensitive' } } } } },
       ];
     }
     if (filters?.salesOfficerId) {
@@ -619,10 +626,45 @@ export class SalesService {
     const territory = dealer.territory;
     const so = dealer.assignedOfficer || territory?.salesOfficer;
 
+    const regionName = (region?.name || '').toLowerCase();
+    const cityName = (dealer.city || '').toLowerCase();
+    const addressStr = (dealer.address || '').toLowerCase();
+    let province = 'Punjab';
+    if (/sindh/i.test(regionName) || /karachi|hyderabad|sukkur|larkana/i.test(cityName + ' ' + addressStr)) {
+      province = 'Sindh';
+    } else if (/kpk|khyber/i.test(regionName) || /peshawar|mardan|swat|abbottabad/i.test(cityName + ' ' + addressStr)) {
+      province = 'Khyber Pakhtunkhwa';
+    } else if (/baloch/i.test(regionName) || /quetta/i.test(cityName + ' ' + addressStr)) {
+      province = 'Balochistan';
+    } else if (/islamabad/i.test(regionName) || /islamabad/i.test(cityName + ' ' + addressStr)) {
+      province = 'Islamabad Capital Territory';
+    }
+
     return {
       dealerId: dealer.id,
       dealerCode: dealer.code,
       dealerName: dealer.name,
+      dealer: {
+        id: dealer.id,
+        code: dealer.code,
+        name: dealer.name,
+        city: dealer.city,
+        address: dealer.address,
+        creditLimit: Number(dealer.creditLimit || 0),
+        currentBalance: Number(dealer.currentBalance || 0),
+      },
+      province,
+      hierarchy: {
+        province,
+        region: region?.name || '—',
+        regionCode: region?.code || '',
+        zone: zone?.name || '—',
+        zoneCode: zone?.code || '',
+        territory: territory?.name || '—',
+        territoryCode: territory?.code || '',
+        dealer: dealer.name,
+        dealerCode: dealer.code,
+      },
       creditLimit: Number(dealer.creditLimit || 0),
       currentBalance: Number(dealer.currentBalance || 0),
       availableCredit: Math.max(0, Number(dealer.creditLimit || 0) - Number(dealer.currentBalance || 0)),
@@ -1004,6 +1046,11 @@ export class SalesService {
           if (batch.expiryDate && new Date(batch.expiryDate) < new Date()) {
             throw new BadRequestException(
               `Batch ${batch.batchNumber} for product ${item.productName} has expired on ${new Date(batch.expiryDate).toLocaleDateString()}. Cannot create order with expired batch.`,
+            );
+          }
+          if (Number(batch.availableQuantity) < qty) {
+            throw new BadRequestException(
+              `Insufficient batch stock for ${item.productName} (Batch ${batch.batchNumber}). Available: ${Number(batch.availableQuantity)}, Requested: ${qty}`,
             );
           }
         }

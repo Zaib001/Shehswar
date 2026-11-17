@@ -54,7 +54,7 @@ import {
 } from '../icons';
 
 interface BreadcrumbItem {
-  level: 'GROUP' | 'REGION' | 'ZONE' | 'TERRITORY' | 'OFFICER' | 'DEALER';
+  level: 'GROUP' | 'REGION' | 'ZONE' | 'TERRITORY' | 'DEALER';
   id?: string;
   name: string;
   code?: string;
@@ -76,12 +76,11 @@ export const MarketPerformanceView: React.FC = () => {
   // Search filter inside active tier table
   const [tableSearch, setTableSearch] = useState<string>('');
 
-  // Navigation hierarchy state
-  const [currentLevel, setCurrentLevel] = useState<'GROUP' | 'REGION' | 'ZONE' | 'TERRITORY' | 'OFFICER' | 'DEALER'>('GROUP');
+  // Navigation hierarchy state (Strictly 5 Tiers: Province -> Region -> Zone -> Territory -> Dealer)
+  const [currentLevel, setCurrentLevel] = useState<'GROUP' | 'REGION' | 'ZONE' | 'TERRITORY' | 'DEALER'>('GROUP');
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [selectedTerritoryId, setSelectedTerritoryId] = useState<string | null>(null);
-  const [selectedOfficerId, setSelectedOfficerId] = useState<string | null>(null);
   const [selectedDealerId, setSelectedDealerId] = useState<string | null>(null);
 
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([
@@ -132,8 +131,6 @@ export const MarketPerformanceView: React.FC = () => {
         endpoint = `/api/v1/market-performance/zone/${selectedZoneId}?${periodQuery}`;
       } else if (currentLevel === 'TERRITORY' && selectedTerritoryId) {
         endpoint = `/api/v1/market-performance/territory/${selectedTerritoryId}?${periodQuery}`;
-      } else if (currentLevel === 'OFFICER' && selectedOfficerId) {
-        endpoint = `/api/v1/market-performance/officer/${selectedOfficerId}?${periodQuery}`;
       } else if (currentLevel === 'DEALER' && selectedDealerId) {
         endpoint = `/api/v1/market-performance/dealer/${selectedDealerId}?${periodQuery}`;
       }
@@ -147,7 +144,7 @@ export const MarketPerformanceView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentLevel, selectedRegionId, selectedZoneId, selectedTerritoryId, selectedOfficerId, selectedDealerId, buildPeriodParams, activeCompanyId]);
+  }, [currentLevel, selectedRegionId, selectedZoneId, selectedTerritoryId, selectedDealerId, buildPeriodParams, activeCompanyId]);
 
   useEffect(() => {
     fetchPerformance();
@@ -159,7 +156,6 @@ export const MarketPerformanceView: React.FC = () => {
     setSelectedRegionId(null);
     setSelectedZoneId(null);
     setSelectedTerritoryId(null);
-    setSelectedOfficerId(null);
     setSelectedDealerId(null);
     setTableSearch('');
     setBreadcrumbs([{ level: 'GROUP', name: 'Punjab Provincial Total' }]);
@@ -232,10 +228,6 @@ export const MarketPerformanceView: React.FC = () => {
       setSelectedTerritoryId(item.id);
       setCurrentLevel('TERRITORY');
       setBreadcrumbs(breadcrumbs.slice(0, 4));
-    } else if (item.level === 'OFFICER' && item.id) {
-      setSelectedOfficerId(item.id);
-      setCurrentLevel('OFFICER');
-      setBreadcrumbs(breadcrumbs.slice(0, 5));
     }
   };
 
@@ -409,7 +401,7 @@ export const MarketPerformanceView: React.FC = () => {
         onClick: () => navigateToTerritory(t.territoryId, t.territoryName, t.territoryCode),
       }));
     }
-    if (currentLevel === 'TERRITORY' || currentLevel === 'OFFICER') {
+    if (currentLevel === 'TERRITORY') {
       return (performanceData.dealers || []).slice(0, 10).map((d: any) => ({
         id: d.dealerId,
         name: d.dealerName,
@@ -629,48 +621,6 @@ export const MarketPerformanceView: React.FC = () => {
           },
         ]),
       };
-    } else if (currentLevel === 'OFFICER') {
-      const off = performanceData.officer || {};
-      return {
-        tierName: 'Sales Officer Portfolio',
-        scopeTitle: `Sales Officer: ${off.name}`,
-        periodLabel,
-        metaFields: [
-          { label: 'Salary Return Multiple', value: `${performanceData.metrics?.salaryJustificationRatio || 'N/A'}` },
-          { label: 'Monthly Base Cost', value: 'PKR 50,000' },
-        ],
-        kpis: [
-          { label: 'Total Posted Sales', value: fmtPKR(metrics.totalRevenue), color: 'var(--brand-primary)' },
-          { label: 'Monthly Quota', value: fmtPKR(metrics.target) },
-          { label: 'Credit Limit', value: fmtPKR(metrics.creditLimit), color: '#059669' },
-          { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
-          { label: 'FO Salary Return', value: `${performanceData.metrics?.salaryJustificationRatio || 'N/A'}`, color: '#10b981' },
-        ],
-        tableTitle: 'Assigned Dealer Network Accounts',
-        tableSubtitle: `Commercial dealer portfolio managed by ${off.name}`,
-        headers: [
-          { label: 'Dealer Account', align: 'left', width: '28%' },
-          { label: 'City', align: 'left', width: '16%' },
-          { label: 'Monthly Target (PKR)', align: 'right', width: '18%' },
-          { label: 'Actual Sales (PKR)', align: 'right', width: '18%' },
-          { label: 'Monthly Achievement', align: 'center', width: '12%' },
-          { label: 'Orders', align: 'center', width: '8%' },
-        ],
-        rows: (performanceData.dealers || []).map((d: any) => [
-          { text: `${d.dealerName} (${d.dealerCode})`, bold: true },
-          { text: d.city },
-          { text: fmtPKR(d.monthlyTarget), align: 'right' },
-          { text: fmtPKR(d.actualSales), align: 'right', bold: true },
-          {
-            text: `${d.achievementPercent}%`,
-            align: 'center',
-            isBadge: true,
-            badgeBg: d.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: d.achievementPercent >= 100 ? '#166534' : '#0369a1',
-          },
-          { text: d.ordersCount, align: 'center' },
-        ]),
-      };
     } else if (currentLevel === 'DEALER') {
       const dlr = performanceData.dealer || {};
       const tg = performanceData.targets || {};
@@ -798,7 +748,7 @@ export const MarketPerformanceView: React.FC = () => {
             </div>
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Authoritative 6-Tier Hierarchical Rollup: Province → Region → Zone → Territory → Field Officer → Dealer
+            Authoritative 5-Tier Hierarchical Rollup: Province → Region → Zone → Territory → Dealer
           </div>
         </div>
 
@@ -1002,12 +952,11 @@ export const MarketPerformanceView: React.FC = () => {
           {breadcrumbs.map((crumb, idx) => {
             const isLast = idx === breadcrumbs.length - 1;
             const tierLabels: Record<string, string> = {
-              GROUP: 'PROVINCE',
-              REGION: 'REGION',
-              ZONE: 'ZONE',
-              TERRITORY: 'TERRITORY',
-              OFFICER: 'FIELD OFFICER',
-              DEALER: 'DEALER',
+              GROUP: '1. PROVINCE',
+              REGION: '2. REGION',
+              ZONE: '3. ZONE',
+              TERRITORY: '4. TERRITORY',
+              DEALER: '5. DEALER',
             };
 
             return (
@@ -1760,19 +1709,20 @@ export const MarketPerformanceView: React.FC = () => {
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            background: 'var(--bg-subtle)',
-                            border: '1px solid var(--border-default)',
-                            color: 'var(--brand-primary)',
-                            padding: '5px 10px',
-                            borderRadius: 'var(--radius-sm)',
+                            gap: '5px',
+                            background: 'var(--brand-primary)',
+                            border: 'none',
+                            color: '#ffffff',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
                             fontSize: '12px',
                             fontWeight: 700,
                             cursor: 'pointer',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                             transition: 'all 0.15s ease',
                           }}
                         >
-                          <span>Drill Down</span>
+                          <span>View Zones</span>
                           <IconArrowRight size={13} />
                         </button>
                       </td>
@@ -1914,19 +1864,20 @@ export const MarketPerformanceView: React.FC = () => {
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            background: 'var(--bg-subtle)',
-                            border: '1px solid var(--border-default)',
-                            color: 'var(--brand-primary)',
-                            padding: '5px 10px',
-                            borderRadius: 'var(--radius-sm)',
+                            gap: '5px',
+                            background: 'var(--brand-primary)',
+                            border: 'none',
+                            color: '#ffffff',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
                             fontSize: '12px',
                             fontWeight: 700,
                             cursor: 'pointer',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                             transition: 'all 0.15s ease',
                           }}
                         >
-                          <span>Drill Down</span>
+                          <span>View Territories</span>
                           <IconArrowRight size={13} />
                         </button>
                       </td>
@@ -1955,7 +1906,7 @@ export const MarketPerformanceView: React.FC = () => {
                 </span>
               </div>
               <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                Responsible Area Manager: <strong>{performanceData.zone.areaManager}</strong> • Click any Territory to inspect Sales Officers
+                Responsible Area Manager: <strong>{performanceData.zone.areaManager}</strong> • Click any Territory to inspect Dealers Network
               </div>
             </div>
 
@@ -2024,13 +1975,22 @@ export const MarketPerformanceView: React.FC = () => {
                     >
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <IconMapPin size={14} color="var(--brand-primary)" />
-                          <span>{t.territoryName}</span>
-                          {t.territoryCode && (
-                            <span style={{ fontSize: '10.5px', padding: '1px 5px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                              {t.territoryCode}
-                            </span>
-                          )}
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(13, 148, 136, 0.1)', color: '#0d9488', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconMapPin size={15} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '13.5px', fontWeight: 700 }}>{t.territoryName}</div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                              {t.territoryCode && (
+                                <span style={{ fontSize: '10.5px', padding: '1px 5px', borderRadius: '4px', background: 'var(--bg-subtle)', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                                  {t.territoryCode}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '10.5px', color: t.assignedDealers > 0 ? '#0d9488' : 'var(--text-muted)', fontWeight: 600 }}>
+                                {t.assignedDealers > 0 ? `${t.assignedDealers} Dealer account(s)` : 'No dealers'}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -2065,20 +2025,21 @@ export const MarketPerformanceView: React.FC = () => {
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            background: 'var(--bg-subtle)',
-                            border: '1px solid var(--border-default)',
-                            color: 'var(--brand-primary)',
-                            padding: '5px 10px',
-                            borderRadius: 'var(--radius-sm)',
+                            gap: '6px',
+                            background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)',
+                            border: 'none',
+                            color: '#ffffff',
+                            padding: '6px 14px',
+                            borderRadius: '6px',
                             fontSize: '12px',
                             fontWeight: 700,
                             cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(13, 148, 136, 0.25)',
                             transition: 'all 0.15s ease',
                           }}
                         >
-                          <span>View Officers</span>
-                          <IconArrowRight size={13} />
+                          <IconEye size={13} />
+                          <span>View Dealers{t.assignedDealers > 0 ? ` (${t.assignedDealers})` : ''}</span>
                         </button>
                       </td>
                     </tr>
@@ -2112,7 +2073,7 @@ export const MarketPerformanceView: React.FC = () => {
                 )}
               </div>
               <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                Zone: <strong>{performanceData?.territory?.zoneName}</strong> • Region: <strong>{performanceData?.territory?.regionName}</strong> • Click any Dealer to open full card
+                Zone: <strong>{performanceData?.territory?.zoneName}</strong> • Region: <strong>{performanceData?.territory?.regionName}</strong> • Primary Sales Officer: <strong>{performanceData?.territory?.primaryOfficer || 'Assigned'}</strong> • Direct Territory Dealers Network
               </div>
             </div>
 
@@ -2154,6 +2115,7 @@ export const MarketPerformanceView: React.FC = () => {
                 <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                   <th style={{ padding: '10px 14px' }}>Dealer Account</th>
                   <th style={{ padding: '10px 14px' }}>City</th>
+                  <th style={{ padding: '10px 14px' }}>Assigned Sales Officer</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
@@ -2166,8 +2128,16 @@ export const MarketPerformanceView: React.FC = () => {
               <tbody>
                 {filteredDealers.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No dealer accounts found matching current territory filter.
+                    <td colSpan={10} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', padding: '12px', background: '#f1f5f9', borderRadius: '50%', color: '#64748b', marginBottom: '12px' }}>
+                        <IconBuilding size={28} />
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        No Dealers Registered Under {performanceData?.territory?.name || 'This Territory'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '440px', margin: '4px auto 0', lineHeight: 1.5 }}>
+                        Dealers can be created or assigned in Dealer Management. Once linked to this territory or its Sales Officers, they will automatically appear here.
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -2183,15 +2153,30 @@ export const MarketPerformanceView: React.FC = () => {
                     >
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <IconBuilding size={14} color="var(--brand-primary)" />
+                          <div style={{ width: '30px', height: '30px', borderRadius: '6px', background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <IconBuilding size={15} />
+                          </div>
                           <div>
-                            <div>{d.dealerName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{d.dealerCode}</div>
+                            <div style={{ fontSize: '13.5px', fontWeight: 700 }}>{d.dealerName}</div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                              <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', fontFamily: 'monospace', background: 'var(--bg-subtle)', padding: '1px 5px', borderRadius: '4px' }}>
+                                {d.dealerCode}
+                              </span>
+                              <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                ACTIVE
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </td>
                       <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                         {d.city || '—'}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <IconUser size={13} color="var(--text-muted)" />
+                          <span>{d.assignedOfficer || performanceData?.territory?.primaryOfficer || 'Assigned'}</span>
+                        </div>
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                         {fmtPKR(d.target || d.monthlyTarget)}
@@ -2225,8 +2210,8 @@ export const MarketPerformanceView: React.FC = () => {
                             background: 'var(--brand-primary)',
                             border: 'none',
                             color: '#ffffff',
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
+                            padding: '6px 14px',
+                            borderRadius: '6px',
                             fontSize: '12px',
                             fontWeight: 700,
                             cursor: 'pointer',
@@ -2247,151 +2232,7 @@ export const MarketPerformanceView: React.FC = () => {
       )}
 
       {/* ───────────────────────────────────────────────────────── */}
-      {/* 8. TIER 5 TABLE: OFFICER ASSIGNED DEALERS NETWORK         */}
-      {/* ───────────────────────────────────────────────────────── */}
-      {!loading && currentLevel === 'OFFICER' && performanceData?.dealers && (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Tier 5: {performanceData.officer.name} — Dealer Network
-                </h2>
-                <span style={{ fontSize: '11px', background: 'var(--bg-subtle)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  {filteredDealers.length} Accounts
-                </span>
-                <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                  FO Salary Return: {performanceData.metrics?.salaryJustificationRatio || 'N/A'}
-                </span>
-              </div>
-              <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                Click any Dealer to open the full Dealer Target, Credit & Formulation Performance Card
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: 'var(--bg-subtle)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: '5px 10px',
-                  minWidth: '220px',
-                }}
-              >
-                <IconSearch size={14} color="var(--text-muted)" />
-                <input
-                  type="text"
-                  placeholder="Filter dealers..."
-                  value={tableSearch}
-                  onChange={(e) => setTableSearch(e.target.value)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    fontSize: '12.5px',
-                    color: 'var(--text-primary)',
-                    outline: 'none',
-                    width: '100%',
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                  <th style={{ padding: '10px 14px' }}>Dealer Account</th>
-                  <th style={{ padding: '10px 14px' }}>City</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Units Sold</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Orders</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDealers.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No dealer accounts match the filter criteria.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredDealers.map((d: any, idx: number) => (
-                    <tr
-                      key={d.dealerId}
-                      style={{
-                        borderBottom: '1px solid var(--border-subtle)',
-                        background: idx % 2 === 1 ? 'rgba(0, 0, 0, 0.015)' : 'transparent',
-                      }}
-                    >
-                      <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <IconBuilding size={14} color="var(--brand-primary)" />
-                          <div>
-                            <div>{d.dealerName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{d.dealerCode}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
-                        {d.city}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                        {fmtPKR(d.monthlyTarget)}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        {fmtPKR(d.actualSales)}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        {renderAchievementBadge(d.achievementPercent)}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center', fontFamily: 'monospace', fontWeight: 600 }}>
-                        {Number(d.totalQuantity || 0).toLocaleString()}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center', fontFamily: 'monospace' }}>
-                        {d.ordersCount}
-                      </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => navigateToDealer(d.dealerId, d.dealerName, d.dealerCode)}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            background: 'var(--brand-primary)',
-                            border: 'none',
-                            color: '#ffffff',
-                            padding: '5px 12px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                          }}
-                        >
-                          <span>Open Card</span>
-                          <IconArrowRight size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ───────────────────────────────────────────────────────── */}
-      {/* 9. TIER 6: DEALER TARGET, CREDIT & FORMULATION CARD       */}
+      {/* 8. TIER 5: DEALER TARGET, CREDIT & FORMULATION CARD       */}
       {/* ───────────────────────────────────────────────────────── */}
       {!loading && currentLevel === 'DEALER' && performanceData?.targets && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
