@@ -8,7 +8,7 @@
  * - Approval Workflow: Manager Approves/Rejects order. Mobile officer gets instant status update.
  * - Conversion to Sale: APPROVED order converted to Sales Invoice (Stock deducted, Dealer ledger debited).
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ListPageTemplate, DetailPageTemplate, FormPageTemplate } from '../templates';
 import {
@@ -27,6 +27,7 @@ import {
   Modal,
   TableSkeleton,
   EmptyState,
+  SearchableCombobox,
 } from '../ui';
 import {
   IconPlus,
@@ -37,7 +38,6 @@ import {
   IconMoreVertical,
   IconClose,
   IconFileText,
-  IconChevronDown,
   IconAlertTriangle,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
@@ -46,286 +46,6 @@ import { ApiClient } from '../../lib/api-client';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
 import { SalesInvoiceExportData } from '../../lib/pdf-export';
 import { cleanPackSize } from './PurchaseOrdersView';
-
-export interface ComboboxOption {
-  value: string;
-  label: string;
-  code?: string;
-  sublabel?: string;
-}
-
-export interface SearchableComboboxProps {
-  id?: string;
-  label?: string;
-  placeholder: string;
-  value: string;
-  onChange: (val: string) => void;
-  options: ComboboxOption[];
-  required?: boolean;
-  disabled?: boolean;
-  style?: React.CSSProperties;
-}
-
-export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
-  id,
-  label,
-  placeholder,
-  value,
-  onChange,
-  options,
-  required = false,
-  disabled = false,
-  style,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const selectedOption = options.find((opt) => opt.value === value);
-
-  const filteredOptions = options.filter((opt) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      opt.label.toLowerCase().includes(q) ||
-      (opt.sublabel && opt.sublabel.toLowerCase().includes(q)) ||
-      (opt.code && opt.code.toLowerCase().includes(q))
-    );
-  });
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      setHighlightedIndex(0);
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 50);
-    } else {
-      setSearch('');
-    }
-  }, [isOpen]);
-
-  const handleSelect = (val: string) => {
-    onChange(val);
-    setIsOpen(false);
-  };
-
-  const fullDisplayTitle = selectedOption
-    ? `${selectedOption.code ? `[${selectedOption.code}] ` : ''}${selectedOption.label}${selectedOption.sublabel ? ` (${selectedOption.sublabel})` : ''}`
-    : '';
-
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '4px',
-        width: '100%',
-        maxWidth: '100%',
-        minWidth: 0,
-        position: 'relative',
-        ...style,
-      }}
-    >
-      {label && (
-        <label
-          style={{
-            fontSize: '12px',
-            fontWeight: 600,
-            color: 'var(--text-secondary, #475569)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
-        </label>
-      )}
-
-      <button
-        id={id}
-        type="button"
-        disabled={disabled}
-        title={fullDisplayTitle || placeholder}
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' || e.key === 'Enter') {
-            e.preventDefault();
-            if (!disabled) setIsOpen(true);
-          } else if (e.key === 'Tab' || e.key === 'Escape') {
-            setIsOpen(false);
-          }
-        }}
-        style={{
-          width: '100%',
-          maxWidth: '100%',
-          minWidth: 0,
-          boxSizing: 'border-box',
-          height: '38px',
-          padding: '0 12px',
-          borderRadius: '6px',
-          border: '1px solid var(--border-default, #cbd5e1)',
-          backgroundColor: disabled ? '#f8fafc' : '#ffffff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          outline: 'none',
-          textAlign: 'left',
-          fontSize: '13px',
-          transition: 'border-color 0.15s ease',
-        }}
-      >
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            color: selectedOption ? '#1e293b' : '#94a3b8',
-            fontWeight: selectedOption ? 600 : 400,
-          }}
-        >
-          {selectedOption ? (
-            <>
-              {selectedOption.code && (
-                <span style={{ fontWeight: 700, color: '#2563eb', marginRight: '6px' }}>
-                  [{selectedOption.code}]
-                </span>
-              )}
-              {selectedOption.label}
-              {selectedOption.sublabel && (
-                <span style={{ color: '#64748b', fontSize: '11px', marginLeft: '6px' }}>
-                  ({selectedOption.sublabel})
-                </span>
-              )}
-            </>
-          ) : (
-            placeholder
-          )}
-        </span>
-        <IconChevronDown size={14} style={{ color: '#64748b', flexShrink: 0, marginLeft: '8px' }} />
-      </button>
-
-      {isOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            zIndex: 99999,
-            backgroundColor: '#ffffff',
-            border: '1px solid #cbd5e1',
-            borderRadius: '8px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
-            overflow: 'hidden',
-            maxHeight: '320px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Type to search..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setHighlightedIndex(0);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  setHighlightedIndex((prev) => Math.min(filteredOptions.length - 1, prev + 1));
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  setHighlightedIndex((prev) => Math.max(0, prev - 1));
-                } else if (e.key === 'Enter') {
-                  e.preventDefault();
-                  if (filteredOptions[highlightedIndex]) {
-                    handleSelect(filteredOptions[highlightedIndex].value);
-                  }
-                } else if (e.key === 'Escape') {
-                  setIsOpen(false);
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '7px 10px',
-                fontSize: '12px',
-                borderRadius: '5px',
-                border: '1px solid #cbd5e1',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-
-          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '240px' }}>
-            {filteredOptions.length === 0 ? (
-              <div style={{ padding: '12px 14px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-                No matches found
-              </div>
-            ) : (
-              filteredOptions.map((opt, idx) => {
-                const isSelected = opt.value === value;
-                const isHighlighted = idx === highlightedIndex;
-                return (
-                  <div
-                    key={opt.value}
-                    onClick={() => handleSelect(opt.value)}
-                    onMouseEnter={() => setHighlightedIndex(idx)}
-                    style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      backgroundColor: isSelected ? '#eff6ff' : isHighlighted ? '#f8fafc' : '#ffffff',
-                      borderBottom: '1px solid #f1f5f9',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '2px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '13px', fontWeight: isSelected ? 700 : 500, color: '#0f172a' }}>
-                        {opt.code && (
-                          <span style={{ color: '#2563eb', fontWeight: 700, marginRight: '6px' }}>
-                            [{opt.code}]
-                          </span>
-                        )}
-                        {opt.label}
-                      </span>
-                      {isSelected && <IconCheck size={14} style={{ color: '#2563eb' }} />}
-                    </div>
-                    {opt.sublabel && (
-                      <span style={{ fontSize: '11px', color: '#64748b' }}>
-                        {opt.sublabel}
-                      </span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 export interface SalesOrderItemRow {
   finishedProductId?: string;
@@ -499,6 +219,34 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     });
   }, [dealers, activeCompanyId, activeCompanyName]);
 
+  const dealerOptions = React.useMemo(() => {
+    return companyDealers.map((d) => {
+      const terr = d.territory?.name || '';
+      const zone = d.territory?.zone?.name || '';
+      const reg = d.territory?.zone?.region?.name || '';
+      let prov = 'Punjab';
+      const regLow = (reg || '').toLowerCase();
+      const cityLow = (d.city || '').toLowerCase();
+      const addrLow = (d.address || '').toLowerCase();
+      if (/sindh/i.test(regLow) || /karachi|hyderabad|sukkur|larkana/i.test(cityLow + ' ' + addrLow)) {
+        prov = 'Sindh';
+      } else if (/kpk|khyber/i.test(regLow) || /peshawar|mardan|swat|abbottabad/i.test(cityLow + ' ' + addrLow)) {
+        prov = 'KPK';
+      } else if (/baloch/i.test(regLow) || /quetta/i.test(cityLow + ' ' + addrLow)) {
+        prov = 'Balochistan';
+      } else if (/islamabad/i.test(regLow) || /islamabad/i.test(cityLow + ' ' + addrLow)) {
+        prov = 'Islamabad';
+      }
+      const hierarchyPath = [prov, reg, zone, terr].filter(Boolean).join(' → ');
+      return {
+        value: d.id,
+        label: d.name,
+        subtext: `Dealer Code: ${d.code}${hierarchyPath ? ` • ${hierarchyPath}` : ''}${d.city ? ` (${d.city})` : ''}`,
+        searchTerms: `${d.name} ${d.code} ${d.phone || ''} ${d.city || ''} ${d.address || ''} ${prov} ${reg} ${zone} ${terr}`,
+      };
+    });
+  }, [companyDealers]);
+
   const companyProducts = React.useMemo(() => {
     return activeCompanyId
       ? products.filter((p) => !p.companyId || p.companyId === activeCompanyId)
@@ -667,39 +415,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     });
   };
 
-  const handleCommercialPhaseChange = (schemeId: string) => {
-    const selectedScheme = schemes.find((s) => s.id === schemeId);
-    let linkedRlId = '';
-    if (selectedScheme) {
-      if (selectedScheme.baseRateListId) {
-        linkedRlId = selectedScheme.baseRateListId;
-      } else if (selectedScheme.baseRateList?.id) {
-        linkedRlId = selectedScheme.baseRateList.id;
-      } else if (Array.isArray(selectedScheme.rateLists) && selectedScheme.rateLists.length > 0) {
-        linkedRlId = selectedScheme.rateLists[0].id;
-      } else {
-        const matchedRl = rateLists.find(
-          (rl) => rl.schemeId === schemeId || (selectedScheme.shortCode && rl.schemeShortCode === selectedScheme.shortCode),
-        );
-        if (matchedRl) linkedRlId = matchedRl.id;
-      }
-    }
-    setFormData((prev) => ({
-      ...prev,
-      schemeId,
-      rateListId: linkedRlId,
-    }));
-    recalculateAllItems(formData.paymentTerm, schemeId, linkedRlId);
-  };
+  // (Header scheme removed; line-item scheme used instead)
 
   // Real-time authoritative price resolution for line item
   const resolveLinePrice = async (
     idx: number,
     prodId: string,
     qty: number,
-    paymentTerm?: string,
     schemeId?: string,
-    rateListId?: string,
   ) => {
     if (!prodId) return;
     try {
@@ -707,9 +430,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         dealerId: formData.dealerId || undefined,
         finishedProductId: prodId,
         quantity: qty,
-        paymentTerm: paymentTerm || formData.paymentTerm,
-        requestedSchemeId: schemeId !== undefined ? (schemeId || undefined) : (formData.schemeId || undefined),
-        rateListId: rateListId !== undefined ? (rateListId || undefined) : (formData.rateListId || undefined),
+        paymentTerm: 'CASH',
+        requestedSchemeId: schemeId || undefined,
+        orderDate: formData.orderDate || undefined,
       });
 
       const r = res.data?.data || res.data;
@@ -719,12 +442,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           if (next[idx]) {
             next[idx] = {
               ...next[idx],
-              baseRate: r.baseRate,
-              unitPrice: r.finalUnitRate,
-              discountPercent: r.discountPercent,
-              discountAmount: r.discountAmount,
-              freeQuantity: r.freeQuantity || 0,
-              totalPrice: r.finalAmount,
+              baseRate: Number(r.baseRate || 0),
+              unitPrice: Number(r.finalUnitRate || r.baseRate || 0),
+              discountPercent: Number(r.discountPercent || 0),
+              discountAmount: Number(r.discountAmount || 0),
+              freeQuantity: Number(r.freeQuantity || 0),
+              totalPrice: Number(r.finalAmount || (Number(r.finalUnitRate || 0) * qty)),
               commercialCondition: r.commercialCondition || undefined,
             };
           }
@@ -734,15 +457,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     } catch {
       // Keep manual price on error
     }
-  };
-
-  const recalculateAllItems = (paymentTerm: string, schemeId: string, rateListId?: string) => {
-    formItems.forEach((it, idx) => {
-      if (it.finishedProductId) {
-        const itemScheme = it.schemeId || schemeId;
-        resolveLinePrice(idx, it.finishedProductId, it.quantity, paymentTerm, itemScheme, rateListId);
-      }
-    });
   };
 
   // Form item updates
@@ -760,29 +474,46 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         item.unitPrice = Number(prod.defaultSellingPrice || 1200);
         item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
       }
-      resolveLinePrice(index, value, Number(item.quantity) || 1, formData.paymentTerm, item.schemeId || formData.schemeId, formData.rateListId);
+      item.batchId = '';
+      item.batchNumber = '';
+      if (!item.schemeId) {
+        item.schemeId = companySchemes[0]?.id || '';
+      }
+      updated[index] = item;
+      setFormItems(updated);
+      resolveLinePrice(index, value, Number(item.quantity) || 1, item.schemeId);
       fetchBatchesForLine(index, value, formData.warehouseId || companyWarehouses[0]?.id);
+      return;
     } else if (field === 'batchId') {
-      const selectedBatch = item.availableBatches?.find((b) => b.id === value);
+      const selectedBatch = item.availableBatches?.find((b: any) => b.id === value);
       if (selectedBatch) {
         item.batchId = selectedBatch.id;
         item.batchNumber = selectedBatch.batchNumber;
       } else {
         item.batchId = value;
+        item.batchNumber = undefined;
       }
     } else if (field === 'quantity') {
       const qty = Number(value) || 1;
+      item.quantity = qty;
       item.totalPrice = qty * Number(item.unitPrice || 0);
+      updated[index] = item;
+      setFormItems(updated);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, qty, formData.paymentTerm, item.schemeId || formData.schemeId, formData.rateListId);
+        resolveLinePrice(index, item.finishedProductId, qty, item.schemeId);
       }
+      return;
     } else if (field === 'schemeId') {
       item.schemeId = value;
+      updated[index] = item;
+      setFormItems(updated);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, formData.paymentTerm, value || formData.schemeId, formData.rateListId);
+        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, value);
       }
+      return;
     } else if (field === 'unitPrice') {
       const price = Number(value) || 0;
+      item.unitPrice = price;
       item.totalPrice = (Number(item.quantity) || 1) * price;
     }
 
@@ -791,12 +522,18 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   };
 
   const addItemRow = () => {
+    const defaultSchemeId = companySchemes[0]?.id || '';
     setFormItems([
       ...formItems,
       {
         finishedProductId: '',
         productName: '',
+        schemeId: defaultSchemeId,
         quantity: 1,
+        baseRate: 0,
+        discountPercent: 0,
+        discountAmount: 0,
+        freeQuantity: 0,
         unitPrice: 0,
         totalPrice: 0,
       },
@@ -826,9 +563,46 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       showToast({ title: 'Validation Error', message: 'Please select a Dispatch Warehouse', type: 'error' });
       return;
     }
-    if (formItems.some((i) => !i.finishedProductId || Number(i.quantity) <= 0)) {
-      showToast({ title: 'Validation Error', message: 'All line items must have a finished product and quantity > 0', type: 'error' });
-      return;
+
+    // Line items validation
+    for (let i = 0; i < formItems.length; i++) {
+      const it = formItems[i];
+      if (!it) continue;
+      if (!it.finishedProductId) {
+        showToast({ title: 'Validation Error', message: `Line #${i + 1}: Please select a Finished Product`, type: 'error' });
+        return;
+      }
+      if (!it.batchId) {
+        showToast({ title: 'Validation Error', message: `Line #${i + 1} (${it.productName || 'Item'}): Please select a Batch in WH`, type: 'error' });
+        return;
+      }
+      if (Number(it.quantity) <= 0) {
+        showToast({ title: 'Validation Error', message: `Line #${i + 1} (${it.productName || 'Item'}): Quantity must be greater than 0`, type: 'error' });
+        return;
+      }
+      if (!it.schemeId) {
+        showToast({ title: 'Validation Error', message: `Line #${i + 1} (${it.productName || 'Item'}): Please select a Scheme`, type: 'error' });
+        return;
+      }
+      const selectedBatch = it.availableBatches?.find((b: any) => b.id === it.batchId);
+      if (selectedBatch) {
+        if (selectedBatch.isExpired) {
+          showToast({
+            title: 'Expired Batch',
+            message: `Line #${i + 1}: Batch ${selectedBatch.batchNumber} has expired. Please select a valid active batch.`,
+            type: 'error',
+          });
+          return;
+        }
+        if (Number(selectedBatch.availableQuantity) < Number(it.quantity)) {
+          showToast({
+            title: 'Insufficient Batch Stock',
+            message: `Line #${i + 1} (${it.productName || 'Item'}): Requested ${it.quantity} units exceeds available batch stock (${selectedBatch.availableQuantity} units in batch ${selectedBatch.batchNumber}).`,
+            type: 'error',
+          });
+          return;
+        }
+      }
     }
 
     const totalOrderVal = formItems.reduce((sum, i) => sum + (Number(i.totalPrice) || 0), 0);
@@ -850,8 +624,11 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
     try {
       const payload = {
-        ...formData,
+        dealerId: formData.dealerId,
         warehouseId: warehouseIdToUse,
+        orderDate: formData.orderDate,
+        notes: formData.notes || undefined,
+        paymentTerm: 'CASH',
         companyId: activeCompanyId || undefined,
         items: formItems.map((it) => ({
           finishedProductId: it.finishedProductId,
@@ -859,8 +636,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           packing: it.packSize || undefined,
           batchId: it.batchId || undefined,
           batchNumber: it.batchNumber || undefined,
-          schemeId: it.schemeId || formData.schemeId || undefined,
-          rateListId: it.rateListId || formData.rateListId || undefined,
+          schemeId: it.schemeId || undefined,
           quantity: Number(it.quantity) || 1,
           baseRate: Number(it.baseRate) || Number(it.unitPrice) || 0,
           unitPrice: Number(it.unitPrice) || 0,
@@ -877,22 +653,16 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       const effectiveOrderNumber = createdOrder?.orderNumber || 'SO-NEW';
 
       if (immediateInvoice && createdOrder?.id && !isExceeded) {
-        // Auto-approve
         await ApiClient.patch(`/api/v1/sales-orders/${createdOrder.id}/approve`, { approved: true });
-
-        // Convert to sale & generate invoice
         const convRes = await ApiClient.post<any>(`/api/v1/sales-orders/${createdOrder.id}/convert-to-sale`, {
           warehouseId: warehouseIdToUse,
         });
-
         const invoice = convRes.data?.data || convRes.data;
-
         showToast({
           title: 'Direct Sale Invoice Created!',
           message: `✓ Sales Order ${effectiveOrderNumber} created and invoiced successfully. Ready for the next Sales Order.`,
           type: 'success',
         });
-
         if (invoice && invoice.invoiceNumber) {
           setActiveInvoice(invoice);
         }
@@ -908,6 +678,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
       // DO NOT close modal: keep mode === 'create'
       // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
+      const defaultSchemeId = companySchemes[0]?.id || '';
       setFormData((prev) => ({
         ...prev,
         dealerId: '',
@@ -918,6 +689,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         {
           finishedProductId: '',
           productName: '',
+          schemeId: defaultSchemeId,
           quantity: 1,
           baseRate: 0,
           discountPercent: 0,
@@ -933,14 +705,18 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
       // Automatically focus first input (Dealer) for continuous data entry
       setTimeout(() => {
-        const dealerBtn = document.getElementById('field-so-dealer');
-        if (dealerBtn) {
-          dealerBtn.focus();
+        const dealerInput = document.getElementById('field-so-dealer') as HTMLInputElement | null;
+        if (dealerInput) {
+          dealerInput.focus();
         }
       }, 100);
     } catch (err: any) {
       // Keep modal open, keep user's entered data, show error
-      showToast({ title: 'Error', message: err.message || 'Failed to create sales order', type: 'error' });
+      showToast({
+        title: 'Error',
+        message: err?.response?.data?.message || err?.message || 'Failed to create sales order',
+        type: 'error',
+      });
     }
   };
 
@@ -2683,8 +2459,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     const remainingCredit = creditLimit > 0 ? availableCredit - totalOrderValue : 0;
     const isCreditExceeded = creditLimit > 0 && totalOrderValue > availableCredit;
 
-    const currentSelectedScheme = schemes.find((s) => s.id === formData.schemeId);
-    const linkedRateList = rateLists.find((rl) => rl.id === formData.rateListId);
+    // Schemes and rate lists resolve at line-item level
 
     return (
       <FormPageTemplate
@@ -2831,24 +2606,21 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           </CardHeader>
           <CardContent>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
-              <div style={{ gridColumn: 'span 7' }}>
+              <div style={{ gridColumn: 'span 5' }}>
                 <SearchableCombobox
                   id="field-so-dealer"
                   label="Dealer (Customer / Party) *"
-                  placeholder="Search and select dealer..."
+                  placeholder="Type to search dealer by name, code, territory, city..."
                   required
                   value={formData.dealerId}
                   onChange={(val) => handleDealerChange(val)}
-                  options={companyDealers.map((d) => ({
-                    value: d.id,
-                    label: d.name,
-                    code: d.code,
-                    sublabel: d.phone ? `Phone: ${d.phone}` : d.city || '',
-                  }))}
+                  options={dealerOptions}
+                  nextFocusId="field-so-warehouse"
                 />
               </div>
-              <div style={{ gridColumn: 'span 5' }}>
+              <div style={{ gridColumn: 'span 4' }}>
                 <SearchableCombobox
+                  id="field-so-warehouse"
                   label="Dispatch Warehouse *"
                   placeholder="Select warehouse..."
                   required
@@ -2857,62 +2629,35 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   options={companyWarehouses.map((w) => ({
                     value: w.id,
                     label: w.name,
-                    code: w.code,
-                    sublabel: w.type || '',
+                    subtext: w.code ? `Code: ${w.code}${w.type ? ` • ${w.type}` : ''}` : w.type,
+                    searchTerms: `${w.name} ${w.code || ''} ${w.type || ''}`,
                   }))}
+                  nextFocusId="field-so-order-date"
                 />
               </div>
 
-              {/* Single Clear Commercial Phase Selector (Replaces redundant Rate List inputs) */}
-              <div style={{ gridColumn: 'span 6' }}>
-                <SearchableCombobox
-                  label="Commercial Phase / Scheme *"
-                  placeholder="Select commercial phase..."
-                  required
-                  value={formData.schemeId}
-                  onChange={(val) => handleCommercialPhaseChange(val)}
-                  options={companySchemes.map((s) => ({
-                    value: s.id,
-                    label: `${s.shortCode || s.code} — ${s.name} (${s.defaultDiscountPct || s.discountPct || 0}% discount)`,
-                    code: s.shortCode || s.code,
-                    sublabel: `Payment: ${s.paymentTerm || 'CASH'}${s.baseRateList?.name ? ` | Linked RL: ${s.baseRateList.name}` : ''}`,
-                  }))}
-                />
-                {linkedRateList && (
-                  <div style={{ fontSize: '11px', color: '#0369a1', marginTop: '4px', fontWeight: 600 }}>
-                    Linked Rate List: {linkedRateList.code} — {linkedRateList.name}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ gridColumn: 'span 3' }}>
-                <Select
-                  label="Payment Term *"
-                  value={formData.paymentTerm}
-                  onChange={(e) => {
-                    const term = e.target.value;
-                    setFormData((prev) => ({ ...prev, paymentTerm: term }));
-                    recalculateAllItems(term, formData.schemeId, formData.rateListId);
-                  }}
-                  options={[
-                    { label: 'CASH (Immediate)', value: 'CASH' },
-                    { label: 'CREDIT (Standard)', value: 'CREDIT' },
-                    { label: 'ADVANCE (Pre-Payment)', value: 'ADVANCE' },
-                  ]}
-                />
-              </div>
               <div style={{ gridColumn: 'span 3' }}>
                 <Input
-                  label="Order Date"
+                  id="field-so-order-date"
+                  label="Order Date *"
                   type="date"
+                  required
                   value={formData.orderDate}
                   onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      document.getElementById('field-so-notes')?.focus();
+                    }
+                  }}
                 />
               </div>
+
               <div style={{ gridColumn: 'span 12' }}>
                 <Input
+                  id="field-so-notes"
                   label="Special Notes / Delivery Remarks"
-                  placeholder="e.g. Requested scheme booking, transport dock instructions"
+                  placeholder="e.g. Requested transport dock instructions, special delivery timeline"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 />
@@ -2936,34 +2681,53 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                     <span style={{ backgroundColor: '#2563eb', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '10px' }}>
                       SYSTEM-RESOLVED MARKET ATTRIBUTION
                     </span>
-                    <strong style={{ fontSize: '14px', color: '#0f172a' }}>{dealerHierarchy.dealer?.name} ({dealerHierarchy.dealer?.code})</strong>
+                    <strong style={{ fontSize: '14px', color: '#0f172a' }}>
+                      {dealerHierarchy.dealer?.name || dealerHierarchy.dealerName} ({dealerHierarchy.dealer?.code || dealerHierarchy.dealerCode})
+                    </strong>
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b' }}>
                     Operating Scope: <strong style={{ color: '#0f172a' }}>{activeCompanyName || 'Holding Company'}</strong>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                {/* 4-Tier Real Hierarchy Grid: Province -> Region -> Zone -> Territory */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Province</div>
+                    <div style={{ fontWeight: 700, color: '#0284c7', fontSize: '14px', marginTop: '2px' }}>
+                      {dealerHierarchy.province || dealerHierarchy.hierarchy?.province || 'Punjab'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                      Market Jurisdiction
+                    </div>
+                  </div>
+
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 1: Region & BM</div>
-                    <div style={{ fontWeight: 700, color: '#1e40af', marginTop: '2px' }}>{dealerHierarchy.region?.name || 'Region'}</div>
-                    <div style={{ fontSize: '12px', color: '#334155' }}>
+                    <div style={{ fontWeight: 700, color: '#1e40af', fontSize: '14px', marginTop: '2px' }}>
+                      {dealerHierarchy.hierarchy?.region || dealerHierarchy.region?.name || 'Region'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
                       BM: <strong>{dealerHierarchy.businessManager ? `${dealerHierarchy.businessManager.firstName} ${dealerHierarchy.businessManager.lastName}` : 'Unassigned'}</strong>
                     </div>
                   </div>
 
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 2: Zone & AM</div>
-                    <div style={{ fontWeight: 700, color: '#047857', marginTop: '2px' }}>{dealerHierarchy.zone?.name || 'Zone'}</div>
-                    <div style={{ fontSize: '12px', color: '#334155' }}>
+                    <div style={{ fontWeight: 700, color: '#047857', fontSize: '14px', marginTop: '2px' }}>
+                      {dealerHierarchy.hierarchy?.zone || dealerHierarchy.zone?.name || 'Zone'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
                       AM: <strong>{dealerHierarchy.areaManager ? `${dealerHierarchy.areaManager.firstName} ${dealerHierarchy.areaManager.lastName}` : 'Unassigned'}</strong>
                     </div>
                   </div>
 
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 3: Territory & SO</div>
-                    <div style={{ fontWeight: 700, color: '#d97706', marginTop: '2px' }}>{dealerHierarchy.territory?.name || 'Territory'}</div>
-                    <div style={{ fontSize: '12px', color: '#334155' }}>
+                    <div style={{ fontWeight: 700, color: '#d97706', fontSize: '14px', marginTop: '2px' }}>
+                      {dealerHierarchy.hierarchy?.territory || dealerHierarchy.territory?.name || 'Territory'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
                       Responsible SO: <strong style={{ color: '#2563eb' }}>{dealerHierarchy.salesOfficer ? `${dealerHierarchy.salesOfficer.firstName} ${dealerHierarchy.salesOfficer.lastName}` : 'ERP Direct'}</strong>
                     </div>
                   </div>
@@ -3038,7 +2802,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               <div>
                 <CardTitle>Ordered Products</CardTitle>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  Commercial rates resolve authoritatively from the selected Phase and Rate List. Select valid warehouse batches.
+                  Select product, warehouse batch, and applicable commercial scheme per line item.
                 </div>
               </div>
               <Button variant="secondary" size="sm" onClick={addItemRow}>
@@ -3051,29 +2815,33 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                   <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
-                    <th style={{ padding: '12px 14px', minWidth: '220px', whiteSpace: 'nowrap' }}>Finished Product *</th>
-                    <th style={{ padding: '12px 10px', width: '100px', whiteSpace: 'nowrap' }}>Pack Size</th>
-                    <th style={{ padding: '12px 10px', minWidth: '180px', whiteSpace: 'nowrap' }}>Batch in WH *</th>
-                    <th style={{ padding: '12px 10px', minWidth: '150px', whiteSpace: 'nowrap' }}>Phase Override</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '80px', whiteSpace: 'nowrap' }}>Qty *</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '95px', whiteSpace: 'nowrap' }}>Base Rate</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'center', minWidth: '110px', whiteSpace: 'nowrap' }}>Discount</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '80px', whiteSpace: 'nowrap' }}>Free Qty</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '105px', whiteSpace: 'nowrap' }}>Net Rate</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right', minWidth: '115px', whiteSpace: 'nowrap' }}>Line Total</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '40px', whiteSpace: 'nowrap' }}></th>
+                    <th style={{ padding: '10px 10px', width: '36px', textAlign: 'center' }}>#</th>
+                    <th style={{ padding: '10px 12px', minWidth: '220px' }}>Finished Product *</th>
+                    <th style={{ padding: '10px 12px', minWidth: '190px' }}>Batch in WH *</th>
+                    <th style={{ padding: '10px 12px', minWidth: '160px' }}>Scheme *</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center', width: '90px' }}>Qty *</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '95px' }}>Base Rate</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', minWidth: '110px' }}>Discount</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '105px' }}>Net Price</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', minWidth: '120px' }}>Line Total</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center', width: '40px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {formItems.map((item, idx) => {
-                    const matchedProd = companyProducts.find((p) => p.id === item.finishedProductId);
-                    const cleanPack = item.packSize || cleanPackSize(matchedProd?.packSize?.name || matchedProd?.packSize || matchedProd?.packingUnit);
                     const hasDiscount = Number(item.discountAmount || 0) > 0;
-                    const hasFree = Number(item.freeQuantity || 0) > 0;
+                    const selectedBatch = item.availableBatches?.find((b: any) => b.id === item.batchId);
+                    const availBatchStock = selectedBatch ? Number(selectedBatch.availableQuantity) : null;
+                    const isBatchStockExceeded = availBatchStock !== null && Number(item.quantity) > availBatchStock;
 
                     return (
-                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '10px 14px' }}>
+                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', backgroundColor: isBatchStockExceeded ? '#fef2f2' : undefined }}>
+                        <td style={{ padding: '10px 10px', textAlign: 'center', fontWeight: 600, color: '#64748b' }}>
+                          {idx + 1}
+                        </td>
+
+                        {/* Finished Product Selector */}
+                        <td style={{ padding: '10px 12px' }}>
                           <select
                             value={item.finishedProductId || ''}
                             onChange={(e) => updateItem(idx, 'finishedProductId', e.target.value)}
@@ -3088,7 +2856,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               backgroundColor: '#fff',
                             }}
                           >
-                            <option value="">Select Product...</option>
+                            <option value="">Select Finished Product...</option>
                             {companyProducts.map((p) => {
                               const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
                               const codeStr = p.productCode ? `[${p.productCode}] ` : '';
@@ -3101,30 +2869,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           </select>
                         </td>
 
-                        {/* Clean Pack Size Column */}
-                        <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
-                          {item.finishedProductId ? (
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: '6px',
-                                backgroundColor: '#f1f5f9',
-                                color: '#334155',
-                                fontWeight: 700,
-                                fontSize: '12px',
-                                border: '1px solid #e2e8f0',
-                              }}
-                            >
-                              {cleanPack}
-                            </span>
-                          ) : (
-                            <span style={{ color: '#94a3b8' }}>—</span>
-                          )}
-                        </td>
-
                         {/* Warehouse-Specific Batches */}
-                        <td style={{ padding: '10px' }}>
+                        <td style={{ padding: '10px 12px' }}>
                           <select
                             value={item.batchId || ''}
                             onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
@@ -3133,18 +2879,18 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               width: '100%',
                               padding: '8px 10px',
                               borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
+                              border: isBatchStockExceeded ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
                               fontSize: '12px',
                               fontWeight: 600,
                               color: item.batchId ? '#0f172a' : '#64748b',
                               backgroundColor: item.finishedProductId ? '#fff' : '#f8fafc',
                             }}
                           >
-                            <option value="">Select Batch in WH...</option>
+                            <option value="">-- Select Batch in WH --</option>
                             {item.availableBatches && item.availableBatches.length > 0 ? (
                               item.availableBatches.map((b: any) => (
                                 <option key={b.id} value={b.id} disabled={b.isExpired}>
-                                  {b.batchNumber} (Avail: {b.availableQuantity} units){b.isExpired ? ' [EXPIRED]' : ''}
+                                  {b.batchNumber} — {b.availableQuantity} Units{b.isExpired ? ' [EXPIRED]' : ''}
                                 </option>
                               ))
                             ) : (
@@ -3155,8 +2901,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           </select>
                         </td>
 
-                        {/* Commercial Phase Line Override */}
-                        <td style={{ padding: '10px' }}>
+                        {/* Product-Specific Commercial Scheme */}
+                        <td style={{ padding: '10px 12px' }}>
                           <select
                             value={item.schemeId || ''}
                             onChange={(e) => updateItem(idx, 'schemeId', e.target.value)}
@@ -3166,20 +2912,20 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               borderRadius: '6px',
                               border: '1px solid #cbd5e1',
                               fontSize: '12px',
+                              fontWeight: 600,
                               backgroundColor: '#fff',
                             }}
                           >
-                            <option value="">
-                              Order Default ({currentSelectedScheme?.shortCode || 'SS'})
-                            </option>
+                            <option value="">-- Select Scheme --</option>
                             {companySchemes.map((s) => (
                               <option key={s.id} value={s.id}>
-                                {s.shortCode || s.code} - {s.name} ({s.defaultDiscountPct || s.discountPct || 0}%)
+                                {s.shortCode || s.code} — {s.name} ({s.defaultDiscountPct || s.discountPct || 0}%)
                               </option>
                             ))}
                           </select>
                         </td>
 
+                        {/* Quantity with inline stock validation */}
                         <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <input
                             type="number"
@@ -3187,49 +2933,56 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                             value={item.quantity}
                             onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
                             style={{
-                              width: '70px',
+                              width: '75px',
                               padding: '6px 8px',
                               textAlign: 'center',
                               borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
+                              border: isBatchStockExceeded ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
                               fontWeight: 700,
                               fontSize: '13px',
                             }}
                           />
+                          {isBatchStockExceeded && (
+                            <div style={{ fontSize: '10.5px', color: '#dc2626', fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                              Max: {availBatchStock}
+                            </div>
+                          )}
                         </td>
-                        <td style={{ padding: '10px', textAlign: 'right', color: '#64748b' }}>
-                          {item.baseRate ? `PKR ${Number(item.baseRate).toLocaleString()}` : '-'}
+
+                        {/* Base Rate */}
+                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b', fontSize: '12.5px' }}>
+                          {item.baseRate ? `PKR ${Number(item.baseRate).toLocaleString()}` : '—'}
                         </td>
-                        <td style={{ padding: '10px', textAlign: 'center' }}>
+
+                        {/* Discount */}
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                           {hasDiscount ? (
                             <span style={{ padding: '3px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700, fontSize: '11px', display: 'inline-block' }}>
-                              -PKR {Number(item.discountAmount).toLocaleString()}{item.discountPercent ? ` (${item.discountPercent}%)` : ''}
+                              -PKR ${Number(item.discountAmount).toLocaleString()}${item.discountPercent ? ` (${item.discountPercent}%)` : ''}
                             </span>
                           ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '12px' }}>-</span>
+                            <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>
                           )}
                         </td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                          {hasFree ? (
-                            <span style={{ padding: '3px 8px', borderRadius: '4px', background: '#f3e8ff', color: '#7e22ce', fontWeight: 700, fontSize: '11px', display: 'inline-block' }}>
-                              +{item.freeQuantity} Free
-                            </span>
-                          ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '12px' }}>-</span>
-                          )}
+
+                        {/* Net Price */}
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: hasDiscount ? '#047857' : '#0f172a' }}>
+                          {item.unitPrice ? `PKR ${Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                         </td>
-                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: hasDiscount ? '#047857' : '#0f172a' }}>
-                          {item.unitPrice ? `PKR ${Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
-                        </td>
+
+                        {/* Line Total */}
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '14px' }}>
-                          PKR {Number(item.totalPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          PKR ${Number(item.totalPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
+
+                        {/* Remove Row */}
                         <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <Button
                             variant="ghost"
                             size="sm"
+                            disabled={formItems.length === 1}
                             onClick={() => removeItemRow(idx)}
-                            style={{ padding: '4px' }}
+                            style={{ padding: '4px', opacity: formItems.length === 1 ? 0.3 : 1 }}
                             title="Remove row"
                           >
                             <IconTrash size={16} color="var(--color-danger)" />
