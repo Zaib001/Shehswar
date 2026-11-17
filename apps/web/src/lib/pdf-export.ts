@@ -2118,7 +2118,7 @@ export interface PurchaseInvoiceExportData {
   };
 }
 
-export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) => {
+export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData): string => {
   const gross = Number(
     invoice.grossAmount ??
     invoice.items.reduce((sum, it) => sum + Number(it.quantity || 0) * Number(it.rate || 0), 0)
@@ -2739,6 +2739,11 @@ export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) =
 </body>
 </html>`;
 
+  return html;
+};
+
+export const exportPurchaseInvoiceToPdf = (invoice: PurchaseInvoiceExportData) => {
+  const html = generatePurchaseInvoiceHtml(invoice);
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     printWindow.document.open();
@@ -3337,7 +3342,7 @@ export interface VendorLedgerExportData {
   }>;
 }
 
-export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
+export const generateVendorLedgerHtml = (data: VendorLedgerExportData): string => {
   const { vendor, startDate, endDate, entries } = data;
 
   // Chronological ascending sorting: earliest entry on top row (e.g. 11/12/2026), latest at bottom
@@ -3888,6 +3893,11 @@ export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
 </body>
 </html>`;
 
+  return html;
+};
+
+export const exportVendorLedgerToPdf = (data: VendorLedgerExportData) => {
+  const html = generateVendorLedgerHtml(data);
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     printWindow.document.open();
@@ -3925,7 +3935,7 @@ export interface MarketPerformancePdfData {
   }>;
 }
 
-export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
+export const generateMarketPerformanceHtml = (data: MarketPerformancePdfData): string => {
   const generatedAt = new Date().toLocaleString('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -4329,6 +4339,11 @@ export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
 </body>
 </html>`;
 
+  return html;
+};
+
+export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
+  const html = generateMarketPerformanceHtml(data);
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     printWindow.document.open();

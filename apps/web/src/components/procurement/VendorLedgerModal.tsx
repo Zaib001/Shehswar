@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Modal, Button, Input, TableSkeleton } from '../ui';
-import { IconRefresh, IconDownload, IconFileText } from '../icons';
+import { Modal, Button, Input, TableSkeleton, PdfViewerModal } from '../ui';
+import { IconRefresh, IconDownload, IconFileText, IconEye } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
-import { exportVendorLedgerToPdf } from '../../lib/pdf-export';
+import { exportVendorLedgerToPdf, generateVendorLedgerHtml } from '../../lib/pdf-export';
 import { SourceDocumentDrillDownModal } from '../operations/SourceDocumentDrillDownModal';
 
 export interface VendorLedgerModalProps {
@@ -69,6 +69,13 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
     referenceId?: string;
   } | null>(null);
   const [isDrillDownOpen, setIsDrillDownOpen] = useState<boolean>(false);
+
+  // Transaction Preview Modal state
+  const [selectedPreviewEntry, setSelectedPreviewEntry] = useState<VendorLedgerEntryRecord | null>(null);
+
+  // In-App PDF Viewer Modal state
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
+  const [pdfViewerHtml, setPdfViewerHtml] = useState<string>('');
 
   const loadLedger = useCallback(async () => {
     if (!vendor?.id) return;
@@ -187,6 +194,35 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
       message: 'Print & download view launched with Shehswar enterprise letterhead.',
       type: 'success',
     });
+  };
+
+  // View PDF in In-App Modal
+  const handleViewPdf = () => {
+    if (!vendor) return;
+
+    const html = generateVendorLedgerHtml({
+      vendor: {
+        id: vendor.id,
+        name: vendor.name,
+        code: vendor.code,
+        legalName: vendor.legalName,
+        ntn: vendor.ntn,
+        strn: vendor.strn,
+        phone: vendor.phone,
+        city: vendor.city,
+        address: vendor.address,
+        paymentTerms: vendor.paymentTerms,
+        creditLimit: vendor.creditLimit,
+        currentBalance: currentBalance,
+        bankDetails: vendor.bankDetails,
+      },
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      entries: sortedEntries,
+    });
+
+    setPdfViewerHtml(html);
+    setIsPdfViewerOpen(true);
   };
 
   if (!isOpen || !vendor) return null;
@@ -367,6 +403,19 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
 
             <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end' }}>
               <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleViewPdf}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <IconEye size={14} /> View PDF
+              </Button>
+
+              <Button
                 variant="primary"
                 size="sm"
                 onClick={handleExportPdf}
@@ -388,11 +437,11 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-base">💡</span>
               <span>
-                <strong>Full Source Document Traceability:</strong> Double-click any row or press{' '}
+                <strong>Full Source Document Traceability:</strong> Click, double-click any row or press{' '}
                 <kbd className="px-1.5 py-0.5 bg-white border border-blue-200 text-blue-800 rounded font-mono text-[10px] shadow-xs">
                   Enter
                 </kbd>{' '}
-                to open and inspect the originating Purchase Order, Invoice, or Payment.
+                to preview transaction details and drill down to the originating Purchase Order, Invoice, or Cash Payment.
               </span>
             </div>
             <span className="text-blue-700 font-semibold text-[11px]">
@@ -446,9 +495,13 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
                       <tr
                         key={e.id || idx}
                         tabIndex={0}
-                        onDoubleClick={() => handleOpenSource(e)}
+                        onClick={() => setSelectedPreviewEntry(e)}
+                        onDoubleClick={() => setSelectedPreviewEntry(e)}
                         onKeyDown={(ev) => {
-                          if (ev.key === 'Enter') handleOpenSource(e);
+                          if (ev.key === 'Enter') {
+                            ev.preventDefault();
+                            setSelectedPreviewEntry(e);
+                          }
                         }}
                         style={{
                           borderBottom: '1px solid #e2e8f0',
@@ -456,7 +509,7 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
                           cursor: 'pointer',
                         }}
                         className="hover:bg-blue-50/70 focus:bg-blue-50 focus:outline-none transition-colors"
-                        title="Double-click or press Enter to inspect source document"
+                        title="Click, double-click, or press Enter to preview details"
                       >
                         <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', color: '#475569' }}>
                           {new Date(e.entryDate).toLocaleDateString('en-GB', {
@@ -498,9 +551,10 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
                             type="button"
                             onClick={(ev) => {
                               ev.stopPropagation();
-                              handleOpenSource(e);
+                              setSelectedPreviewEntry(e);
                             }}
                             className="text-blue-700 hover:text-blue-900 font-bold hover:underline"
+                            title="Preview entry details"
                           >
                             {e.voucherNumber || '—'}
                           </button>
@@ -521,16 +575,30 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
                           </span>
                         </td>
                         <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              handleOpenSource(e);
-                            }}
-                            className="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded transition-colors"
-                          >
-                            View
-                          </button>
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setSelectedPreviewEntry(e);
+                              }}
+                              className="px-2 py-1 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded transition-colors"
+                              title="Preview Transaction Details"
+                            >
+                              Preview
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                handleOpenSource(e);
+                              }}
+                              className="px-2.5 py-1 text-[11px] font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded transition-colors"
+                              title="Trace & Open Source Document"
+                            >
+                              Source
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -572,6 +640,165 @@ export const VendorLedgerModal: React.FC<VendorLedgerModalProps> = ({
         voucherNumber={selectedSource?.voucherNumber}
         referenceId={selectedSource?.referenceId}
         onUpdated={loadLedger}
+      />
+
+      {/* Keyboard-Friendly Ledger Transaction Preview Modal */}
+      {selectedPreviewEntry && (
+        <Modal
+          isOpen={!!selectedPreviewEntry}
+          onClose={() => setSelectedPreviewEntry(null)}
+          title={`Ledger Transaction Details: ${selectedPreviewEntry.voucherNumber || selectedPreviewEntry.entryType}`}
+          size="md"
+        >
+          <div
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const entry = selectedPreviewEntry;
+                setSelectedPreviewEntry(null);
+                handleOpenSource(entry);
+              }
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          >
+            {/* Vendor & Status Header Banner */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '12px 14px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b' }}>Vendor Account</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                  {vendor.name} <span style={{ color: '#64748b', fontWeight: 500 }}>({vendor.code})</span>
+                </div>
+              </div>
+              <div>
+                <span
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    backgroundColor:
+                      selectedPreviewEntry.entryType === 'PURCHASE_INVOICE'
+                        ? '#fef3c7'
+                        : selectedPreviewEntry.entryType === 'VENDOR_PAYMENT'
+                        ? '#dcfce7'
+                        : selectedPreviewEntry.entryType === 'PURCHASE_ORDER'
+                        ? '#e0e7ff'
+                        : '#f1f5f9',
+                    color:
+                      selectedPreviewEntry.entryType === 'PURCHASE_INVOICE'
+                        ? '#92400e'
+                        : selectedPreviewEntry.entryType === 'VENDOR_PAYMENT'
+                        ? '#166534'
+                        : selectedPreviewEntry.entryType === 'PURCHASE_ORDER'
+                        ? '#3730a3'
+                        : '#334155',
+                  }}
+                >
+                  {selectedPreviewEntry.entryType.replace(/_/g, ' ')}
+                </span>
+              </div>
+            </div>
+
+            {/* Financial Details Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Transaction Date</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                  {new Date(selectedPreviewEntry.entryDate).toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </div>
+              </div>
+
+              <div style={{ padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Voucher / Ref #</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', fontFamily: 'monospace', marginTop: '2px' }}>
+                  {selectedPreviewEntry.voucherNumber || '—'}
+                </div>
+              </div>
+
+              <div style={{ padding: '10px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700 }}>Payment Settled (Debit)</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#16a34a', fontFamily: 'monospace', marginTop: '2px' }}>
+                  {Number(selectedPreviewEntry.debit) > 0
+                    ? `PKR ${Number(selectedPreviewEntry.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : 'PKR 0.00'}
+                </div>
+              </div>
+
+              <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#991b1b', fontWeight: 700 }}>Purchase Billed (Credit)</div>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#dc2626', fontFamily: 'monospace', marginTop: '2px' }}>
+                  {Number(selectedPreviewEntry.credit) > 0
+                    ? `PKR ${Number(selectedPreviewEntry.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : 'PKR 0.00'}
+                </div>
+              </div>
+
+              <div style={{ gridColumn: 'span 2', padding: '10px 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#475569', fontWeight: 600 }}>Running Balance After Entry</div>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', marginTop: '2px' }}>
+                  PKR {Math.abs(Number(selectedPreviewEntry.runningBalance)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: Number(selectedPreviewEntry.runningBalance) >= 0 ? '#dc2626' : '#16a34a' }}>
+                    {Number(selectedPreviewEntry.runningBalance) >= 0 ? 'Cr (Payable)' : 'Dr (Advance)'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ gridColumn: 'span 2', padding: '10px 12px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Description / Remarks</div>
+                <div style={{ fontSize: '12.5px', color: '#1e293b', marginTop: '4px', lineHeight: 1.5 }}>
+                  {selectedPreviewEntry.description || 'Commercial Transaction Recorded in Accounts Payable Ledger'}
+                </div>
+              </div>
+            </div>
+
+            {/* Actions & Keyboard Guidance */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                Press <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-[10px]">Enter</kbd> to inspect source document or <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono text-[10px]">Esc</kbd> to return
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button variant="secondary" onClick={() => setSelectedPreviewEntry(null)}>
+                  Close
+                </Button>
+                <Button
+                  variant="primary"
+                  autoFocus
+                  onClick={() => {
+                    const entry = selectedPreviewEntry;
+                    setSelectedPreviewEntry(null);
+                    handleOpenSource(entry);
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <IconFileText size={14} /> Open Source Document
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* In-App PDF Viewer Modal */}
+      <PdfViewerModal
+        isOpen={isPdfViewerOpen}
+        onClose={() => setIsPdfViewerOpen(false)}
+        title={`Accounts Payable Ledger — ${vendor.name} (${vendor.code})`}
+        htmlContent={pdfViewerHtml}
       />
     </>
   );

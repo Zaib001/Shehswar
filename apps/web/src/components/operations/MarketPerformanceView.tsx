@@ -24,9 +24,15 @@
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
-import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '../ui';
+import { useCompany } from '../../context/company-context';
+import { Button, Card, CardHeader, CardTitle, CardContent, Badge, PdfViewerModal } from '../ui';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
-import { SalesInvoiceExportData, exportMarketPerformancePdf } from '../../lib/pdf-export';
+import {
+  SalesInvoiceExportData,
+  exportMarketPerformancePdf,
+  generateMarketPerformanceHtml,
+  MarketPerformancePdfData,
+} from '../../lib/pdf-export';
 import {
   IconTrendingUp,
   IconBuilding,
@@ -57,6 +63,7 @@ interface BreadcrumbItem {
 type PeriodPreset = 'THIS_MONTH' | 'LAST_MONTH' | 'YTD' | 'ALL_TIME' | 'CUSTOM';
 
 export const MarketPerformanceView: React.FC = () => {
+  const { activeCompanyId } = useCompany();
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,22 +95,28 @@ export const MarketPerformanceView: React.FC = () => {
   const [activeInvoice, setActiveInvoice] = useState<SalesInvoiceExportData | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState<boolean>(false);
 
+  // In-App PDF Viewer modal state
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
+  const [pdfViewerHtml, setPdfViewerHtml] = useState<string>('');
+  const [pdfViewerTitle, setPdfViewerTitle] = useState<string>('Market Performance Report');
+
   // Build query string based on active period preset
   const buildPeriodParams = useCallback(() => {
+    const compParam = activeCompanyId && activeCompanyId !== 'ALL' ? `&companyId=${encodeURIComponent(activeCompanyId)}` : '';
     if (periodPreset === 'THIS_MONTH') {
-      return `month=${now.getMonth() + 1}&year=${now.getFullYear()}&period=THIS_MONTH`;
+      return `month=${now.getMonth() + 1}&year=${now.getFullYear()}&period=THIS_MONTH${compParam}`;
     }
     if (periodPreset === 'LAST_MONTH') {
-      return `period=LAST_MONTH&year=${now.getFullYear()}`;
+      return `period=LAST_MONTH&year=${now.getFullYear()}${compParam}`;
     }
     if (periodPreset === 'YTD') {
-      return `period=YTD&year=${selectedYear}`;
+      return `period=YTD&year=${selectedYear}${compParam}`;
     }
     if (periodPreset === 'ALL_TIME') {
-      return `period=ALL_TIME&allTime=true`;
+      return `period=ALL_TIME&allTime=true${compParam}`;
     }
-    return `month=${selectedMonth}&year=${selectedYear}`;
-  }, [periodPreset, selectedMonth, selectedYear]);
+    return `month=${selectedMonth}&year=${selectedYear}${compParam}`;
+  }, [periodPreset, selectedMonth, selectedYear, activeCompanyId]);
 
   // Fetch performance data depending on current level
   const fetchPerformance = useCallback(async () => {
@@ -134,7 +147,7 @@ export const MarketPerformanceView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentLevel, selectedRegionId, selectedZoneId, selectedTerritoryId, selectedOfficerId, selectedDealerId, buildPeriodParams]);
+  }, [currentLevel, selectedRegionId, selectedZoneId, selectedTerritoryId, selectedOfficerId, selectedDealerId, buildPeriodParams, activeCompanyId]);
 
   useEffect(() => {
     fetchPerformance();
@@ -182,24 +195,25 @@ export const MarketPerformanceView: React.FC = () => {
     ]);
   };
 
-  const navigateToOfficer = (officerId: string, officerName: string) => {
-    setSelectedOfficerId(officerId);
-    setCurrentLevel('OFFICER');
-    setTableSearch('');
-    setBreadcrumbs((prev) => [
-      ...prev.slice(0, 4),
-      { level: 'OFFICER', id: officerId, name: officerName },
-    ]);
-  };
+
 
   const navigateToDealer = (dealerId: string, dealerName: string, dealerCode?: string) => {
     setSelectedDealerId(dealerId);
     setCurrentLevel('DEALER');
     setTableSearch('');
-    setBreadcrumbs((prev) => [
-      ...prev.slice(0, 5),
-      { level: 'DEALER', id: dealerId, name: dealerName, code: dealerCode },
-    ]);
+    setBreadcrumbs((prev) => {
+      const terrIdx = prev.findIndex((b) => b.level === 'TERRITORY');
+      if (terrIdx !== -1) {
+        return [
+          ...prev.slice(0, terrIdx + 1),
+          { level: 'DEALER', id: dealerId, name: dealerName, code: dealerCode },
+        ];
+      }
+      return [
+        ...prev.slice(0, 4),
+        { level: 'DEALER', id: dealerId, name: dealerName, code: dealerCode },
+      ];
+    });
   };
 
   const handleBreadcrumbClick = (item: BreadcrumbItem, index: number) => {
@@ -329,15 +343,7 @@ export const MarketPerformanceView: React.FC = () => {
     );
   }, [performanceData?.territories, tableSearch]);
 
-  // Filtered rows for Tier 4: Officers
-  const filteredOfficers = useMemo(() => {
-    if (!performanceData?.officers) return [];
-    if (!tableSearch.trim()) return performanceData.officers;
-    const q = tableSearch.toLowerCase();
-    return performanceData.officers.filter(
-      (o: any) => o.officerName?.toLowerCase().includes(q)
-    );
-  }, [performanceData?.officers, tableSearch]);
+
 
   // Filtered rows for Tier 5: Dealers
   const filteredDealers = useMemo(() => {
@@ -440,13 +446,13 @@ export const MarketPerformanceView: React.FC = () => {
     return Math.max(...chartEntities.map((e: any) => Math.max(e.target, e.actual)), 1);
   }, [chartEntities]);
 
-  // Tier PDF Export Handler
-  const handleExportCurrentTierPdf = () => {
-    if (!performanceData) return;
+  // Tier PDF Data Builder
+  const buildCurrentTierPdfData = (): MarketPerformancePdfData | null => {
+    if (!performanceData) return null;
     const periodLabel = performanceData?.period?.periodLabel || `${monthNames[selectedMonth - 1]} ${selectedYear}`;
 
     if (currentLevel === 'GROUP') {
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Executive Provincial Total',
         scopeTitle: 'Punjab Provincial Total — Operating Regions',
         periodLabel,
@@ -489,10 +495,10 @@ export const MarketPerformanceView: React.FC = () => {
           { text: r.activeDealers, align: 'center' },
           { text: fmtPKR(r.averageDealerSales), align: 'right' },
         ]),
-      });
+      };
     } else if (currentLevel === 'REGION') {
       const reg = performanceData.region || {};
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Regional Scope',
         scopeTitle: `${reg.name} Region`,
         periodLabel,
@@ -536,10 +542,10 @@ export const MarketPerformanceView: React.FC = () => {
           },
           { text: z.activeDealers, align: 'center' },
         ]),
-      });
+      };
     } else if (currentLevel === 'ZONE') {
       const zone = performanceData.zone || {};
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Zonal Scope',
         scopeTitle: `${zone.name} Zone`,
         periodLabel,
@@ -580,10 +586,10 @@ export const MarketPerformanceView: React.FC = () => {
           },
           { text: t.activeDealers, align: 'center' },
         ]),
-      });
+      };
     } else if (currentLevel === 'TERRITORY') {
       const terr = performanceData.territory || {};
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Territory Scope',
         scopeTitle: `${terr.name} Territory`,
         periodLabel,
@@ -598,34 +604,34 @@ export const MarketPerformanceView: React.FC = () => {
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'Active Dealers', value: `${Number(metrics.activeDealers || 0).toLocaleString()}`, color: '#10b981' },
         ],
-        tableTitle: 'Sales Officers Roster',
-        tableSubtitle: `Direct field officers deployed in ${terr.name}`,
+        tableTitle: 'Territory Dealers Network',
+        tableSubtitle: `Dealers belonging directly to ${terr.name}`,
         headers: [
-          { label: 'Sales Officer', align: 'left', width: '22%' },
-          { label: 'Target (PKR)', align: 'right', width: '16%' },
-          { label: 'Credit Limit (PKR)', align: 'right', width: '16%' },
-          { label: 'Actual Posted Sales (PKR)', align: 'right', width: '18%' },
-          { label: 'Achievement', align: 'center', width: '12%' },
-          { label: 'Active Selling Dealers', align: 'center', width: '16%' },
+          { label: 'Dealer Account', align: 'left', width: '24%' },
+          { label: 'City', align: 'left', width: '14%' },
+          { label: 'Target (PKR)', align: 'right', width: '15%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '15%' },
+          { label: 'Actual Sales (PKR)', align: 'right', width: '18%' },
+          { label: 'Achievement', align: 'center', width: '14%' },
         ],
-        rows: (performanceData.officers || []).map((o: any) => [
-          { text: o.officerName, bold: true },
-          { text: fmtPKR(o.target), align: 'right' },
-          { text: fmtPKR(o.creditLimit), align: 'right' },
-          { text: fmtPKR(o.actualSales), align: 'right', bold: true },
+        rows: (performanceData.dealers || []).map((d: any) => [
+          { text: `${d.dealerName} (${d.dealerCode})`, bold: true },
+          { text: d.city || '—' },
+          { text: fmtPKR(d.target || d.monthlyTarget), align: 'right' },
+          { text: fmtPKR(d.creditLimit), align: 'right' },
+          { text: fmtPKR(d.actualSales), align: 'right', bold: true },
           {
-            text: `${o.achievementPercent}%`,
+            text: `${d.achievementPercent}%`,
             align: 'center',
             isBadge: true,
-            badgeBg: o.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: o.achievementPercent >= 100 ? '#166534' : '#0369a1',
+            badgeBg: d.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
+            badgeColor: d.achievementPercent >= 100 ? '#166534' : '#0369a1',
           },
-          { text: `${o.activeDealers} Dealers`, align: 'center' },
         ]),
-      });
+      };
     } else if (currentLevel === 'OFFICER') {
       const off = performanceData.officer || {};
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Sales Officer Portfolio',
         scopeTitle: `Sales Officer: ${off.name}`,
         periodLabel,
@@ -664,12 +670,12 @@ export const MarketPerformanceView: React.FC = () => {
           },
           { text: d.ordersCount, align: 'center' },
         ]),
-      });
+      };
     } else if (currentLevel === 'DEALER') {
       const dlr = performanceData.dealer || {};
       const tg = performanceData.targets || {};
       const cc = performanceData.creditControl || {};
-      exportMarketPerformancePdf({
+      return {
         tierName: 'Dealer Target & Performance Card',
         scopeTitle: `${dlr.name} (${dlr.code})`,
         periodLabel,
@@ -729,7 +735,23 @@ export const MarketPerformanceView: React.FC = () => {
             ]),
           },
         ],
-      });
+      };
+    }
+    return null;
+  };
+
+  const handleExportCurrentTierPdf = () => {
+    const data = buildCurrentTierPdfData();
+    if (data) exportMarketPerformancePdf(data);
+  };
+
+  const handleViewCurrentTierPdf = () => {
+    const data = buildCurrentTierPdfData();
+    if (data) {
+      const html = generateMarketPerformanceHtml(data);
+      setPdfViewerHtml(html);
+      setPdfViewerTitle(`${data.tierName || 'Market Performance'} - ${data.scopeTitle || ''}`);
+      setIsPdfViewerOpen(true);
     }
   };
 
@@ -892,7 +914,22 @@ export const MarketPerformanceView: React.FC = () => {
             <span>Refresh</span>
           </Button>
 
-          {/* Download & View PDF Report Button for Current Tier */}
+          {/* View & Download PDF Report Buttons for Current Tier */}
+          <Button
+            variant="secondary"
+            onClick={handleViewCurrentTierPdf}
+            style={{
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 14px',
+            }}
+          >
+            <IconEye size={15} />
+            <span>View PDF</span>
+          </Button>
+
           <Button
             variant="primary"
             onClick={handleExportCurrentTierPdf}
@@ -2054,22 +2091,28 @@ export const MarketPerformanceView: React.FC = () => {
       )}
 
       {/* ───────────────────────────────────────────────────────── */}
-      {/* 7. TIER 4 TABLE: TERRITORY SALES OFFICERS ROSTER          */}
+      {/* 7. TIER 4 TABLE: TERRITORY DEALERS NETWORK                */}
+      {/* (Dealer Belongs Directly to Territory: Province->Region->Zone->Territory->Dealer) */}
       {/* ───────────────────────────────────────────────────────── */}
-      {!loading && currentLevel === 'TERRITORY' && performanceData?.officers && (
+      {!loading && currentLevel === 'TERRITORY' && (
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  Tier 4: {performanceData.territory.name} — Sales Officers Roster
+                  Tier 4: {performanceData?.territory?.name} — Dealers Network
                 </h2>
                 <span style={{ fontSize: '11px', background: 'var(--bg-subtle)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                  {filteredOfficers.length} Officers
+                  {filteredDealers.length} Active Accounts
                 </span>
+                {performanceData?.officers?.length > 0 && (
+                  <span style={{ fontSize: '11px', background: 'rgba(5, 150, 105, 0.1)', color: '#059669', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                    {performanceData.officers.length} Officer(s) Deployed
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                Zone: <strong>{performanceData.territory.zoneName}</strong> • Click any Sales Officer to inspect assigned dealers
+                Zone: <strong>{performanceData?.territory?.zoneName}</strong> • Region: <strong>{performanceData?.territory?.regionName}</strong> • Click any Dealer to open full card
               </div>
             </div>
 
@@ -2089,7 +2132,7 @@ export const MarketPerformanceView: React.FC = () => {
                 <IconSearch size={14} color="var(--text-muted)" />
                 <input
                   type="text"
-                  placeholder="Filter officers..."
+                  placeholder="Filter territory dealers..."
                   value={tableSearch}
                   onChange={(e) => setTableSearch(e.target.value)}
                   style={{
@@ -2109,76 +2152,88 @@ export const MarketPerformanceView: React.FC = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                  <th style={{ padding: '10px 14px' }}>Sales Officer</th>
+                  <th style={{ padding: '10px 14px' }}>Dealer Account</th>
+                  <th style={{ padding: '10px 14px' }}>City</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Active Dealers</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Avg Sales / Dealer</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Units Sold</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Orders</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredOfficers.length === 0 ? (
+                {filteredDealers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No sales officers match the filter criteria.
+                    <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      No dealer accounts found matching current territory filter.
                     </td>
                   </tr>
                 ) : (
-                  filteredOfficers.map((o: any, idx: number) => (
+                  filteredDealers.map((d: any, idx: number) => (
                     <tr
-                      key={o.officerId}
+                      key={d.dealerId}
                       style={{
                         borderBottom: '1px solid var(--border-subtle)',
                         background: idx % 2 === 1 ? 'rgba(0, 0, 0, 0.015)' : 'transparent',
+                        cursor: 'pointer',
                       }}
+                      onClick={() => navigateToDealer(d.dealerId, d.dealerName, d.dealerCode)}
                     >
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <IconUser size={14} color="var(--brand-primary)" />
-                          <span>{o.officerName}</span>
+                          <IconBuilding size={14} color="var(--brand-primary)" />
+                          <div>
+                            <div>{d.dealerName}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{d.dealerCode}</div>
+                          </div>
                         </div>
                       </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                        {d.city || '—'}
+                      </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                        {fmtPKR(o.target)}
+                        {fmtPKR(d.target || d.monthlyTarget)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>
-                        {fmtPKR(o.creditLimit)}
+                        {fmtPKR(d.creditLimit)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
-                        {fmtPKR(o.actualSales)}
+                        {fmtPKR(d.actualSales)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                        {renderAchievementBadge(o.achievementPercent)}
+                        {renderAchievementBadge(d.achievementPercent)}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700 }}>
-                        {o.activeDealers} Dealers
+                      <td style={{ padding: '12px 14px', textAlign: 'center', fontFamily: 'monospace', fontWeight: 600 }}>
+                        {Number(d.totalQuantity || 0).toLocaleString()}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                        {fmtPKR(o.averageDealerSales)}
+                      <td style={{ padding: '12px 14px', textAlign: 'center', fontFamily: 'monospace' }}>
+                        {d.ordersCount || 0}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                         <button
                           type="button"
-                          onClick={() => navigateToOfficer(o.officerId, o.officerName)}
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            navigateToDealer(d.dealerId, d.dealerName, d.dealerCode);
+                          }}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '4px',
-                            background: 'var(--bg-subtle)',
-                            border: '1px solid var(--border-default)',
-                            color: 'var(--brand-primary)',
-                            padding: '5px 10px',
+                            background: 'var(--brand-primary)',
+                            border: 'none',
+                            color: '#ffffff',
+                            padding: '5px 12px',
                             borderRadius: 'var(--radius-sm)',
                             fontSize: '12px',
                             fontWeight: 700,
                             cursor: 'pointer',
-                            transition: 'all 0.15s ease',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                           }}
                         >
-                          <span>View Dealers</span>
+                          <span>Open Card</span>
                           <IconArrowRight size={13} />
                         </button>
                       </td>
@@ -2383,11 +2438,14 @@ export const MarketPerformanceView: React.FC = () => {
                 </div>
 
                 <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-                  <span>City: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.city}</strong></span>
-                  <span>Territory: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.territory}</strong></span>
-                  <span>Zone: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.zone}</strong></span>
+                  <span>Province: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.province || 'Punjab'}</strong></span>
                   <span>Region: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.region}</strong></span>
-                  <span>Field Officer: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.assignedOfficer}</strong></span>
+                  <span>Zone: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.zone}</strong></span>
+                  <span>Territory: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.territory}</strong></span>
+                  <span>City: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.city}</strong></span>
+                  {performanceData.dealer.assignedOfficer && performanceData.dealer.assignedOfficer !== 'Unassigned' && (
+                    <span>Sales Officer: <strong style={{ color: 'var(--text-primary)' }}>{performanceData.dealer.assignedOfficer}</strong></span>
+                  )}
                 </div>
               </div>
 
@@ -2660,6 +2718,14 @@ export const MarketPerformanceView: React.FC = () => {
         isOpen={isInvoiceModalOpen}
         onClose={() => setIsInvoiceModalOpen(false)}
         invoice={activeInvoice}
+      />
+
+      {/* In-App PDF Viewer Modal */}
+      <PdfViewerModal
+        isOpen={isPdfViewerOpen}
+        onClose={() => setIsPdfViewerOpen(false)}
+        title={pdfViewerTitle}
+        htmlContent={pdfViewerHtml}
       />
     </div>
   );

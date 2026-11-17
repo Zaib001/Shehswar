@@ -29,6 +29,7 @@ export class PurchaseController {
   async findAll(
     @CurrentUser() user: AuthUser,
     @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('vendorId') vendorId?: string,
     @Query('warehouseId') warehouseId?: string,
     @Query('postingStatus') postingStatus?: string,
@@ -38,7 +39,10 @@ export class PurchaseController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    const companyId = user.isSuperAdmin ? ctx.companyId ?? user.companyId : user.companyId;
+    const companyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
     return this.purchaseService.findAll(companyId, user.organizationId, {
       vendorId,
       warehouseId,
@@ -56,18 +60,29 @@ export class PurchaseController {
   async createReturn(
     @Body() dto: CreatePurchaseReturnDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
-    return this.purchaseService.createReturn(dto, user);
+    const effectiveCompanyId =
+      (dto.companyId && dto.companyId !== 'ALL' ? dto.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.createReturn({ ...dto, companyId: effectiveCompanyId }, user);
   }
 
   // GET /api/v1/purchases/returns
   @Get('returns')
   async findAllReturns(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('vendorId') vendorId?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.purchaseService.findAllReturns(user.companyId, {
+    const companyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.findAllReturns(companyId, {
       vendorId,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
@@ -76,10 +91,15 @@ export class PurchaseController {
   // POST /api/v1/purchases/match-material  — fuzzy match before auto-create
   @Post('match-material')
   async matchMaterial(
-    @Body() body: { itemName: string },
+    @Body() body: { itemName: string; companyId?: string },
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
-    return this.purchaseService.matchMaterial(body.itemName, user.companyId);
+    const companyId =
+      (body.companyId && body.companyId !== 'ALL' ? body.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.matchMaterial(body.itemName, companyId);
   }
 
   // POST /api/v1/purchases/auto-create-material  — create missing master after confirmation
@@ -91,13 +111,19 @@ export class PurchaseController {
       itemName: string;
       packing?: string;
       purchaseRate?: number;
+      companyId?: string;
     },
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
+    const companyId =
+      (body.companyId && body.companyId !== 'ALL' ? body.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
     return this.purchaseService.autoCreateMaterial(
       {
         organizationId: user.organizationId,
-        companyId: user.companyId,
+        companyId,
         ...body,
       },
       user,
@@ -107,22 +133,44 @@ export class PurchaseController {
   // POST /api/v1/purchases/warehouses/quick-create  — inline warehouse creation
   @Post('warehouses/quick-create')
   async quickCreateWarehouse(
-    @Body() body: { name: string; code?: string; location?: string },
+    @Body() body: { name: string; code?: string; location?: string; companyId?: string },
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
-    return this.purchaseService.quickCreateWarehouse(body, user);
+    const companyId =
+      (body.companyId && body.companyId !== 'ALL' ? body.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.quickCreateWarehouse({ ...body, companyId } as any, user);
   }
 
   // GET /api/v1/purchases/:id
   @Get(':id')
-  async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.purchaseService.findOne(id, user.companyId);
+  async findOne(
+    @Param('id') id: string,
+    @Query('companyId') queryCompanyId?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+  ) {
+    const companyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user?.companyId;
+    return this.purchaseService.findOne(id, companyId!);
   }
 
   // POST /api/v1/purchases  — create DRAFT
   @Post()
-  async create(@Body() dto: CreatePurchaseDto, @CurrentUser() user: AuthUser) {
-    return this.purchaseService.create(dto, user);
+  async create(
+    @Body() dto: CreatePurchaseDto,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+  ) {
+    const companyId =
+      (dto.companyId && dto.companyId !== 'ALL' ? dto.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.create({ ...dto, companyId }, user);
   }
 
   // POST /api/v1/purchases/batch  — batch create from multi-date sheet
@@ -130,8 +178,16 @@ export class PurchaseController {
   async createBatch(
     @Body() body: { purchases: CreatePurchaseDto[] } | CreatePurchaseDto[],
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
-    const list = Array.isArray(body) ? body : body.purchases;
+    const defaultCompanyId =
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    const rawList = Array.isArray(body) ? body : body.purchases;
+    const list = rawList.map((p) => ({
+      ...p,
+      companyId: (p.companyId && p.companyId !== 'ALL' ? p.companyId : undefined) || defaultCompanyId,
+    }));
     return this.purchaseService.createBatch(list, user);
   }
 
@@ -167,10 +223,16 @@ export class PurchaseReturnsController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('vendorId') vendorId?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.purchaseService.findAllReturns(user.companyId, {
+    const companyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.findAllReturns(companyId, {
       vendorId,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
@@ -180,7 +242,12 @@ export class PurchaseReturnsController {
   async create(
     @Body() dto: CreatePurchaseReturnDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
-    return this.purchaseService.createReturn(dto, user);
+    const companyId =
+      (dto.companyId && dto.companyId !== 'ALL' ? dto.companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.purchaseService.createReturn({ ...dto, companyId }, user);
   }
 }

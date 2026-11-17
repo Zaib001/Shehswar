@@ -34,6 +34,7 @@ import {
   IconFilter,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { cleanPackSize } from './PurchaseOrdersView';
 
@@ -228,6 +229,7 @@ export function getTypeBadgeInfo(itemType: string): {
 
 export const WarehouseStockView: React.FC = () => {
   const { showToast } = useToast();
+  const { activeCompanyId } = useCompany();
   const [stocks, setStocks] = useState<WarehouseStockRecord[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -243,11 +245,15 @@ export const WarehouseStockView: React.FC = () => {
       setIsLoading(true);
       try {
         const activeWh = targetWarehouseId !== undefined ? targetWarehouseId : warehouseFilter;
-        const whParam = activeWh && activeWh !== 'ALL' ? `?warehouseId=${encodeURIComponent(activeWh)}` : '';
+        const compParam = activeCompanyId && activeCompanyId !== 'ALL' ? `companyId=${encodeURIComponent(activeCompanyId)}` : '';
+        const whParam = activeWh && activeWh !== 'ALL' ? `warehouseId=${encodeURIComponent(activeWh)}` : '';
+        const queryParts = [compParam, whParam].filter(Boolean).join('&');
+        const stockQuery = queryParts ? `?${queryParts}` : '';
+        const whQuery = compParam ? `?${compParam}` : '';
 
         const [stockRes, whRes] = await Promise.all([
-          ApiClient.get<any>(`/api/v1/warehouse-stock/report${whParam}`).catch(() => ({ data: [] })),
-          ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
+          ApiClient.get<any>(`/api/v1/warehouse-stock/report${stockQuery}`).catch(() => ({ data: [] })),
+          ApiClient.get<any>(`/api/v1/master-data/warehouses${whQuery}`).catch(() => ({ data: [] })),
         ]);
 
         const stockList: WarehouseStockRecord[] = Array.isArray(stockRes.data)
@@ -265,7 +271,7 @@ export const WarehouseStockView: React.FC = () => {
         setIsLoading(false);
       }
     },
-    [warehouseFilter, showToast]
+    [warehouseFilter, showToast, activeCompanyId]
   );
 
   useEffect(() => {

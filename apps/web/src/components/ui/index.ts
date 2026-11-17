@@ -22,3 +22,4 @@ export * from './ErrorState';
 export * from './FileUpload';
 export * from './DataTable';
 export * from './SearchableCombobox';
+export * from './PdfViewerModal';

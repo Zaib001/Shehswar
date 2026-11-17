@@ -300,9 +300,12 @@ export class VendorService {
    */
   async getVendorLedger(
     vendorId: string,
-    options?: { startDate?: Date; endDate?: Date; limit?: number },
+    options?: { companyId?: string; startDate?: Date; endDate?: Date; limit?: number },
   ) {
     const where: any = { vendorId };
+    if (options?.companyId) {
+      where.companyId = options.companyId;
+    }
     if (options?.startDate || options?.endDate) {
       where.entryDate = {};
       if (options?.startDate) where.entryDate.gte = options.startDate;

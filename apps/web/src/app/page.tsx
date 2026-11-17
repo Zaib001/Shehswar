@@ -12,6 +12,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/auth-context';
+import { useCompany } from '../context/company-context';
 import LoginPage from './login/page';
 import { AppShell } from '../components/layout/app-shell';
 import {
@@ -246,6 +247,7 @@ function isRoutePermittedForUser(route: string, user: any): { permitted: boolean
 
 export default function ShowroomPage() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { activeCompanyId } = useCompany();
   const { showToast } = useToast();
 
   // Active showcase archetype tab
@@ -616,13 +618,14 @@ export default function ShowroomPage() {
           {currentRoute === 'procurement-comparison' && (
             <QuotationComparisonView onNavigateToPoCreate={() => setCurrentRoute('procurement-po')} />
           )}
-          {currentRoute === 'procurement-po' && <PurchaseOrdersView />}
-          {currentRoute === 'procurement-grn' && <GoodsReceiptView />}
-          {currentRoute === 'procurement-performance' && <VendorPerformanceView />}
+          {currentRoute === 'procurement-po' && <PurchaseOrdersView key={activeCompanyId} />}
+          {currentRoute === 'procurement-grn' && <GoodsReceiptView key={activeCompanyId} />}
+          {currentRoute === 'procurement-performance' && <VendorPerformanceView key={activeCompanyId} />}
 
           {/* Canonical Operations Modules */}
           {currentRoute === 'purchase-orders' && (
             <PurchaseOrdersView
+              key={activeCompanyId}
               onConvertToPurchase={(poData) => {
                 setSelectedPoForConversion(poData);
                 setCurrentRoute('purchases');
@@ -631,48 +634,51 @@ export default function ShowroomPage() {
           )}
           {currentRoute === 'purchases' && (
             <PurchasesView
+              key={activeCompanyId}
               initialPoData={selectedPoForConversion}
               onClearPoData={() => setSelectedPoForConversion(null)}
             />
           )}
-          {currentRoute === 'purchase-cash-payments' && <PurchaseCashPaymentsView />}
-          {currentRoute === 'purchase-returns' && <PurchaseReturnsView />}
-          {currentRoute === 'rate-lists' && <PricingManagementView />}
+          {currentRoute === 'purchase-cash-payments' && <PurchaseCashPaymentsView key={activeCompanyId} />}
+          {currentRoute === 'purchase-returns' && <PurchaseReturnsView key={activeCompanyId} />}
+          {currentRoute === 'rate-lists' && <PricingManagementView key={activeCompanyId} />}
           {currentRoute === 'sales-orders' && (
             <SalesOrdersView
+              key={activeCompanyId}
               initialDealerId={selectedDealerForOrder}
               onClearDealerId={() => setSelectedDealerForOrder(null)}
               onNavigateToInvoices={() => setCurrentRoute('sales-invoices')}
             />
           )}
           {currentRoute === 'sales-invoices' && (
-            <SalesInvoicesView onNavigateToOrders={() => setCurrentRoute('sales-orders')} />
+            <SalesInvoicesView key={activeCompanyId} onNavigateToOrders={() => setCurrentRoute('sales-orders')} />
           )}
           {currentRoute === 'dealers' && (
             <DealersView
+              key={activeCompanyId}
               onNavigateToCreateOrder={(dealer) => {
                 setSelectedDealerForOrder(dealer.id);
                 setCurrentRoute('sales-orders');
               }}
             />
           )}
-          {currentRoute === 'market-management' && <MarketManagementView />}
-          {currentRoute === 'market-performance' && <MarketPerformanceView />}
-          {currentRoute === 'sales-returns' && <SalesReturnsView />}
-          {currentRoute === 'dealer-payments' && <DealerPaymentsView />}
-          {currentRoute === 'intercompany-transfers' && <IntercompanyTransferView />}
-          {currentRoute === 'warehouse-stock' && <WarehouseStockView />}
-          {currentRoute === 'product-costing' && <ProductCostingView />}
-          {currentRoute === 'gate-passes' && <GatePassesView />}
-          {currentRoute === 'finance' && <FinanceView />}
-          {currentRoute === 'financial-transactions' && <FinancialTransactionsView />}
-          {currentRoute === 'provisional-receipts' && <ProvisionalReceiptsView />}
-          {currentRoute === 'vehicles' && <VehiclesView />}
-          {currentRoute === 'credit-control' && <CreditControlView defaultTab="dashboard" />}
-          {currentRoute === 'percentage-credit-report' && <CreditControlView defaultTab="percentage-credit" />}
-          {currentRoute === 'employee-cost' && <EmployeesView defaultTab="cost-control" />}
-          {currentRoute === 'control-audit' && <ControlAuditView />}
-          {currentRoute === 'consolidated-reporting' && <ConsolidatedReportingView />}
+          {currentRoute === 'market-management' && <MarketManagementView key={activeCompanyId} />}
+          {currentRoute === 'market-performance' && <MarketPerformanceView key={activeCompanyId} />}
+          {currentRoute === 'sales-returns' && <SalesReturnsView key={activeCompanyId} />}
+          {currentRoute === 'dealer-payments' && <DealerPaymentsView key={activeCompanyId} />}
+          {currentRoute === 'intercompany-transfers' && <IntercompanyTransferView key={activeCompanyId} />}
+          {currentRoute === 'warehouse-stock' && <WarehouseStockView key={activeCompanyId} />}
+          {currentRoute === 'product-costing' && <ProductCostingView key={activeCompanyId} />}
+          {currentRoute === 'gate-passes' && <GatePassesView key={activeCompanyId} />}
+          {currentRoute === 'finance' && <FinanceView key={activeCompanyId} />}
+          {currentRoute === 'financial-transactions' && <FinancialTransactionsView key={activeCompanyId} />}
+          {currentRoute === 'provisional-receipts' && <ProvisionalReceiptsView key={activeCompanyId} />}
+          {currentRoute === 'vehicles' && <VehiclesView key={activeCompanyId} />}
+          {currentRoute === 'credit-control' && <CreditControlView key={activeCompanyId} defaultTab="dashboard" />}
+          {currentRoute === 'percentage-credit-report' && <CreditControlView key={activeCompanyId} defaultTab="percentage-credit" />}
+          {currentRoute === 'employee-cost' && <EmployeesView key={activeCompanyId} defaultTab="cost-control" />}
+          {currentRoute === 'control-audit' && <ControlAuditView key={activeCompanyId} />}
+          {currentRoute === 'consolidated-reporting' && <ConsolidatedReportingView key={activeCompanyId} />}
         </>
       )}
 

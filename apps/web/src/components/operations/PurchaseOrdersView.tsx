@@ -30,6 +30,7 @@ import {
 } from '../ui';
 import { IconPlus, IconRefresh, IconCheck, IconClose, IconTrash, IconEye, IconFileText, IconArrowLeft, IconEdit } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 
 /**
@@ -546,6 +547,7 @@ interface PurchaseOrdersViewProps {
 
 export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConvertToPurchase: _onConvertToPurchase }) => {
   const { showToast } = useToast();
+  const { activeCompanyId } = useCompany();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [orders, setOrders] = useState<PurchaseOrderRecord[]>([]);
@@ -871,14 +873,18 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const compParam = activeCompanyId && activeCompanyId !== 'ALL' ? `companyId=${encodeURIComponent(activeCompanyId)}` : '';
+      const compQuery = compParam ? `?${compParam}` : '';
+      const compAmp = compParam ? `&${compParam}` : '';
+
       const results = await Promise.allSettled([
-        ApiClient.get<any>('/api/v1/operations/purchase-orders'),
-        ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000'),
-        ApiClient.get<any>('/api/v1/master-data/warehouses'),
-        ApiClient.get<any>('/api/v1/master-data/raw-materials?all=true'),
-        ApiClient.get<any>('/api/v1/master-data/packing-materials?all=true'),
-        ApiClient.get<any>('/api/v1/master-data/finished-products?all=true'),
-        ApiClient.get<any>('/api/v1/master-data/all-products?tab=OTHER'),
+        ApiClient.get<any>(`/api/v1/operations/purchase-orders${compQuery}`),
+        ApiClient.get<any>(`/api/v1/procurement/vendors?limit=1000${compAmp}`),
+        ApiClient.get<any>(`/api/v1/master-data/warehouses${compQuery}`),
+        ApiClient.get<any>(`/api/v1/master-data/raw-materials${compQuery}`),
+        ApiClient.get<any>(`/api/v1/master-data/packing-materials${compQuery}`),
+        ApiClient.get<any>(`/api/v1/master-data/finished-products${compQuery}`),
+        ApiClient.get<any>(`/api/v1/master-data/all-products?tab=OTHER${compAmp}`),
       ]);
 
       const poList = results[0].status === 'fulfilled' ? unpackArray(results[0].value) : [];
@@ -912,7 +918,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompanyId]);
 
   useEffect(() => {
     loadData();

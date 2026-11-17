@@ -388,12 +388,18 @@ export class VendorPaymentsController {
   async getVendorLedger(
     @Param('vendorId') vendorId: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.vendorLedgerService.getVendorLedger(vendorId, user.companyId, {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.vendorLedgerService.getVendorLedger(vendorId, effectiveCompanyId, {
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -402,8 +408,17 @@ export class VendorPaymentsController {
   }
 
   @Get('vendor/:vendorId/balance')
-  async getVendorBalance(@Param('vendorId') vendorId: string, @CurrentUser() user: AuthUser) {
-    return this.vendorLedgerService.getVendorBalance(vendorId, user.companyId);
+  async getVendorBalance(
+    @Param('vendorId') vendorId: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.vendorLedgerService.getVendorBalance(vendorId, effectiveCompanyId);
   }
 }
 
@@ -422,27 +437,65 @@ export class WarehouseStockController {
     @Query('warehouseId') warehouseId?: string,
     @Query('companyId') companyId?: string,
   ) {
-    const effectiveCompanyId = companyId || ctx?.companyId || user?.companyId;
+    const effectiveCompanyId =
+      (companyId && companyId !== 'ALL' ? companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user?.companyId;
     return this.salesService.getWarehouseStockReport(effectiveCompanyId, warehouseId);
   }
 
   @Get('sales-products')
-  async getProductsForSale(@CurrentUser() user: AuthUser) {
-    return this.salesService.getProductsForSale(user.companyId);
+  async getProductsForSale(
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.getProductsForSale(effectiveCompanyId);
   }
 
   @Delete('bulk')
-  async deleteBulkStock(@Body('ids') ids: string[], @CurrentUser() user: AuthUser) {
-    return this.salesService.deleteBulkWarehouseStock(ids, user.companyId);
+  async deleteBulkStock(
+    @Body('ids') ids: string[],
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.deleteBulkWarehouseStock(ids, effectiveCompanyId);
   }
 
   @Delete('purge/all')
-  async purgeAllStock(@CurrentUser() user: AuthUser, @Query('warehouseId') warehouseId?: string) {
-    return this.salesService.purgeAllWarehouseStock(user.companyId, warehouseId);
+  async purgeAllStock(
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.purgeAllWarehouseStock(effectiveCompanyId, warehouseId);
   }
 
   @Delete(':id')
-  async deleteStockRecord(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.deleteWarehouseStock(id, user.companyId);
+  async deleteStockRecord(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.deleteWarehouseStock(id, effectiveCompanyId);
   }
 }

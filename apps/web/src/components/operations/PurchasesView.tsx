@@ -36,8 +36,14 @@ import {
   IconDownload,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
-import { exportPurchaseInvoiceToPdf, PurchaseInvoiceExportData } from '../../lib/pdf-export';
+import {
+  exportPurchaseInvoiceToPdf,
+  generatePurchaseInvoiceHtml,
+  PurchaseInvoiceExportData,
+} from '../../lib/pdf-export';
+import { PdfViewerModal } from '../ui';
 import { PurchaseCashPaymentsView } from './PurchaseCashPaymentsView';
 
 export interface PurchaseItemRow {
@@ -108,6 +114,7 @@ export interface PurchasesViewProps {
 
 export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onClearPoData: _onClearPoData }) => {
   const { showToast } = useToast();
+  const { activeCompanyId } = useCompany();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const [invoices, setInvoices] = useState<PurchaseInvoiceRecord[]>([]);
@@ -151,6 +158,11 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [splitItemIndex, setSplitItemIndex] = useState<number | null>(null);
   const [splitAllocations, setSplitAllocations] = useState<Array<{ warehouseId: string; quantity: number }>>([]);
+
+  // Inline PDF Viewer State
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
+  const [pdfViewerHtml, setPdfViewerHtml] = useState<string>('');
+  const [pdfViewerTitle, setPdfViewerTitle] = useState<string>('Purchase Invoice');
 
   // Form State
   const [formData, setFormData] = useState({
@@ -211,13 +223,16 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const compParam = activeCompanyId && activeCompanyId !== 'ALL' ? `companyId=${encodeURIComponent(activeCompanyId)}` : '';
+      const compQuery = compParam ? `?${compParam}` : '';
+
       const [invRes, venRes, whRes, rmRes, pmRes, retRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/purchases').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/procurement/vendors').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/raw-materials').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/packing-materials').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/purchases/returns').catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/purchases${compQuery}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/procurement/vendors${compQuery}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/master-data/warehouses${compQuery}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/master-data/raw-materials${compQuery}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/master-data/packing-materials${compQuery}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/purchases/returns${compQuery}`).catch(() => ({ data: [] })),
       ]);
 
       setInvoices(Array.isArray(invRes.data) ? invRes.data : invRes.data?.data || []);
@@ -231,7 +246,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompanyId]);
 
   useEffect(() => {
     loadData();
@@ -820,7 +835,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
     }
   };
 
-  const handleExportInvoicePdf = async (inv: PurchaseInvoiceRecord) => {
+  const getInvoiceExportData = async (inv: PurchaseInvoiceRecord): Promise<PurchaseInvoiceExportData> => {
     let fullInv = inv;
     if (!fullInv.items || fullInv.items.length === 0) {
       try {
@@ -836,7 +851,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
     const vendorObj = vendors.find((v) => v.id === fullInv.vendorId) || fullInv.vendor;
     const warehouseObj = warehouses.find((w) => w.id === fullInv.warehouseId) || fullInv.warehouse;
 
-    const exportData: PurchaseInvoiceExportData = {
+    return {
       voucherNumber: fullInv.voucherNumber,
       date: fullInv.date,
       postingStatus: fullInv.postingStatus,
@@ -873,7 +888,18 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
         netAmount: Number(it.netAmount) || 0,
       })),
     };
+  };
 
+  const handleViewInvoicePdf = async (inv: PurchaseInvoiceRecord) => {
+    const exportData = await getInvoiceExportData(inv);
+    const html = generatePurchaseInvoiceHtml(exportData);
+    setPdfViewerHtml(html);
+    setPdfViewerTitle(`Purchase Invoice ${inv.voucherNumber}`);
+    setIsPdfViewerOpen(true);
+  };
+
+  const handleExportInvoicePdf = async (inv: PurchaseInvoiceRecord) => {
+    const exportData = await getInvoiceExportData(inv);
     exportPurchaseInvoiceToPdf(exportData);
   };
 
@@ -1212,6 +1238,14 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
             }}
           >
             <IconEye size={15} /> View
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleViewInvoicePdf(inv)}
+            title="View Purchase Invoice PDF (In-App)"
+          >
+            <IconEye size={14} /> View PDF
           </Button>
           <Button
             variant="ghost"
@@ -1702,6 +1736,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
               Back to List
             </Button>
             <Button
+              variant="secondary"
+              onClick={() => handleViewInvoicePdf(selectedInvoice)}
+            >
+              <IconEye size={15} /> View PDF
+            </Button>
+            <Button
               variant="primary"
               onClick={() => handleExportInvoicePdf(selectedInvoice)}
             >
@@ -1866,6 +1906,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
           </div>
         </div>
         {renderReturnModal()}
+        <PdfViewerModal
+          isOpen={isPdfViewerOpen}
+          onClose={() => setIsPdfViewerOpen(false)}
+          title={pdfViewerTitle}
+          htmlContent={pdfViewerHtml}
+        />
       </DetailPageTemplate>
     );
   }
@@ -2079,6 +2125,12 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
       </Modal>
 
       {renderReturnModal()}
+      <PdfViewerModal
+        isOpen={isPdfViewerOpen}
+        onClose={() => setIsPdfViewerOpen(false)}
+        title={pdfViewerTitle}
+        htmlContent={pdfViewerHtml}
+      />
     </ListPageTemplate>
   );
 };

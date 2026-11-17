@@ -221,10 +221,10 @@ export class OperationalPoService {
   }
 
   async quickCreateVendor(
-    params: { name: string; code?: string; vendorType?: string; phone?: string; email?: string; address?: string },
+    params: { name: string; code?: string; vendorType?: string; phone?: string; email?: string; address?: string; companyId?: string },
     user: AuthUser,
   ) {
-    const companyId = user.companyId;
+    const companyId = params.companyId || user.companyId;
     const organizationId = user.organizationId;
     if (!companyId || !organizationId) throw new BadRequestException('Organization and Company context required');
 
@@ -265,10 +265,10 @@ export class OperationalPoService {
   }
 
   async quickCreateMaterial(
-    params: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER' | 'FINISHED_PRODUCT'; packing?: string; unit?: string; purchaseRate?: number },
+    params: { itemName: string; materialType?: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'OTHER' | 'FINISHED_PRODUCT'; packing?: string; unit?: string; purchaseRate?: number; companyId?: string },
     user: AuthUser,
   ) {
-    const companyId = user.companyId;
+    const companyId = params.companyId || user.companyId;
     const organizationId = user.organizationId;
     if (!companyId || !organizationId) throw new BadRequestException('Organization and Company context required');
 

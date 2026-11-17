@@ -13,8 +13,10 @@ import {
 } from '@nestjs/common';
 import { VendorService } from './vendor.service';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentContext } from '../../core/decorators/current-context.decorator';
 import {
   AuthUser,
+  SecurityContext,
   CreateVendorDto,
   UpdateVendorDto,
   VendorFilterDto,
@@ -36,10 +38,16 @@ export class VendorController {
     @Query('category') category?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
+    const effectiveCompanyId =
+      (companyId && companyId !== 'ALL' ? companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      (companyId === 'ALL' && user?.isSuperAdmin ? undefined : user?.companyId);
     const filter: VendorFilterDto = {
       organizationId,
-      companyId,
+      companyId: effectiveCompanyId,
       search,
       vendorType,
       status,
@@ -118,11 +126,19 @@ export class VendorController {
   @Get(':id/ledger')
   async getVendorLedger(
     @Param('id') id: string,
+    @Query('companyId') companyId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('limit') limit?: string,
+    @CurrentUser() user?: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
   ) {
+    const effectiveCompanyId =
+      (companyId && companyId !== 'ALL' ? companyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user?.companyId;
     return this.vendorService.getVendorLedger(id, {
+      companyId: effectiveCompanyId,
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       limit: limit ? parseInt(limit, 10) : 100,

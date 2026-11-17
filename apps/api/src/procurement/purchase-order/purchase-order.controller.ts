@@ -36,10 +36,8 @@ export class PurchaseOrderController {
     @CurrentUser() user?: AuthUser,
     @CurrentContext() ctx?: SecurityContext,
   ) {
-    const isSuperAdmin = user?.isSuperAdmin === true;
-    const effectiveCompanyId = isSuperAdmin
-      ? (companyId === 'ALL' ? undefined : (companyId || ctx?.companyId))
-      : (user?.companyId || ctx?.companyId);
+    const targetComp = companyId && companyId !== 'ALL' ? companyId : (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined);
+    const effectiveCompanyId = targetComp || (companyId === 'ALL' && user?.isSuperAdmin ? undefined : user?.companyId);
 
     const filter: PurchaseOrderFilterDto = {
       organizationId,

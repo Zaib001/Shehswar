@@ -832,7 +832,17 @@ export class MarketPerformanceService {
           salesOfficer: true,
           dealers: {
             where: { status: 'ACTIVE' },
-            select: { id: true, code: true, name: true, assignedFieldOfficerId: true, monthlySalesTarget: true, annualAgreementTarget: true },
+            select: {
+              id: true,
+              code: true,
+              name: true,
+              phone: true,
+              city: true,
+              creditLimit: true,
+              assignedFieldOfficerId: true,
+              monthlySalesTarget: true,
+              annualAgreementTarget: true,
+            },
           },
           userMarketAssignments: {
             where: { status: 'ACTIVE' },
@@ -924,6 +934,71 @@ export class MarketPerformanceService {
       if (inv.dealerId) oData.dealers.add(inv.dealerId);
     }
 
+    // Direct Dealer Breakdown under Territory (Province -> Region -> Zone -> Territory -> Dealer)
+    const dealerMetricsMap = new Map<string, {
+      dealerId: string;
+      dealerCode: string;
+      dealerName: string;
+      phone?: string;
+      city?: string;
+      actualSales: number;
+      totalQuantity: number;
+      ordersCount: number;
+      target: number;
+      creditLimit: number;
+    }>();
+
+    // Pre-populate all active dealers belonging directly to this Territory
+    for (const d of territory.dealers || []) {
+      const mTarget = Number(d.monthlySalesTarget || 0);
+      const aTarget = Number(d.annualAgreementTarget || 0);
+      const effTarget = mTarget > 0 ? mTarget : aTarget > 0 ? Math.round(aTarget / 12) : 0;
+      dealerMetricsMap.set(d.id, {
+        dealerId: d.id,
+        dealerCode: d.code || '',
+        dealerName: d.name || 'Unnamed Dealer',
+        phone: (d as any).phone || '',
+        city: (d as any).city || '',
+        actualSales: 0,
+        totalQuantity: 0,
+        ordersCount: 0,
+        target: effTarget,
+        creditLimit: Number((d as any).creditLimit || 0),
+      });
+    }
+
+    // Accumulate invoice sales directly into the dealer records
+    for (const inv of invoices) {
+      if (inv.dealerId) {
+        if (!dealerMetricsMap.has(inv.dealerId)) {
+          dealerMetricsMap.set(inv.dealerId, {
+            dealerId: inv.dealerId,
+            dealerCode: (inv.dealer as any)?.code || '',
+            dealerName: (inv.dealer as any)?.name || 'Direct Dealer',
+            phone: '',
+            city: '',
+            actualSales: 0,
+            totalQuantity: 0,
+            ordersCount: 0,
+            target: 0,
+            creditLimit: 0,
+          });
+        }
+        const dEntry = dealerMetricsMap.get(inv.dealerId)!;
+        dEntry.actualSales += Number(inv.netAmount || 0);
+        dEntry.totalQuantity += inv.items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+        dEntry.ordersCount += 1;
+      }
+    }
+
+    const dealers = Array.from(dealerMetricsMap.values()).map((d) => {
+      const ach = d.target > 0 ? (d.actualSales / d.target) * 100 : 0;
+      return {
+        ...d,
+        achievementPercent: Number(ach.toFixed(2)),
+      };
+    }).sort((a, b) => b.actualSales - a.actualSales);
+
     const officers = Array.from(officerMap.entries()).map(([officerId, data]) => {
       const officerTarget = aggregates.userTargetMap.get(officerId) || 0;
       const officerCredit = aggregates.userCreditMap.get(officerId) || 0;
@@ -972,6 +1047,7 @@ export class MarketPerformanceService {
         creditLimit: finalTerritoryCredit,
         achievementPercent: Number(achievementPercent.toFixed(2)),
       },
+      dealers,
       officers,
       products: this.aggregateTopProducts(invoices, totalRevenue),
     };
@@ -1223,9 +1299,24 @@ export class MarketPerformanceService {
         city: dealer.city || '—',
         address: dealer.address || '',
         status: dealer.status,
+        province: 'Punjab',
         territory: dealer.territory?.name || 'Unassigned',
+        territoryCode: dealer.territory?.code || '',
         zone: dealer.territory?.zone?.name || 'Unassigned',
+        zoneCode: dealer.territory?.zone?.code || '',
         region: dealer.territory?.zone?.region?.name || 'Unassigned',
+        regionCode: dealer.territory?.zone?.region?.code || '',
+        hierarchy: {
+          province: 'Punjab',
+          region: dealer.territory?.zone?.region?.name || '—',
+          regionCode: dealer.territory?.zone?.region?.code || '',
+          zone: dealer.territory?.zone?.name || '—',
+          zoneCode: dealer.territory?.zone?.code || '',
+          territory: dealer.territory?.name || '—',
+          territoryCode: dealer.territory?.code || '',
+          dealer: dealer.name,
+          dealerCode: dealer.code,
+        },
         assignedOfficer: dealer.assignedOfficer
           ? `${dealer.assignedOfficer.firstName} ${dealer.assignedOfficer.lastName}`.trim()
           : 'Unassigned',
