@@ -722,13 +722,6 @@ export class MasterDataController {
     const orgId = dto.organizationId || ctx?.organizationId || user?.organizationId;
     const compId = dto.companyId || ctx?.companyId || user?.companyId;
 
-    if (!orgId) {
-      throw new BadRequestException('Organization context could not be determined');
-    }
-    if (!compId) {
-      throw new BadRequestException('Company context could not be determined');
-    }
-
     const finalDto = {
       ...dto,
       organizationId: orgId,

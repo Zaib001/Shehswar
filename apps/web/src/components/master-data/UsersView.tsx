@@ -53,9 +53,25 @@ export interface UserRecord {
   employee?: any;
   role?: any;
   company?: any;
+  creditLimit?: number;
+  targetAmount?: number;
   lastLoginAt?: Date;
   createdAt: Date;
 }
+
+const formatPKR = (amount: number | string | undefined | null) => {
+  const val = Number(amount || 0);
+  if (!val) return 'PKR 0';
+  if (val >= 10000000) {
+    const cr = (val / 10000000).toFixed(2).replace(/\.00$/, '');
+    return `PKR ${val.toLocaleString()} (${cr} Cr)`;
+  }
+  if (val >= 100000) {
+    const lakh = (val / 100000).toFixed(2).replace(/\.00$/, '');
+    return `PKR ${val.toLocaleString()} (${lakh} Lakh)`;
+  }
+  return `PKR ${val.toLocaleString()}`;
+};
 
 export const UsersView: React.FC = () => {
   const { showToast } = useToast();
@@ -108,6 +124,9 @@ interface MarketAssignmentItem {
     companyId: '',
     roleId: '',
     status: 'ACTIVE' as UserRecord['status'],
+    // Financial Target & Credit Limit
+    creditLimit: '',
+    targetAmount: '',
     // Market Assignments (Multiple support)
     marketAssignments: [] as MarketAssignmentItem[],
   });
@@ -228,12 +247,12 @@ interface MarketAssignmentItem {
       if (mode === 'create') {
         let finalEmployeeId = formData.employeeId;
 
-        // If creating new employee first
-        if (formData.employeeOption === 'new' && formData.newEmployeeCode) {
+        // If creating new employee first (auto-generate code if left blank)
+        if (formData.employeeOption === 'new') {
           const empRes = await ApiClient.post<any>('/api/v1/master-data/employees', {
-            employeeCode: formData.newEmployeeCode,
+            employeeCode: (formData.newEmployeeCode || 'AUTO').trim().toUpperCase(),
             firstName: formData.newEmployeeFirstName || formData.firstName,
-            lastName: formData.newEmployeeLastName || formData.lastName,
+            lastName: formData.newEmployeeLastName || formData.lastName || '',
             companyId: formData.companyId || companies[0]?.id,
             department: formData.newEmployeeDepartment,
             position: formData.newEmployeePosition,
@@ -245,16 +264,9 @@ interface MarketAssignmentItem {
           }
         }
 
-        const payload = {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          phone: formData.phone,
-          companyId: formData.companyId || companies[0]?.id,
-          roleId: formData.roleId || roles[0]?.id,
-          employeeId: finalEmployeeId || undefined,
-          password: formData.password || 'Shehswar@2026!',
-          marketAssignments: formData.marketAssignments.map((a) => ({
+        const validAssignments = formData.marketAssignments
+          .filter((a) => Boolean(a.regionId || a.zoneId || a.territoryId))
+          .map((a) => ({
             roleScope: a.roleScope,
             regionId: a.regionId || null,
             zoneId: a.zoneId || null,
@@ -262,20 +274,35 @@ interface MarketAssignmentItem {
             isPrimary: a.isPrimary,
             effectiveFrom: a.effectiveFrom ? new Date(a.effectiveFrom) : new Date(),
             effectiveTo: a.effectiveTo ? new Date(a.effectiveTo) : null,
-          })),
+          }));
+
+        const payload = {
+          firstName: formData.firstName,
+          lastName: formData.lastName || '',
+          email: formData.email,
+          phone: formData.phone,
+          companyId: formData.companyId || companies[0]?.id,
+          roleId: formData.roleId || roles[0]?.id,
+          employeeId: finalEmployeeId || undefined,
+          password: formData.password || 'Shehswar@2026!',
+          creditLimit: formData.creditLimit !== '' ? Number(formData.creditLimit) : undefined,
+          targetAmount: formData.targetAmount !== '' ? Number(formData.targetAmount) : undefined,
+          marketAssignments: validAssignments,
         };
 
         await ApiClient.post('/api/v1/master-data/users', payload);
-        showToast({ title: 'Success', message: `User ${formData.email} registered with market assignments`, type: 'success' });
+        showToast({ title: 'Success', message: `User ${formData.email} registered successfully`, type: 'success' });
         await fetchData();
       } else if (mode === 'edit' && selectedUser) {
         const payload = {
           firstName: formData.firstName,
-          lastName: formData.lastName,
+          lastName: formData.lastName || '',
           phone: formData.phone,
           companyId: formData.companyId,
           roleId: formData.roleId,
           status: formData.status,
+          creditLimit: formData.creditLimit !== '' ? Number(formData.creditLimit) : undefined,
+          targetAmount: formData.targetAmount !== '' ? Number(formData.targetAmount) : undefined,
         };
         await ApiClient.patch(`/api/v1/master-data/users/${selectedUser.id}`, payload);
         showToast({ title: 'Updated', message: 'User account updated', type: 'success' });
@@ -392,6 +419,31 @@ interface MarketAssignmentItem {
       },
     },
     {
+      id: 'targets',
+      header: 'Target & Credit',
+      cell: ({ row }: any) => {
+        const target = row.original.targetAmount;
+        const credit = row.original.creditLimit;
+        if (!target && !credit) {
+          return <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>;
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {target ? (
+              <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                Tgt: {formatPKR(target)}
+              </span>
+            ) : null}
+            {credit ? (
+              <span style={{ fontSize: '11px', background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                Limit: {formatPKR(credit)}
+              </span>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
       id: 'status',
       header: 'Status',
       cell: ({ row }: any) => <StatusBadge status={row.original.status} />,
@@ -434,6 +486,8 @@ interface MarketAssignmentItem {
                 companyId: row.original.companyId,
                 roleId: row.original.roleId,
                 status: row.original.status,
+                creditLimit: row.original.creditLimit ? String(row.original.creditLimit) : '',
+                targetAmount: row.original.targetAmount ? String(row.original.targetAmount) : '',
                 marketAssignments: [],
               });
               setMode('edit');
@@ -577,10 +631,10 @@ interface MarketAssignmentItem {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '8px' }}>
                   <Input
-                    label="Employee ID / Code *"
+                    label="Employee ID / Code (Auto-generated if blank)"
                     value={formData.newEmployeeCode}
                     onChange={(e) => setFormData({ ...formData, newEmployeeCode: e.target.value })}
-                    placeholder="e.g. EMP-001"
+                    placeholder="Leave blank for auto EMP-000001"
                   />
                   <Input
                     label="Designation / Position *"
@@ -697,6 +751,110 @@ interface MarketAssignmentItem {
                     : 'Non-Sales Function (Company / Plant / Department Scope)'}
                 </span>
               </div>
+
+              {/* Financial Sales Target & Credit Limit */}
+              <div
+                style={{
+                  backgroundColor: '#f8fafc',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <strong style={{ fontSize: '14px', color: '#1e293b' }}>
+                      Financial Target & Credit Limit Configuration
+                    </strong>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                      Individual targets and limits automatically roll up to Territory, Zone, and Region totals.
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <Input
+                      label="Sales Target (PKR)"
+                      type="number"
+                      value={formData.targetAmount}
+                      onChange={(e) => setFormData({ ...formData, targetAmount: e.target.value })}
+                      placeholder="e.g. 20000000 (2 Crore)"
+                    />
+                    <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 600 }}>
+                      Effective: {formatPKR(formData.targetAmount)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                      {[
+                        { label: '50 Lakh', val: 5000000 },
+                        { label: '1 Crore', val: 10000000 },
+                        { label: '2 Crore', val: 20000000 },
+                        { label: '5 Crore', val: 50000000 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, targetAmount: String(preset.val) })}
+                          style={{
+                            background: '#eff6ff',
+                            border: '1px solid #bfdbfe',
+                            borderRadius: '4px',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            color: '#1d4ed8',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <Input
+                      label="Credit Limit (PKR)"
+                      type="number"
+                      value={formData.creditLimit}
+                      onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
+                      placeholder="e.g. 1000000 (10 Lakh)"
+                    />
+                    <div style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>
+                      Effective: {formatPKR(formData.creditLimit)}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                      {[
+                        { label: '5 Lakh', val: 500000 },
+                        { label: '10 Lakh', val: 1000000 },
+                        { label: '20 Lakh', val: 2000000 },
+                        { label: '50 Lakh', val: 5000000 },
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, creditLimit: String(preset.val) })}
+                          style={{
+                            background: '#f0fdf4',
+                            border: '1px solid #bbf7d0',
+                            borderRadius: '4px',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            color: '#15803d',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -716,9 +874,22 @@ interface MarketAssignmentItem {
                 </div>
               ) : (
                 <>
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      backgroundColor: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#1d4ed8',
+                    }}
+                  >
+                    <strong>ℹ Optional Step:</strong> Market assignments are completely optional. Users can be created without market assignments and mapped later in Market Management.
+                  </div>
+
                   <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
                     A single user can manage multiple markets (e.g. Ali operates in Territory 01 and Territory 02).
-                    Add authorized assignments below:
+                    Add authorized assignments below if applicable:
                   </p>
 
                   {/* Dynamic Assignment Builder Input Panel */}
@@ -797,8 +968,8 @@ interface MarketAssignmentItem {
                   <div>
                     <strong style={{ fontSize: '13px' }}>Configured Market Assignments ({formData.marketAssignments.length}):</strong>
                     {formData.marketAssignments.length === 0 ? (
-                      <div style={{ fontSize: '12px', color: '#ef4444', marginTop: '6px' }}>
-                        * At least one market assignment is recommended for sales personnel.
+                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>
+                        No market assignments added yet. You may proceed without assignments or add one above.
                       </div>
                     ) : (
                       <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px', fontSize: '13px' }}>
@@ -874,6 +1045,22 @@ interface MarketAssignmentItem {
                   </div>
                   <div style={{ fontSize: '13px', color: '#334155' }}>
                     Company: {companies.find((c) => c.id === formData.companyId)?.name || 'Default Company'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ backgroundColor: '#eff6ff', padding: '14px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                  <div style={{ fontSize: '11px', color: '#1e40af', fontWeight: 700, textTransform: 'uppercase' }}>Financial Sales Target</div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '4px', color: '#1d4ed8' }}>
+                    {formatPKR(formData.targetAmount)}
+                  </div>
+                </div>
+
+                <div style={{ backgroundColor: '#f0fdf4', padding: '14px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontSize: '11px', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>Individual Credit Limit</div>
+                  <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '4px', color: '#15803d' }}>
+                    {formatPKR(formData.creditLimit)}
                   </div>
                 </div>
               </div>
@@ -996,6 +1183,38 @@ interface MarketAssignmentItem {
               />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Financial Target & Credit Limit</CardTitle>
+            </CardHeader>
+            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <Input
+                  label="Sales Target (PKR)"
+                  type="number"
+                  value={formData.targetAmount}
+                  onChange={(e) => setFormData({ ...formData, targetAmount: e.target.value })}
+                  placeholder="e.g. 20000000"
+                />
+                <div style={{ fontSize: '12px', color: '#1d4ed8', fontWeight: 600, marginTop: '4px' }}>
+                  Effective: {formatPKR(formData.targetAmount)}
+                </div>
+              </div>
+              <div>
+                <Input
+                  label="Credit Limit (PKR)"
+                  type="number"
+                  value={formData.creditLimit}
+                  onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
+                  placeholder="e.g. 1000000"
+                />
+                <div style={{ fontSize: '12px', color: '#15803d', fontWeight: 600, marginTop: '4px' }}>
+                  Effective: {formatPKR(formData.creditLimit)}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </FormPageTemplate>
     );
@@ -1042,6 +1261,8 @@ interface MarketAssignmentItem {
                 companyId: selectedUser.companyId,
                 roleId: selectedUser.roleId,
                 status: selectedUser.status,
+                creditLimit: selectedUser.creditLimit ? String(selectedUser.creditLimit) : '',
+                targetAmount: selectedUser.targetAmount ? String(selectedUser.targetAmount) : '',
                 marketAssignments: [],
               });
               setMode('edit');
@@ -1077,6 +1298,14 @@ interface MarketAssignmentItem {
               <div>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Linked Employee</span>
                 <div style={{ fontWeight: 600 }}>{employee ? `${employee.employeeCode} - ${employee.firstName} ${employee.lastName} (${employee.position})` : 'System User (No Employee Link)'}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sales Target</span>
+                <div style={{ fontWeight: 600, color: '#1d4ed8' }}>{formatPKR(selectedUser.targetAmount)}</div>
+              </div>
+              <div>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Credit Limit</span>
+                <div style={{ fontWeight: 600, color: '#15803d' }}>{formatPKR(selectedUser.creditLimit)}</div>
               </div>
               <div>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Account Status</span>
@@ -1153,6 +1382,8 @@ interface MarketAssignmentItem {
             companyId: companies[0]?.id || '',
             roleId: roles[0]?.id || '',
             status: 'ACTIVE',
+            creditLimit: '',
+            targetAmount: '',
             marketAssignments: [],
           });
           setMode('create');

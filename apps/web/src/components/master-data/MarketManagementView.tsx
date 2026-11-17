@@ -43,6 +43,20 @@ import { useToast } from '../../context/toast-context';
 import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 
+const formatPKR = (amount: number | string | undefined | null) => {
+  const val = Number(amount || 0);
+  if (!val) return 'PKR 0';
+  if (val >= 10000000) {
+    const cr = (val / 10000000).toFixed(2).replace(/\.00$/, '');
+    return `PKR ${val.toLocaleString()} (${cr} Cr)`;
+  }
+  if (val >= 100000) {
+    const lakh = (val / 100000).toFixed(2).replace(/\.00$/, '');
+    return `PKR ${val.toLocaleString()} (${lakh} Lakh)`;
+  }
+  return `PKR ${val.toLocaleString()}`;
+};
+
 export const MarketManagementView: React.FC = () => {
   const { showToast } = useToast();
   const { activeCompanyId } = useCompany();
@@ -473,7 +487,7 @@ export const MarketManagementView: React.FC = () => {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                         <span
                           style={{
                             background: '#1d4ed8',
@@ -495,6 +509,12 @@ export const MarketManagementView: React.FC = () => {
                                 ? `${reg.businessManager.firstName || ''} ${reg.businessManager.lastName || ''}`.trim()
                                 : 'Unassigned')}
                           </strong>
+                        </span>
+                        <span style={{ fontSize: '11px', background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                          Target: {formatPKR(reg.targetAmount)}
+                        </span>
+                        <span style={{ fontSize: '11px', background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                          Credit: {formatPKR(reg.creditLimit)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -537,6 +557,12 @@ export const MarketManagementView: React.FC = () => {
                                 ZONE
                               </span>
                               <strong style={{ fontSize: '14px' }}>{zone.name}</strong>
+                              <span style={{ fontSize: '10px', background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, marginLeft: '6px' }}>
+                                Tgt: {formatPKR(zone.targetAmount)}
+                              </span>
+                              <span style={{ fontSize: '10px', background: '#d1fae5', color: '#047857', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, marginLeft: '4px' }}>
+                                Cr: {formatPKR(zone.creditLimit)}
+                              </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ fontSize: '12px', color: '#047857' }}>
@@ -586,7 +612,15 @@ export const MarketManagementView: React.FC = () => {
                                   }}
                                 >
                                   <div>
-                                    <strong style={{ color: '#334155' }}>{terr.name}</strong> ({terr.code})
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                      <strong style={{ color: '#334155' }}>{terr.name}</strong> ({terr.code})
+                                      <span style={{ fontSize: '10px', background: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                                        Tgt: {formatPKR(terr.targetAmount)}
+                                      </span>
+                                      <span style={{ fontSize: '10px', background: '#f0fdf4', color: '#15803d', padding: '1px 5px', borderRadius: '3px', fontWeight: 700 }}>
+                                        Limit: {formatPKR(terr.creditLimit)}
+                                      </span>
+                                    </div>
                                     <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>
                                       Assigned SO: <strong style={{ color: '#2563eb' }}>{soDisplay}</strong>
                                     </div>

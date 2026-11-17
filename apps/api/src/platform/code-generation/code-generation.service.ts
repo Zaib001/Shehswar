@@ -25,7 +25,8 @@ export type EntityCodeType =
   | 'REGION'
   | 'ZONE'
   | 'TERRITORY'
-  | 'COSTING';
+  | 'COSTING'
+  | 'EMPLOYEE';
 
 @Injectable()
 export class CodeGenerationService {
@@ -59,6 +60,7 @@ export class CodeGenerationService {
       ZONE: { prefix: 'ZONE', pad: 6 },
       TERRITORY: { prefix: 'TER', pad: 6 },
       COSTING: { prefix: 'CST', pad: 6 },
+      EMPLOYEE: { prefix: 'EMP', pad: 6 },
     };
 
     const config = prefixMap[entityType as Exclude<EntityCodeType, 'CATEGORY'>];
@@ -299,6 +301,27 @@ export class CodeGenerationService {
       return candidate;
     }
 
+    if (entityType === 'EMPLOYEE') {
+      let candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+      let exists = await this.prisma.employee.findFirst({
+        where: { companyId, employeeCode: candidate },
+      });
+      while (exists) {
+        currentNum++;
+        candidate = `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
+        exists = await this.prisma.employee.findFirst({
+          where: { companyId, employeeCode: candidate },
+        });
+      }
+      if (currentNum > Number(sequence.currentNumber)) {
+        await this.prisma.documentSequence.update({
+          where: { id: sequence.id },
+          data: { currentNumber: BigInt(currentNum) },
+        });
+      }
+      return candidate;
+    }
+
     return `${config.prefix}-${String(currentNum).padStart(config.pad, '0')}`;
   }
 
@@ -362,6 +385,7 @@ export class CodeGenerationService {
       ZONE: { prefix: 'ZONE', pad: 6 },
       TERRITORY: { prefix: 'TER', pad: 6 },
       COSTING: { prefix: 'CST', pad: 6 },
+      EMPLOYEE: { prefix: 'EMP', pad: 6 },
     };
     const config = prefixMap[params.entityType];
     let seq = null;

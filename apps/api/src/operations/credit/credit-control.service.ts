@@ -168,6 +168,72 @@ export class CreditControlService {
       };
     }
 
+    // Dynamic Hierarchical Rollup: Territory = sum of assigned officers
+    if (level === 'TERRITORY') {
+      const [assignments, territory] = await Promise.all([
+        this.prisma.userMarketAssignment.findMany({
+          where: { territoryId: entityId, status: 'ACTIVE' },
+          select: { userId: true },
+        }),
+        this.prisma.territory.findUnique({
+          where: { id: entityId },
+          select: { managerId: true },
+        }),
+      ]);
+      const officerIds = new Set<string>();
+      if (territory?.managerId) officerIds.add(territory.managerId);
+      for (const a of assignments) {
+        if (a.userId) officerIds.add(a.userId);
+      }
+      if (officerIds.size > 0) {
+        const limits = await this.prisma.creditLimit.findMany({
+          where: {
+            companyId,
+            level: 'SALES_OFFICER',
+            entityId: { in: Array.from(officerIds) },
+            status: 'ACTIVE',
+          },
+          select: { creditLimit: true },
+        });
+        const total = limits.reduce((sum, l) => sum + Number(l.creditLimit || 0), 0);
+        if (total > 0) {
+          return { limit: total, threshold: 85, maxCreditPercentage: 20.0, creditControlMode: 'BOTH' };
+        }
+      }
+    }
+
+    // Dynamic Hierarchical Rollup: Zone = sum of subordinate territories
+    if (level === 'ZONE') {
+      const territories = await this.prisma.territory.findMany({
+        where: { zoneId: entityId, isActive: true },
+        select: { id: true },
+      });
+      let zoneTotal = 0;
+      for (const t of territories) {
+        const eff = await this.getEffectiveLimit(companyId, 'TERRITORY', t.id);
+        zoneTotal += eff.limit;
+      }
+      if (zoneTotal > 0) {
+        return { limit: zoneTotal, threshold: 85, maxCreditPercentage: 20.0, creditControlMode: 'BOTH' };
+      }
+    }
+
+    // Dynamic Hierarchical Rollup: Region = sum of subordinate zones
+    if (level === 'REGION') {
+      const zones = await this.prisma.zone.findMany({
+        where: { regionId: entityId, isActive: true },
+        select: { id: true },
+      });
+      let regTotal = 0;
+      for (const z of zones) {
+        const eff = await this.getEffectiveLimit(companyId, 'ZONE', z.id);
+        regTotal += eff.limit;
+      }
+      if (regTotal > 0) {
+        return { limit: regTotal, threshold: 85, maxCreditPercentage: 20.0, creditControlMode: 'BOTH' };
+      }
+    }
+
     return { limit: 0, threshold: 85, maxCreditPercentage: 20.0, creditControlMode: 'BOTH' };
   }
 

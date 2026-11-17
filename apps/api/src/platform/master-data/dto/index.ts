@@ -8,6 +8,7 @@ import {
   IsBoolean,
   IsEmail,
   IsUUID,
+  IsNumber,
   ValidateIf,
 } from 'class-validator';
 
@@ -502,8 +503,8 @@ export class CreateUserDto {
   firstName!: string;
 
   @IsString()
-  @IsNotEmpty()
-  lastName!: string;
+  @IsOptional()
+  lastName?: string;
 
   @IsString()
   @IsOptional()
@@ -512,6 +513,14 @@ export class CreateUserDto {
   @IsString()
   @IsOptional()
   status?: string; // ACTIVE, INACTIVE, SUSPENDED, LOCKED
+
+  @IsNumber()
+  @IsOptional()
+  creditLimit?: number;
+
+  @IsNumber()
+  @IsOptional()
+  targetAmount?: number;
 
   @IsOptional()
   roleIds?: string[];
@@ -552,6 +561,14 @@ export class UpdateUserDto {
   @IsString()
   @IsOptional()
   status?: string;
+
+  @IsNumber()
+  @IsOptional()
+  creditLimit?: number;
+
+  @IsNumber()
+  @IsOptional()
+  targetAmount?: number;
 
   @IsUUID()
   @IsOptional()
@@ -623,8 +640,8 @@ export class CreateEmployeeDto {
   organizationId?: string;
 
   @IsUUID()
-  @IsNotEmpty()
-  companyId!: string;
+  @IsOptional()
+  companyId?: string;
 
   @IsUUID()
   @IsOptional()
@@ -639,16 +656,16 @@ export class CreateEmployeeDto {
   branchId?: string;
 
   @IsString()
-  @IsNotEmpty()
-  employeeCode!: string;
+  @IsOptional()
+  employeeCode?: string;
 
   @IsString()
   @IsNotEmpty()
   firstName!: string;
 
   @IsString()
-  @IsNotEmpty()
-  lastName!: string;
+  @IsOptional()
+  lastName?: string;
 
   @IsString()
   @IsOptional()

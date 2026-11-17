@@ -1215,31 +1215,49 @@ export class MasterDataService {
   }
 
   async createEmployee(dto: CreateEmployeeDto, actor: { id: string; email?: string }) {
+    let companyId = dto.companyId;
+    if (!companyId || companyId === 'ALL') {
+      const parent = await this.prisma.company.findFirst({ where: { isParent: true } });
+      companyId = parent ? parent.id : (await this.prisma.company.findFirst())?.id;
+    }
+    if (!companyId) {
+      throw new BadRequestException('A valid company ID is required to create an employee');
+    }
+    const company = await this.findOneCompany(companyId);
+
+    let employeeCode = (dto.employeeCode || '').trim().toUpperCase();
+    if (!employeeCode || employeeCode === 'AUTO') {
+      employeeCode = await this.codeGen.generateCode({
+        companyId,
+        organizationId: dto.organizationId || company.organizationId,
+        entityType: 'EMPLOYEE',
+      });
+    }
+
     const existing = await this.prisma.employee.findFirst({
       where: {
-        companyId: dto.companyId,
-        employeeCode: dto.employeeCode.toUpperCase(),
+        companyId,
+        employeeCode,
       },
     });
     if (existing) {
-      throw new ConflictException(`Employee code "${dto.employeeCode}" already exists in company`);
+      throw new ConflictException(`Employee code "${employeeCode}" already exists in company`);
     }
 
     const resolvedManagerId = await this.resolveManagerId(dto.managerId);
-    const company = await this.findOneCompany(dto.companyId);
     const empId = uuidv7();
 
     const created = await this.prisma.employee.create({
       data: {
         id: empId,
         organizationId: dto.organizationId || company.organizationId,
-        companyId: dto.companyId,
+        companyId,
         departmentId: dto.departmentId || null,
         plantId: dto.plantId || null,
         branchId: dto.branchId || null,
-        employeeCode: dto.employeeCode.toUpperCase(),
+        employeeCode,
         firstName: dto.firstName,
-        lastName: dto.lastName,
+        lastName: dto.lastName || '',
         fatherName: dto.fatherName?.trim() || null,
         cnic: dto.cnic?.trim() || null,
         licenseNumber: dto.licenseNumber?.trim() || null,
@@ -1358,7 +1376,7 @@ export class MasterDataService {
       where.companyId = companyId;
     }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -1394,6 +1412,39 @@ export class MasterDataService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    const userIds = users.map((u) => u.id);
+    const [creditLimits, salesTargets] = await Promise.all([
+      this.prisma.creditLimit.findMany({
+        where: {
+          level: 'SALES_OFFICER',
+          entityId: { in: userIds },
+          status: 'ACTIVE',
+        },
+      }),
+      this.prisma.salesTarget.findMany({
+        where: {
+          level: 'SALES_OFFICER',
+          entityId: { in: userIds },
+          status: 'ACTIVE',
+        },
+      }),
+    ]);
+
+    const creditMap = new Map<string, number>();
+    for (const cl of creditLimits) {
+      creditMap.set(cl.entityId, Number(cl.creditLimit));
+    }
+    const targetMap = new Map<string, number>();
+    for (const st of salesTargets) {
+      targetMap.set(st.entityId, Number(st.targetAmount));
+    }
+
+    return users.map((u) => ({
+      ...u,
+      creditLimit: creditMap.get(u.id) || 0,
+      targetAmount: targetMap.get(u.id) || 0,
+    }));
   }
 
   async findOneUser(id: string) {
@@ -1428,10 +1479,40 @@ export class MasterDataService {
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    return user;
+
+    const [cl, st] = await Promise.all([
+      this.prisma.creditLimit.findFirst({
+        where: { level: 'SALES_OFFICER', entityId: id, status: 'ACTIVE' },
+        orderBy: { effectiveFrom: 'desc' },
+      }),
+      this.prisma.salesTarget.findFirst({
+        where: { level: 'SALES_OFFICER', entityId: id, status: 'ACTIVE' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return {
+      ...user,
+      creditLimit: cl ? Number(cl.creditLimit) : 0,
+      targetAmount: st ? Number(st.targetAmount) : 0,
+    };
   }
 
   async createUser(dto: CreateUserDto, actor: { id: string; email?: string }) {
+    let compId = dto.companyId;
+    if (!compId || compId === 'ALL') {
+      const parent = await this.prisma.company.findFirst({ where: { isParent: true } });
+      compId = parent ? parent.id : (await this.prisma.company.findFirst())?.id;
+    }
+    if (!compId) {
+      throw new BadRequestException('A valid company ID is required to create a user');
+    }
+    const company = await this.prisma.company.findUnique({ where: { id: compId } });
+    if (!company) throw new NotFoundException('Company not found');
+
+    const orgId = dto.organizationId || company.organizationId;
+    if (!orgId) throw new BadRequestException('Organization context could not be determined');
+
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
@@ -1442,19 +1523,16 @@ export class MasterDataService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const userId = uuidv7();
 
-    const orgId = dto.organizationId!;
-    const compId = dto.companyId!;
-
     const created = await this.prisma.user.create({
       data: {
         id: userId,
         organizationId: orgId,
         companyId: compId,
-        employeeId: dto.employeeId,
+        employeeId: dto.employeeId || null,
         email: dto.email.toLowerCase(),
         passwordHash,
         firstName: dto.firstName,
-        lastName: dto.lastName,
+        lastName: dto.lastName || '',
         phone: dto.phone,
         status: dto.status || 'ACTIVE',
       },
@@ -1494,27 +1572,71 @@ export class MasterDataService {
     }
 
     if (dto.marketAssignments && dto.marketAssignments.length > 0) {
-      await Promise.all(
-        dto.marketAssignments.map((ma) =>
-          this.prisma.userMarketAssignment.create({
-            data: {
-              id: uuidv7(),
-              organizationId: orgId,
-              companyId: ma.companyId || compId,
-              userId: created.id,
-              employeeId: dto.employeeId || null,
-              regionId: ma.regionId || null,
-              zoneId: ma.zoneId || null,
-              territoryId: ma.territoryId || null,
-              roleScope: ma.roleScope || 'SALES_OFFICER',
-              isPrimary: ma.isPrimary ?? true,
-              effectiveFrom: ma.effectiveFrom ? new Date(ma.effectiveFrom) : new Date(),
-              effectiveTo: ma.effectiveTo ? new Date(ma.effectiveTo) : null,
-              status: 'ACTIVE',
-            },
-          }),
-        ),
+      const validAssignments = dto.marketAssignments.filter(
+        (ma) => Boolean(ma.regionId || ma.zoneId || ma.territoryId)
       );
+      if (validAssignments.length > 0) {
+        await Promise.all(
+          validAssignments.map((ma) =>
+            this.prisma.userMarketAssignment.create({
+              data: {
+                id: uuidv7(),
+                organizationId: orgId,
+                companyId: ma.companyId || compId,
+                userId: created.id,
+                employeeId: dto.employeeId || null,
+                regionId: ma.regionId || null,
+                zoneId: ma.zoneId || null,
+                territoryId: ma.territoryId || null,
+                roleScope: ma.roleScope || 'SALES_OFFICER',
+                isPrimary: ma.isPrimary ?? true,
+                effectiveFrom: ma.effectiveFrom ? new Date(ma.effectiveFrom) : new Date(),
+                effectiveTo: ma.effectiveTo ? new Date(ma.effectiveTo) : null,
+                status: 'ACTIVE',
+              },
+            }),
+          ),
+        );
+      }
+    }
+
+    // Attach Credit Limit if provided
+    if (dto.creditLimit !== undefined && dto.creditLimit !== null && !isNaN(Number(dto.creditLimit))) {
+      await this.prisma.creditLimit.create({
+        data: {
+          id: uuidv7(),
+          organizationId: orgId,
+          companyId: compId,
+          level: 'SALES_OFFICER',
+          entityId: created.id,
+          creditLimit: Number(dto.creditLimit),
+          status: 'ACTIVE',
+          creditControlMode: 'BOTH',
+          nearLimitThresholdPercent: 85,
+          createdById: actor.id,
+        },
+      });
+    }
+
+    // Attach Sales Target if provided
+    if (dto.targetAmount !== undefined && dto.targetAmount !== null && !isNaN(Number(dto.targetAmount))) {
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      await this.prisma.salesTarget.create({
+        data: {
+          id: uuidv7(),
+          organizationId: orgId,
+          companyId: compId,
+          level: 'SALES_OFFICER',
+          entityId: created.id,
+          periodYear: currentYear,
+          periodMonth: currentMonth,
+          targetAmount: Number(dto.targetAmount),
+          status: 'ACTIVE',
+          targetType: 'REVENUE',
+          createdById: actor.id,
+        },
+      });
     }
 
     await this.auditService.record({
@@ -1579,27 +1701,99 @@ export class MasterDataService {
         where: { userId: id },
       });
       if (dto.marketAssignments && dto.marketAssignments.length > 0) {
-        await Promise.all(
-          dto.marketAssignments.map((ma) =>
-            this.prisma.userMarketAssignment.create({
-              data: {
-                id: uuidv7(),
-                organizationId: previous.organizationId,
-                companyId: ma.companyId || (dto as any).companyId || previous.companyId,
-                userId: id,
-                employeeId: dto.employeeId !== undefined ? dto.employeeId : previous.employeeId,
-                regionId: ma.regionId || null,
-                zoneId: ma.zoneId || null,
-                territoryId: ma.territoryId || null,
-                roleScope: ma.roleScope || 'SALES_OFFICER',
-                isPrimary: ma.isPrimary ?? true,
-                effectiveFrom: ma.effectiveFrom ? new Date(ma.effectiveFrom) : new Date(),
-                effectiveTo: ma.effectiveTo ? new Date(ma.effectiveTo) : null,
-                status: ma.status || 'ACTIVE',
-              },
-            }),
-          ),
+        const validAssignments = dto.marketAssignments.filter(
+          (ma) => Boolean(ma.regionId || ma.zoneId || ma.territoryId)
         );
+        if (validAssignments.length > 0) {
+          await Promise.all(
+            validAssignments.map((ma) =>
+              this.prisma.userMarketAssignment.create({
+                data: {
+                  id: uuidv7(),
+                  organizationId: previous.organizationId,
+                  companyId: ma.companyId || (dto as any).companyId || previous.companyId,
+                  userId: id,
+                  employeeId: dto.employeeId !== undefined ? dto.employeeId : previous.employeeId,
+                  regionId: ma.regionId || null,
+                  zoneId: ma.zoneId || null,
+                  territoryId: ma.territoryId || null,
+                  roleScope: ma.roleScope || 'SALES_OFFICER',
+                  isPrimary: ma.isPrimary ?? true,
+                  effectiveFrom: ma.effectiveFrom ? new Date(ma.effectiveFrom) : new Date(),
+                  effectiveTo: ma.effectiveTo ? new Date(ma.effectiveTo) : null,
+                  status: ma.status || 'ACTIVE',
+                },
+              }),
+            ),
+          );
+        }
+      }
+    }
+
+    // Upsert Credit Limit if provided
+    if (dto.creditLimit !== undefined && dto.creditLimit !== null && !isNaN(Number(dto.creditLimit))) {
+      const existingLimit = await this.prisma.creditLimit.findFirst({
+        where: {
+          level: 'SALES_OFFICER',
+          entityId: id,
+          status: 'ACTIVE',
+        },
+      });
+      if (existingLimit) {
+        await this.prisma.creditLimit.update({
+          where: { id: existingLimit.id },
+          data: { creditLimit: Number(dto.creditLimit) },
+        });
+      } else {
+        await this.prisma.creditLimit.create({
+          data: {
+            id: uuidv7(),
+            organizationId: previous.organizationId,
+            companyId: (dto as any).companyId || previous.companyId,
+            level: 'SALES_OFFICER',
+            entityId: id,
+            creditLimit: Number(dto.creditLimit),
+            status: 'ACTIVE',
+            creditControlMode: 'BOTH',
+            nearLimitThresholdPercent: 85,
+            createdById: actor.id,
+          },
+        });
+      }
+    }
+
+    // Upsert Sales Target if provided
+    if (dto.targetAmount !== undefined && dto.targetAmount !== null && !isNaN(Number(dto.targetAmount))) {
+      const currentYear = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+      const existingTarget = await this.prisma.salesTarget.findFirst({
+        where: {
+          level: 'SALES_OFFICER',
+          entityId: id,
+          status: 'ACTIVE',
+        },
+      });
+      if (existingTarget) {
+        await this.prisma.salesTarget.update({
+          where: { id: existingTarget.id },
+          data: { targetAmount: Number(dto.targetAmount) },
+        });
+      } else {
+        await this.prisma.salesTarget.create({
+          data: {
+            id: uuidv7(),
+            organizationId: previous.organizationId,
+            companyId: (dto as any).companyId || previous.companyId,
+            level: 'SALES_OFFICER',
+            entityId: id,
+            periodYear: currentYear,
+            periodMonth: currentMonth,
+            targetAmount: Number(dto.targetAmount),
+            status: 'ACTIVE',
+            targetType: 'REVENUE',
+            createdById: actor.id,
+          },
+        });
       }
     }
 
@@ -4787,64 +4981,168 @@ export class MasterDataService {
       orderBy: { name: 'asc' },
     });
 
+    const [allCreditLimits, allSalesTargets] = await Promise.all([
+      this.prisma.creditLimit.findMany({
+        where: {
+          ...(company?.id ? { companyId: company.id } : {}),
+          status: 'ACTIVE',
+        },
+      }),
+      this.prisma.salesTarget.findMany({
+        where: {
+          ...(company?.id ? { companyId: company.id } : {}),
+          status: 'ACTIVE',
+        },
+      }),
+    ]);
+
+    const salesOfficerLimits = new Map<string, number>();
+    const territoryExplicitLimits = new Map<string, number>();
+    const zoneExplicitLimits = new Map<string, number>();
+    const regionExplicitLimits = new Map<string, number>();
+
+    for (const cl of allCreditLimits) {
+      const val = Number(cl.creditLimit || 0);
+      if (cl.level === 'SALES_OFFICER') salesOfficerLimits.set(cl.entityId, val);
+      else if (cl.level === 'TERRITORY') territoryExplicitLimits.set(cl.entityId, val);
+      else if (cl.level === 'ZONE') zoneExplicitLimits.set(cl.entityId, val);
+      else if (cl.level === 'REGION') regionExplicitLimits.set(cl.entityId, val);
+    }
+
+    const salesOfficerTargets = new Map<string, number>();
+    const territoryExplicitTargets = new Map<string, number>();
+    const zoneExplicitTargets = new Map<string, number>();
+    const regionExplicitTargets = new Map<string, number>();
+
+    for (const st of allSalesTargets) {
+      const val = Number(st.targetAmount || 0);
+      if (st.level === 'SALES_OFFICER') salesOfficerTargets.set(st.entityId, val);
+      else if (st.level === 'TERRITORY') territoryExplicitTargets.set(st.entityId, val);
+      else if (st.level === 'ZONE') zoneExplicitTargets.set(st.entityId, val);
+      else if (st.level === 'REGION') regionExplicitTargets.set(st.entityId, val);
+    }
+
     return {
       company,
-      regions: regions.map((r) => ({
-        id: r.id,
-        code: r.code,
-        name: r.name,
-        businessManager: r.businessManager
-          ? {
-            id: r.businessManager.id,
-            name: `${r.businessManager.firstName} ${r.businessManager.lastName}`.trim(),
-            email: r.businessManager.email,
-            phone: r.businessManager.phone,
-          }
-          : null,
-        zones: r.zones.map((z) => ({
-          id: z.id,
-          code: z.code,
-          name: z.name,
-          areaManager: z.areaManager
-            ? {
-              id: z.areaManager.id,
-              name: `${z.areaManager.firstName} ${z.areaManager.lastName}`.trim(),
-              email: z.areaManager.email,
-              phone: z.areaManager.phone,
-            }
-            : null,
-          territories: z.territories.map((t) => ({
-            id: t.id,
-            code: t.code,
-            name: t.name,
-            primarySalesOfficer: t.salesOfficer
-              ? {
-                id: t.salesOfficer.id,
-                name: `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim(),
-                email: t.salesOfficer.email,
-                phone: t.salesOfficer.phone,
-              }
-              : null,
-            assignedOfficers: t.userMarketAssignments.map((uma) => ({
+      regions: regions.map((r) => {
+        const mappedZones = r.zones.map((z) => {
+          const mappedTerritories = z.territories.map((t) => {
+            const assignedOfficersWithMetrics = t.userMarketAssignments.map((uma) => ({
               id: uma.user.id,
-              name: `${uma.user.firstName} ${uma.user.lastName}`.trim(),
+              name: `${uma.user.firstName || ''} ${uma.user.lastName || ''}`.trim(),
               email: uma.user.email,
-            })),
-            dealersCount: t.dealers.length,
-            dealers: t.dealers.map((d) => ({
-              id: d.id,
-              code: d.code,
-              name: d.name,
-              city: d.city,
-              currentBalance: Number(d.currentBalance || 0),
-              creditLimit: Number(d.creditLimit || 0),
-              responsibleOfficer: d.assignedOfficer
-                ? `${d.assignedOfficer.firstName} ${d.assignedOfficer.lastName}`.trim()
+              creditLimit: salesOfficerLimits.get(uma.user.id) || 0,
+              targetAmount: salesOfficerTargets.get(uma.user.id) || 0,
+            }));
+
+            const distinctOfficerIds = new Set<string>();
+            if (t.salesOfficer?.id) distinctOfficerIds.add(t.salesOfficer.id);
+            for (const uma of t.userMarketAssignments) {
+              if (uma.user?.id) distinctOfficerIds.add(uma.user.id);
+            }
+
+            let terrOfficerLimitSum = 0;
+            let terrOfficerTargetSum = 0;
+            for (const offId of distinctOfficerIds) {
+              terrOfficerLimitSum += salesOfficerLimits.get(offId) || 0;
+              terrOfficerTargetSum += salesOfficerTargets.get(offId) || 0;
+            }
+
+            const explicitTerrLimit = territoryExplicitLimits.get(t.id) || 0;
+            const explicitTerrTarget = territoryExplicitTargets.get(t.id) || 0;
+
+            const territoryCreditLimit = terrOfficerLimitSum > 0 ? terrOfficerLimitSum : explicitTerrLimit;
+            const territoryTargetAmount = terrOfficerTargetSum > 0 ? terrOfficerTargetSum : explicitTerrTarget;
+
+            return {
+              id: t.id,
+              code: t.code,
+              name: t.name,
+              creditLimit: territoryCreditLimit,
+              targetAmount: territoryTargetAmount,
+              primarySalesOfficer: t.salesOfficer
+                ? {
+                    id: t.salesOfficer.id,
+                    name: `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim(),
+                    email: t.salesOfficer.email,
+                    phone: t.salesOfficer.phone,
+                    creditLimit: salesOfficerLimits.get(t.salesOfficer.id) || 0,
+                    targetAmount: salesOfficerTargets.get(t.salesOfficer.id) || 0,
+                  }
                 : null,
-            })),
-          })),
-        })),
-      })),
+              assignedOfficers: assignedOfficersWithMetrics,
+              dealersCount: t.dealers.length,
+              dealers: t.dealers.map((d) => ({
+                id: d.id,
+                code: d.code,
+                name: d.name,
+                city: d.city,
+                currentBalance: Number(d.currentBalance || 0),
+                creditLimit: Number(d.creditLimit || 0),
+                responsibleOfficer: d.assignedOfficer
+                  ? `${d.assignedOfficer.firstName} ${d.assignedOfficer.lastName}`.trim()
+                  : null,
+              })),
+            };
+          });
+
+          let zoneTerrLimitSum = 0;
+          let zoneTerrTargetSum = 0;
+          for (const terr of mappedTerritories) {
+            zoneTerrLimitSum += terr.creditLimit;
+            zoneTerrTargetSum += terr.targetAmount;
+          }
+          const explicitZoneLimit = zoneExplicitLimits.get(z.id) || 0;
+          const explicitZoneTarget = zoneExplicitTargets.get(z.id) || 0;
+          const zoneCreditLimit = zoneTerrLimitSum > 0 ? zoneTerrLimitSum : explicitZoneLimit;
+          const zoneTargetAmount = zoneTerrTargetSum > 0 ? zoneTerrTargetSum : explicitZoneTarget;
+
+          return {
+            id: z.id,
+            code: z.code,
+            name: z.name,
+            creditLimit: zoneCreditLimit,
+            targetAmount: zoneTargetAmount,
+            areaManager: z.areaManager
+              ? {
+                  id: z.areaManager.id,
+                  name: `${z.areaManager.firstName} ${z.areaManager.lastName}`.trim(),
+                  email: z.areaManager.email,
+                  phone: z.areaManager.phone,
+                }
+              : null,
+            territories: mappedTerritories,
+          };
+        });
+
+        let regZoneLimitSum = 0;
+        let regZoneTargetSum = 0;
+        for (const zone of mappedZones) {
+          regZoneLimitSum += zone.creditLimit;
+          regZoneTargetSum += zone.targetAmount;
+        }
+        const explicitRegLimit = regionExplicitLimits.get(r.id) || 0;
+        const explicitRegTarget = regionExplicitTargets.get(r.id) || 0;
+        const regionCreditLimit = regZoneLimitSum > 0 ? regZoneLimitSum : explicitRegLimit;
+        const regionTargetAmount = regZoneTargetSum > 0 ? regZoneTargetSum : explicitRegTarget;
+
+        return {
+          id: r.id,
+          code: r.code,
+          name: r.name,
+          creditLimit: regionCreditLimit,
+          targetAmount: regionTargetAmount,
+          businessManager: r.businessManager
+            ? {
+                id: r.businessManager.id,
+                name: `${r.businessManager.firstName} ${r.businessManager.lastName}`.trim(),
+                email: r.businessManager.email,
+                phone: r.businessManager.phone,
+              }
+            : null,
+          zones: mappedZones,
+        };
+      }),
     };
   }
 
