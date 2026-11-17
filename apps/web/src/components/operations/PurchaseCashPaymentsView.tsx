@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card,
   CardHeader,
@@ -20,6 +20,7 @@ import {
   IconEye,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { SourceDocumentDrillDownModal } from './SourceDocumentDrillDownModal';
 
@@ -82,12 +83,55 @@ const normalizeVendor = (v: any) => ({
   name: v.name || v.legalName || v.vendorName || 'Unnamed Vendor',
 });
 
+const normalizeEmployee = (e: any) => {
+  const parts = [e.firstName, e.lastName]
+    .filter(Boolean)
+    .map((s: string) => String(s).trim())
+    .filter(Boolean);
+  const fullName =
+    parts.length > 0
+      ? parts.join(' ')
+      : (e.fullName || e.name || e.displayName || e.username || e.email || e.employeeCode || 'Employee');
+  const code = e.employeeCode || e.code || '';
+  const position = e.position || e.designation || (e.department?.name ? `${e.department.name}` : '');
+
+  return {
+    id: e.id,
+    employeeCode: code,
+    code,
+    fullName,
+    name: fullName,
+    position,
+  };
+};
+
 export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> = ({
-  activeCompanyId,
-  activeCompanyName: _activeCompanyName,
+  activeCompanyId: propActiveCompanyId,
+  activeCompanyName: propActiveCompanyName,
   user: _user,
 }) => {
   const { showToast } = useToast();
+  const companyCtx = useCompany();
+
+  // Company selection state
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(
+    () => propActiveCompanyId || companyCtx?.activeCompanyId || ''
+  );
+
+  const effectiveCompanyId =
+    selectedCompanyId || propActiveCompanyId || companyCtx?.activeCompanyId || companies[0]?.id || '';
+  const effectiveCompanyName =
+    propActiveCompanyName ||
+    companyCtx?.activeCompanyName ||
+    companies.find((c) => c.id === effectiveCompanyId)?.name ||
+    'Shehswar Group';
+
+  useEffect(() => {
+    if (companyCtx?.activeCompanyId && !selectedCompanyId) {
+      setSelectedCompanyId(companyCtx.activeCompanyId);
+    }
+  }, [companyCtx?.activeCompanyId, selectedCompanyId]);
 
   // Data & State
   const [payments, setPayments] = useState<CashPaymentRecord[]>([]);
@@ -130,6 +174,44 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   const [formDescription, setFormDescription] = useState<string>('');
   const [formReferenceNumber, setFormReferenceNumber] = useState<string>('');
 
+  // Keyboard Navigation Refs
+  const paymentDateInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper to focus element by ID smoothly with optional text selection
+  const focusElement = (id: string) => {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.focus();
+        if (el instanceof HTMLInputElement && el.type !== 'date') {
+          el.select?.();
+        }
+      }
+    }, 50);
+  };
+
+  // Auto-focus first input field when modal opens
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const timer = setTimeout(() => {
+      paymentDateInputRef.current?.focus();
+      paymentDateInputRef.current?.select?.();
+    }, 70);
+    return () => clearTimeout(timer);
+  }, [isModalOpen]);
+
+  // Global Hotkey: Alt+N to open New Cash Payment modal from anywhere on page
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.altKey && (e.key === 'n' || e.key === 'N')) && !isModalOpen) {
+        e.preventDefault();
+        handleOpenNewModal();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isModalOpen]);
+
   // Drill-Down Modal
   const [drillDownDoc, setDrillDownDoc] = useState<{
     isOpen: boolean;
@@ -171,7 +253,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     setIsLoading(true);
     try {
       const query = new URLSearchParams();
-      if (activeCompanyId) query.set('companyId', activeCompanyId);
+      if (effectiveCompanyId) query.set('companyId', effectiveCompanyId);
       if (fromDate) query.set('fromDate', fromDate);
       if (toDate) query.set('toDate', toDate);
       if (headFilter && headFilter !== 'ALL') query.set('head', headFilter);
@@ -190,20 +272,49 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     } finally {
       setIsLoading(false);
     }
-  }, [activeCompanyId, fromDate, toDate, headFilter, partyTypeFilter, searchQuery, showToast]);
+  }, [effectiveCompanyId, fromDate, toDate, headFilter, partyTypeFilter, searchQuery, showToast]);
+
+  // Helper to reliably load employees across company subsidiaries with fallbacks
+  const fetchEmployeesList = useCallback(async (): Promise<any[]> => {
+    try {
+      const res = await ApiClient.get<any>('/api/v1/master-data/employees?all=true')
+        .catch(() => ApiClient.get<any>('/api/v1/master-data/employees'))
+        .catch(() => ApiClient.get<any>('/api/v1/employees?all=true'))
+        .catch(() => ApiClient.get<any>('/api/v1/employees'))
+        .catch(() => null);
+      let list = unpackArray(res);
+      if (list.length === 0) {
+        // Fallback to master-data users if no dedicated employee rows exist yet
+        const uRes = await ApiClient.get<any>('/api/v1/master-data/users?all=true')
+          .catch(() => ApiClient.get<any>('/api/v1/master-data/users'))
+          .catch(() => null);
+        list = unpackArray(uRes);
+      }
+      return list.map(normalizeEmployee);
+    } catch {
+      return [];
+    }
+  }, []);
 
   // Load Master Data for Form
   useEffect(() => {
     const fetchEntities = async () => {
       try {
-        const [vRes, dRes, eRes, poRes] = await Promise.all([
+        const [vRes, dRes, empList, poRes, compRes] = await Promise.all([
           ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000')
             .catch(() => ApiClient.get<any>('/api/v1/vendors'))
             .catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/dealers').catch(() => ({ data: [] })),
-          ApiClient.get<any>('/api/v1/master-data/employees').catch(() => ({ data: [] })),
+          fetchEmployeesList(),
           ApiClient.get<any>('/api/v1/operations/purchase-orders').catch(() => ({ data: [] })),
+          ApiClient.get<any>('/api/v1/master-data/companies?all=true').catch(() => ({ data: [] })),
         ]);
+
+        const compList = unpackArray(compRes);
+        setCompanies(compList);
+        if (compList.length > 0 && !selectedCompanyId && !companyCtx?.activeCompanyId) {
+          setSelectedCompanyId(compList[0].id);
+        }
 
         const vList = unpackArray(vRes).map(normalizeVendor);
         const dList = unpackArray(dRes).map((d: any) => ({
@@ -211,23 +322,18 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           code: d.code || '',
           name: d.name || d.dealerName || 'Dealer',
         }));
-        const eList = unpackArray(eRes).map((e: any) => ({
-          id: e.id,
-          employeeCode: e.employeeCode || e.code || '',
-          fullName: e.fullName || e.name || 'Employee',
-        }));
         const poList = unpackArray(poRes);
 
         setVendors(vList);
         setDealers(dList);
-        setEmployees(eList);
+        setEmployees(empList);
         setPurchaseOrders(poList);
       } catch {
         // silent fail
       }
     };
     fetchEntities();
-  }, []);
+  }, [fetchEmployeesList, companyCtx?.activeCompanyId, selectedCompanyId]);
 
   useEffect(() => {
     loadData();
@@ -236,7 +342,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   // Open New Cash Payment Modal
   const handleOpenNewModal = async () => {
     try {
-      const q = activeCompanyId ? `?companyId=${activeCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
+      const q = effectiveCompanyId ? `?companyId=${effectiveCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
       const res = await ApiClient.get<any>(`/api/v1/financial-transactions/next-voucher${q}`);
       setNextVoucherNo(res.data?.voucherNumber || 'CP-00001');
     } catch {
@@ -257,6 +363,13 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       } catch {
         // silent
       }
+    }
+
+    // Pre-fetch employees in background if not already loaded
+    if (employees.length === 0) {
+      fetchEmployeesList().then((list) => {
+        if (list.length > 0) setEmployees(list);
+      });
     }
 
     setFormDate(new Date().toISOString().slice(0, 10));
@@ -287,29 +400,72 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   };
 
   // Sync Party Type change
-  const handlePartyTypeChange = (type: 'VENDOR' | 'EMPLOYEE' | 'DEALER' | 'OTHER') => {
+  const handlePartyTypeChange = async (type: 'VENDOR' | 'EMPLOYEE' | 'DEALER' | 'OTHER') => {
     setFormPartyType(type);
     setFormPartyId('');
     setFormPartyName('');
 
     if (type === 'VENDOR') {
-      if (vendors.length > 0) {
-        setFormPartyId(vendors[0].id);
-        setFormPartyName(vendors[0].name || vendors[0].code || '');
+      let activeVendors = vendors;
+      if (activeVendors.length === 0) {
+        try {
+          const vRes = await ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000')
+            .catch(() => ApiClient.get<any>('/api/v1/vendors'))
+            .catch(() => null);
+          const unpacked = unpackArray(vRes).map(normalizeVendor);
+          if (unpacked.length > 0) {
+            activeVendors = unpacked;
+            setVendors(unpacked);
+          }
+        } catch {
+          // silent
+        }
+      }
+      if (activeVendors.length > 0) {
+        setFormPartyId(activeVendors[0].id);
+        setFormPartyName(activeVendors[0].name || activeVendors[0].code || '');
       }
       setFormHead('Purchase');
-    } else if (type === 'DEALER') {
-      if (dealers.length > 0) {
-        setFormPartyId(dealers[0].id);
-        setFormPartyName(dealers[0].name || dealers[0].code || '');
-      }
-      setFormHead('Dealer Refund');
     } else if (type === 'EMPLOYEE') {
-      if (employees.length > 0) {
-        setFormPartyId(employees[0].id);
-        setFormPartyName(employees[0].fullName || employees[0].name || employees[0].employeeCode || '');
+      let activeEmployees = employees;
+      if (activeEmployees.length === 0) {
+        try {
+          activeEmployees = await fetchEmployeesList();
+          if (activeEmployees.length > 0) {
+            setEmployees(activeEmployees);
+          }
+        } catch {
+          // silent
+        }
+      }
+      if (activeEmployees.length > 0) {
+        setFormPartyId(activeEmployees[0].id);
+        setFormPartyName(activeEmployees[0].fullName || activeEmployees[0].name || activeEmployees[0].employeeCode || '');
       }
       setFormHead('Vehicle Expense');
+    } else if (type === 'DEALER') {
+      let activeDealers = dealers;
+      if (activeDealers.length === 0) {
+        try {
+          const dRes = await ApiClient.get<any>('/api/v1/dealers').catch(() => null);
+          const unpacked = unpackArray(dRes).map((d: any) => ({
+            id: d.id,
+            code: d.code || '',
+            name: d.name || d.dealerName || 'Dealer',
+          }));
+          if (unpacked.length > 0) {
+            activeDealers = unpacked;
+            setDealers(unpacked);
+          }
+        } catch {
+          // silent
+        }
+      }
+      if (activeDealers.length > 0) {
+        setFormPartyId(activeDealers[0].id);
+        setFormPartyName(activeDealers[0].name || activeDealers[0].code || '');
+      }
+      setFormHead('Dealer Refund');
     } else {
       setFormHead('General Liability');
     }
@@ -334,13 +490,21 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
 
   // Save Cash Payment (Strictly Cash Only)
   const handleSavePayment = async () => {
+    if (!effectiveCompanyId) {
+      showToast({ title: 'Validation', message: 'Operating Company is required. Please select an operating company.', type: 'error' });
+      return;
+    }
+
     const amountNum = parseFloat(formCashPaid.replace(/,/g, ''));
     if (isNaN(amountNum) || amountNum <= 0) {
       showToast({ title: 'Validation', message: 'Please enter a valid Cash Paid amount (PKR > 0)', type: 'error' });
       return;
     }
 
-    const effectivePartyName = formPartyType === 'OTHER' ? formPartyName.trim() : formPartyName;
+    const effectivePartyName =
+      formPartyType === 'OTHER'
+        ? formPartyName.trim()
+        : (formPartyName || (formPartyType === 'EMPLOYEE' ? employees.find((e) => e.id === formPartyId)?.fullName : formPartyName) || '');
     if (!effectivePartyName && !formPartyId) {
       showToast({ title: 'Validation', message: 'Please select or enter the payee (Paid To)', type: 'error' });
       return;
@@ -355,7 +519,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     setIsSaving(true);
     try {
       const payload = {
-        companyId: activeCompanyId,
+        companyId: effectiveCompanyId,
         voucherNumber: nextVoucherNo !== 'CP-AUTO' ? nextVoucherNo : undefined,
         transactionDate: formDate,
         partyType: formPartyType,
@@ -388,7 +552,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
 
       // Refresh next sequential voucher number
       try {
-        const q = activeCompanyId ? `?companyId=${activeCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
+        const q = effectiveCompanyId ? `?companyId=${effectiveCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
         const nextRes = await ApiClient.get<any>(`/api/v1/financial-transactions/next-voucher${q}`);
         setNextVoucherNo(nextRes.data?.voucherNumber || 'CP-AUTO');
       } catch {
@@ -398,12 +562,10 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       // Refresh list & summary report in background
       loadData();
 
-      // Automatically focus Cash Paid input for continuous typing
+      // Automatically return focus to Payment Date for rapid continuous entry without mouse
       setTimeout(() => {
-        const cashInput = document.getElementById('field-cash-paid');
-        if (cashInput) {
-          (cashInput as HTMLElement).focus();
-        }
+        paymentDateInputRef.current?.focus();
+        paymentDateInputRef.current?.select?.();
       }, 100);
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to record cash payment', type: 'error' });
@@ -447,8 +609,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           <Button variant="secondary" onClick={loadData} icon={<IconRefresh size={16} />}>
             Refresh
           </Button>
-          <Button variant="primary" onClick={handleOpenNewModal} icon={<IconPlus size={16} />}>
-            New Cash Payment
+          <Button variant="primary" onClick={handleOpenNewModal} icon={<IconPlus size={16} />} title="New Cash Payment (Shortcut: Alt+N)">
+            New Cash Payment (Alt+N)
           </Button>
         </div>
       </div>
@@ -766,10 +928,10 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                             p.head === 'Purchase'
                               ? 'primary'
                               : p.head === 'Dealer Refund'
-                              ? 'warning'
-                              : p.head.includes('Expense') || p.head.includes('Car')
-                              ? 'info'
-                              : 'default'
+                                ? 'warning'
+                                : p.head.includes('Expense') || p.head.includes('Car')
+                                  ? 'info'
+                                  : 'default'
                           }
                         >
                           {p.head}
@@ -831,7 +993,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         title="Record Cash Payment &amp; Liability"
         size="lg"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div
+          onKeyDown={(e) => {
+            // Ctrl+Enter or Cmd+Enter posts the transaction from anywhere in the modal
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              e.preventDefault();
+              handleSavePayment();
+            }
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+        >
           {/* Top Banner Notice */}
           <div
             style={{
@@ -856,15 +1027,48 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
 
           {/* Form Grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '14px' }}>
+            {/* Operating Company */}
+            <div style={{ gridColumn: 'span 4' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                Operating Company *
+              </label>
+              {companies.length > 1 ? (
+                <Select
+                  id="cp-company-select"
+                  value={effectiveCompanyId}
+                  onChange={(e) => {
+                    setSelectedCompanyId(e.target.value);
+                    focusElement('cp-payment-date');
+                  }}
+                  options={companies.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }))}
+                />
+              ) : (
+                <Input
+                  value={effectiveCompanyName}
+                  readOnly
+                  tabIndex={-1}
+                  style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 600 }}
+                />
+              )}
+            </div>
+
             {/* Date */}
             <div style={{ gridColumn: 'span 4' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 Payment Date *
               </label>
               <Input
+                ref={paymentDateInputRef}
+                id="cp-payment-date"
                 type="date"
                 value={formDate}
                 onChange={(e) => setFormDate(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    focusElement('cp-party-type');
+                  }
+                }}
                 required
               />
             </div>
@@ -877,6 +1081,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
               <Input
                 value={nextVoucherNo}
                 readOnly
+                tabIndex={-1}
                 style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 700, color: '#0369a1' }}
               />
             </div>
@@ -887,8 +1092,13 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 Paid To Category *
               </label>
               <Select
+                id="cp-party-type"
                 value={formPartyType}
-                onChange={(e) => handlePartyTypeChange(e.target.value as any)}
+                onChange={(e) => {
+                  const newType = e.target.value as any;
+                  handlePartyTypeChange(newType);
+                  focusElement(newType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
+                }}
                 options={[
                   { value: 'VENDOR', label: 'Vendor (Supplier)' },
                   { value: 'EMPLOYEE', label: 'Employee' },
@@ -899,14 +1109,18 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
             </div>
 
             {/* Paid To Party Selector */}
-            <div style={{ gridColumn: 'span 7' }}>
+            <div style={{ gridColumn: 'span 8' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 Paid To Party *
               </label>
               {formPartyType === 'VENDOR' ? (
                 <Select
+                  id="cp-party-id"
                   value={formPartyId}
-                  onChange={(e) => handlePartyIdChange(e.target.value)}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-head');
+                  }}
                   options={[
                     { value: '', label: '-- Select Vendor --' },
                     ...vendors.map((v) => ({ value: v.id, label: `${v.code ? `[${v.code}] ` : ''}${v.name || 'Vendor'}` })),
@@ -914,8 +1128,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 />
               ) : formPartyType === 'DEALER' ? (
                 <Select
+                  id="cp-party-id"
                   value={formPartyId}
-                  onChange={(e) => handlePartyIdChange(e.target.value)}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-head');
+                  }}
                   options={[
                     { value: '', label: '-- Select Dealer --' },
                     ...dealers.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name || 'Dealer'}` })),
@@ -923,31 +1141,54 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 />
               ) : formPartyType === 'EMPLOYEE' ? (
                 <Select
+                  id="cp-party-id"
                   value={formPartyId}
-                  onChange={(e) => handlePartyIdChange(e.target.value)}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-head');
+                  }}
                   options={[
-                    { value: '', label: '-- Select Employee --' },
-                    ...employees.map((em) => ({ value: em.id, label: `${em.employeeCode ? `[${em.employeeCode}] ` : ''}${em.fullName || em.name || 'Employee'}` })),
+                    { value: '', label: employees.length === 0 ? '-- No Employees Found --' : '-- Select Employee --' },
+                    ...employees.map((em) => ({
+                      value: em.id,
+                      label: `${em.employeeCode ? `[${em.employeeCode}] ` : ''}${em.fullName || em.name || 'Employee'}${em.position ? ` (${em.position})` : ''}`,
+                    })),
                   ]}
                 />
               ) : (
                 <Input
+                  id="cp-party-name"
                   placeholder="Enter Payee Name / Company / Person..."
                   value={formPartyName}
                   onChange={(e) => setFormPartyName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      focusElement('cp-head');
+                    }
+                  }}
                   required
                 />
               )}
             </div>
 
             {/* Payment Head */}
-            <div style={{ gridColumn: 'span 5' }}>
+            <div style={{ gridColumn: 'span 6' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 Payment Head *
               </label>
               <Select
+                id="cp-head"
                 value={formHead}
-                onChange={(e) => setFormHead(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormHead(val);
+                  if (val === 'Other') {
+                    focusElement('cp-custom-head');
+                  } else {
+                    focusElement('cp-cash-paid');
+                  }
+                }}
                 options={DEFAULT_HEADS.map((h) => ({ value: h, label: h }))}
               />
             </div>
@@ -959,9 +1200,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                   Specify Custom Head / Reason *
                 </label>
                 <Input
+                  id="cp-custom-head"
                   placeholder="e.g. Office Rent, Legal Retainer, Stationary..."
                   value={customHead}
                   onChange={(e) => setCustomHead(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      focusElement('cp-cash-paid');
+                    }
+                  }}
                   required
                 />
               </div>
@@ -973,11 +1221,17 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 Cash Paid (PKR) *
               </label>
               <Input
-                id="field-cash-paid"
+                id="cp-cash-paid"
                 type="number"
                 placeholder="e.g. 50000"
                 value={formCashPaid}
                 onChange={(e) => setFormCashPaid(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    focusElement('cp-description');
+                  }
+                }}
                 required
                 style={{ fontSize: '16px', fontWeight: 700, color: '#14532d' }}
               />
@@ -994,8 +1248,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 Link to Purchase Order / Invoice (Optional)
               </label>
               <Select
+                id="cp-po-link"
                 value={formReferenceNumber}
-                onChange={(e) => handleLinkPo(e.target.value)}
+                onChange={(e) => {
+                  handleLinkPo(e.target.value);
+                  focusElement('cp-description');
+                }}
                 options={[
                   { value: '', label: '-- Manual Entry (No PO Link) --' },
                   ...purchaseOrders.slice(0, 50).map((po) => ({
@@ -1012,21 +1270,70 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 Description / Remarks
               </label>
               <Input
-                placeholder="Why was the cash paid? e.g. Paid for raw material order, Car oil replacement..."
+                id="cp-description"
+                placeholder="Why was the cash paid? e.g. Paid for raw material order, Car oil replacement... (Press Enter to Save)"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSavePayment();
+                  }
+                }}
               />
             </div>
           </div>
 
-          {/* Modal Actions */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-            <Button variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isSaving}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSavePayment} disabled={isSaving} icon={<IconCheck size={16} />}>
-              {isSaving ? 'Posting Transaction...' : 'Save Cash Payment'}
-            </Button>
+          {/* Modal Actions & Keyboard Shortcuts Banner */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '11.5px',
+                color: '#64748b',
+              }}
+            >
+              <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>
+                  <kbd style={{ padding: '2px 6px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 700, color: '#0f172a' }}>Ctrl + Enter</kbd> Save &amp; Continue
+                </span>
+                <span>
+                  <kbd style={{ padding: '2px 6px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 700, color: '#0f172a' }}>Enter</kbd> Next Field
+                </span>
+                <span>
+                  <kbd style={{ padding: '2px 6px', backgroundColor: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '4px', fontWeight: 700, color: '#0f172a' }}>Esc</kbd> Close
+                </span>
+              </div>
+              <span style={{ fontWeight: 600, color: '#0284c7', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                ⌨ 100% Keyboard Friendly
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              <Button
+                id="cp-btn-cancel"
+                variant="secondary"
+                onClick={() => setIsModalOpen(false)}
+                disabled={isSaving}
+              >
+                Cancel (Esc)
+              </Button>
+              <Button
+                id="cp-btn-save"
+                variant="primary"
+                onClick={handleSavePayment}
+                disabled={isSaving}
+                icon={<IconCheck size={16} />}
+              >
+                {isSaving ? 'Posting Transaction...' : 'Save Cash Payment (Ctrl+Enter)'}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>
@@ -1039,7 +1346,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           sourceType={drillDownDoc.sourceType}
           sourceId={drillDownDoc.sourceId}
           voucherNumber={drillDownDoc.voucherNumber}
-          companyId={activeCompanyId}
+          companyId={effectiveCompanyId}
         />
       )}
     </div>

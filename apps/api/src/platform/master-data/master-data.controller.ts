@@ -645,14 +645,26 @@ export class MasterDataController {
     @CurrentContext() ctx?: SecurityContext,
     @CurrentUser() user?: AuthUser,
   ) {
-    const isSuperAdmin = user?.isSuperAdmin === true;
-    const filterCompany = isSuperAdmin
-      ? (all === 'true' || companyId === 'ALL' ? undefined : (companyId || ctx?.companyId))
-      : (user?.companyId || ctx?.companyId);
-    return this.masterDataService.findEmployees(
+    const shouldShowAll = all === 'true' || companyId === 'ALL';
+    const filterCompany = shouldShowAll
+      ? undefined
+      : (companyId || ctx?.companyId || user?.companyId);
+
+    const employees = await this.masterDataService.findEmployees(
       filterCompany,
       organizationId || ctx?.organizationId,
     );
+
+    // If company filter returned empty and query did not explicitly lock to a specific companyId,
+    // fallback to all employees in the organization so selectors across subsidiaries always populate
+    if (employees.length === 0 && (!companyId || companyId === 'ALL') && filterCompany) {
+      return this.masterDataService.findEmployees(
+        undefined,
+        organizationId || ctx?.organizationId,
+      );
+    }
+
+    return employees;
   }
 
   @Get('employees/:id')

@@ -44,6 +44,7 @@ export interface PostJournalInput {
 }
 
 export interface CreateExpenseDto {
+  companyId?: string;
   expenseDate: string | Date;
   expenseAccountCode?: string;
   expenseAccountId?: string;
@@ -273,6 +274,19 @@ export class FinanceService {
     const isSourceUuid = rawSourceId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSourceId);
     const sourceId = isSourceUuid ? rawSourceId : null;
 
+    let companyId = input.companyId;
+    let organizationId = input.organizationId;
+    if (!companyId) {
+      const defaultCompany = await tx.company.findFirst({
+        where: organizationId ? { organizationId } : {},
+        orderBy: [{ isParent: 'desc' }, { createdAt: 'asc' }],
+      });
+      if (defaultCompany) {
+        companyId = defaultCompany.id;
+        if (!organizationId) organizationId = defaultCompany.organizationId;
+      }
+    }
+
     const docPrefix =
       sourceType === 'SALES_INVOICE'
         ? 'SJ'
@@ -289,8 +303,8 @@ export class FinanceService {
     let entryNumber = input.entryNumber;
     if (!entryNumber) {
       entryNumber = await this.documentNumbering.getNextDocumentNumber({
-        organizationId: input.organizationId,
-        companyId: input.companyId,
+        organizationId: organizationId || input.organizationId,
+        companyId: companyId || input.companyId,
         documentType: docPrefix as any,
       });
     }
@@ -298,8 +312,8 @@ export class FinanceService {
     const journalEntry = await tx.journalEntry.create({
       data: {
         id: uuidv7(),
-        organizationId: input.organizationId,
-        companyId: input.companyId,
+        organizationId: organizationId || input.organizationId,
+        companyId: companyId || input.companyId,
         entryNumber,
         entryDate,
         sourceType,
@@ -335,8 +349,23 @@ export class FinanceService {
    * Create and post an operational expense entry with automatic double-entry journal
    */
   async createExpense(dto: CreateExpenseDto, actor: AuthUser) {
-    const organizationId = actor.organizationId;
-    const companyId = actor.companyId;
+    let organizationId = actor.organizationId;
+    let companyId = dto.companyId || actor.companyId;
+
+    if (!companyId) {
+      const defaultCompany = await this.prisma.company.findFirst({
+        where: organizationId ? { organizationId } : {},
+        orderBy: [{ isParent: 'desc' }, { createdAt: 'asc' }],
+      });
+      if (defaultCompany) {
+        companyId = defaultCompany.id;
+        if (!organizationId) organizationId = defaultCompany.organizationId;
+      }
+    }
+
+    if (!companyId) {
+      throw new BadRequestException('A valid company ID is required to record an expense.');
+    }
 
     if (!dto.amount || Number(dto.amount) <= 0) {
       throw new BadRequestException('Expense amount must be greater than zero');

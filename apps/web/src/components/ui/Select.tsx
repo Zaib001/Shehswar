@@ -13,6 +13,9 @@ export interface SelectOption {
 }
 
 export interface SelectProps {
+  id?: string;
+  tabIndex?: number;
+  autoFocus?: boolean;
   label?: string;
   options: SelectOption[];
   value?: string | string[];
@@ -29,6 +32,9 @@ export interface SelectProps {
 }
 
 export const Select: React.FC<SelectProps> = ({
+  id,
+  tabIndex,
+  autoFocus = false,
   label,
   options,
   value,
@@ -45,6 +51,7 @@ export const Select: React.FC<SelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isTriggerHovered, setIsTriggerHovered] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [menuCoords, setMenuCoords] = useState<{
@@ -135,6 +142,18 @@ export const Select: React.FC<SelectProps> = ({
     }
   }, [isOpen, isSearchable]);
 
+  // Support autoFocus on the trigger
+  useEffect(() => {
+    if (autoFocus && triggerRef.current) {
+      triggerRef.current.focus();
+    }
+  }, [autoFocus]);
+
+  // Reset highlighted index on search or open
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [search, isOpen]);
+
   const selectedValues = Array.isArray(value) ? value : value !== undefined && value !== null && value !== '' ? [String(value)] : [];
 
   const filteredOptions = (options || []).filter((opt) => {
@@ -219,17 +238,20 @@ export const Select: React.FC<SelectProps> = ({
       {/* Select Trigger Box */}
       <div
         ref={triggerRef}
+        id={id}
         role="button"
-        tabIndex={disabled ? -1 : 0}
+        tabIndex={tabIndex ?? (disabled ? -1 : 0)}
         onClick={handleToggle}
         onMouseEnter={() => setIsTriggerHovered(true)}
         onMouseLeave={() => setIsTriggerHovered(false)}
         onKeyDown={(e) => {
-          if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            handleToggle();
-          } else if (e.key === 'Escape') {
-            setIsOpen(false);
+          if (!disabled) {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              handleToggle();
+            } else if (e.key === 'Escape') {
+              setIsOpen(false);
+            }
           }
         }}
         style={{
@@ -413,6 +435,30 @@ export const Select: React.FC<SelectProps> = ({
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
+                        handleSelect(String(filteredOptions[highlightedIndex].value));
+                        triggerRef.current?.focus();
+                      }
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setIsOpen(false);
+                      triggerRef.current?.focus();
+                    } else if (e.key === 'Tab') {
+                      if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
+                        handleSelect(String(filteredOptions[highlightedIndex].value));
+                      }
+                      setIsOpen(false);
+                    }
+                  }}
                   placeholder="Search options..."
                   onClick={(e) => e.stopPropagation()}
                   style={{
@@ -478,11 +524,17 @@ export const Select: React.FC<SelectProps> = ({
                 <span>No matching options found</span>
               </div>
             ) : (
-              filteredOptions.map((opt) => {
+              filteredOptions.map((opt, idx) => {
                 const isSelected = selectedValues.includes(String(opt.value));
+                const isHighlighted = idx === highlightedIndex;
                 return (
                   <div
                     key={String(opt.value)}
+                    ref={(el) => {
+                      if (isHighlighted && el) {
+                        el.scrollIntoView({ block: 'nearest' });
+                      }
+                    }}
                     role="option"
                     aria-selected={isSelected}
                     onClick={() => !opt.disabled && handleSelect(String(opt.value))}
@@ -491,7 +543,10 @@ export const Select: React.FC<SelectProps> = ({
                       borderRadius: '8px',
                       cursor: opt.disabled ? 'not-allowed' : 'pointer',
                       opacity: opt.disabled ? 0.45 : 1,
-                      backgroundColor: isSelected ? '#EFF6FF' : 'transparent',
+                      backgroundColor: isSelected
+                        ? (isHighlighted ? '#DBEAFE' : '#EFF6FF')
+                        : (isHighlighted ? '#F1F5F9' : 'transparent'),
+                      outline: isHighlighted ? '1.5px solid #3B82F6' : 'none',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -503,6 +558,7 @@ export const Select: React.FC<SelectProps> = ({
                       userSelect: 'none',
                     }}
                     onMouseEnter={(e) => {
+                      setHighlightedIndex(idx);
                       if (!isSelected && !opt.disabled) {
                         e.currentTarget.style.backgroundColor = '#F8FAFC';
                         e.currentTarget.style.transform = 'translateX(2px)';

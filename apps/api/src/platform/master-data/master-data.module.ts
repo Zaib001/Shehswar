@@ -3,6 +3,7 @@
  */
 import { Module } from '@nestjs/common';
 import { MasterDataController } from './master-data.controller';
+import { EmployeeAliasController } from './employee-alias.controller';
 import { MasterDataService } from './master-data.service';
 import { AuditModule } from '../audit/audit.module';
 import { CodeGenerationModule } from '../code-generation/code-generation.module';
@@ -12,7 +13,7 @@ import { ProductImportService } from './product-import.service';
 
 @Module({
   imports: [AuditModule, CodeGenerationModule],
-  controllers: [MasterDataController],
+  controllers: [MasterDataController, EmployeeAliasController],
   providers: [
     MasterDataService,
     CategoryRouterService,

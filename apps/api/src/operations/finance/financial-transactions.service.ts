@@ -83,6 +83,19 @@ export class FinancialTransactionsService {
 
       const txDate = dto.transactionDate ? new Date(dto.transactionDate) : new Date();
 
+      // Resolve Company ID safely with database fallback if not supplied
+      let resolvedCompanyId = dto.companyId;
+      if (!resolvedCompanyId) {
+        const defaultCompany = await tx.company.findFirst({
+          where: organizationId ? { organizationId } : {},
+          orderBy: [{ isParent: 'desc' }, { createdAt: 'asc' }],
+        });
+        if (!defaultCompany) {
+          throw new BadRequestException('A valid company ID is required to record a transaction');
+        }
+        resolvedCompanyId = defaultCompany.id;
+      }
+
       // Determine default Cash / Bank account code if not specified
       const isBank = dto.transactionType === 'BANK_RECEIPT' || dto.transactionType === 'BANK_PAYMENT';
       const defaultCashOrBankCode = isBank ? '102000' : '101000';
@@ -90,7 +103,7 @@ export class FinancialTransactionsService {
       const cashOrBankAccount = await this.financeService.resolveAccount(
         tx,
         organizationId,
-        dto.companyId,
+        resolvedCompanyId,
         dto.accountId || defaultCashOrBankCode,
       );
 
@@ -117,7 +130,7 @@ export class FinancialTransactionsService {
       const contraAccount = await this.financeService.resolveAccount(
         tx,
         organizationId,
-        dto.companyId,
+        resolvedCompanyId,
         contraIdentifier,
       );
 
@@ -132,11 +145,11 @@ export class FinancialTransactionsService {
       let voucherNumber = dto.voucherNumber?.trim();
       if (!voucherNumber || voucherNumber === 'AUTO') {
         const count = await tx.financialTransaction.count({
-          where: { companyId: dto.companyId, transactionType: dto.transactionType },
+          where: { companyId: resolvedCompanyId, transactionType: dto.transactionType },
         });
         voucherNumber = `${prefix}-${String(count + 1).padStart(5, '0')}`;
         const existingVoucher = await tx.financialTransaction.findFirst({
-          where: { companyId: dto.companyId, voucherNumber },
+          where: { companyId: resolvedCompanyId, voucherNumber },
         });
         if (existingVoucher) {
           voucherNumber = `${prefix}-${String(count + 1).padStart(5, '0')}-${Date.now().toString().slice(-4)}`;
@@ -187,7 +200,7 @@ export class FinancialTransactionsService {
       const recordId = uuidv7();
       const journal = await this.financeService.postJournalEntry(tx, {
         organizationId,
-        companyId: dto.companyId,
+        companyId: resolvedCompanyId,
         sourceType: 'EXPENSE', // Or appropriate source type
         sourceId: recordId,
         referenceType: dto.transactionType,
@@ -204,7 +217,7 @@ export class FinancialTransactionsService {
 
       if (isBank && dto.bankAccountId) {
         const bankAcc = await tx.bankAccount.findFirst({
-          where: { id: dto.bankAccountId, companyId: dto.companyId },
+          where: { id: dto.bankAccountId, companyId: resolvedCompanyId },
         });
         if (bankAcc) {
           linkedBankAccountId = bankAcc.id;
@@ -230,7 +243,7 @@ export class FinancialTransactionsService {
         data: {
           id: recordId,
           organizationId,
-          companyId: dto.companyId,
+          companyId: resolvedCompanyId,
           voucherNumber,
           transactionType: dto.transactionType,
           transactionDate: txDate,

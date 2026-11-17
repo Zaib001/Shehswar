@@ -22,6 +22,32 @@ export class DocumentNumberingService {
     fiscalYear?: number;
     prefixOverride?: string;
   }): Promise<string> {
+    let companyId = params.companyId;
+    let organizationId = params.organizationId;
+
+    if (!companyId) {
+      const defaultCompany = await this.prisma.company.findFirst({
+        where: organizationId ? { organizationId } : {},
+        orderBy: [{ isParent: 'desc' }, { createdAt: 'asc' }],
+      });
+      if (defaultCompany) {
+        companyId = defaultCompany.id;
+        if (!organizationId) {
+          organizationId = defaultCompany.organizationId;
+        }
+      }
+    }
+
+    if (!organizationId && companyId) {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { organizationId: true },
+      });
+      if (comp) {
+        organizationId = comp.organizationId;
+      }
+    }
+
     const fiscalYear = params.fiscalYear ?? new Date().getFullYear();
     const docShort = params.documentType === 'SALES_INVOICE' ? 'SI' : params.documentType;
     const defaultPrefix = `SH-${docShort}-${fiscalYear}`.slice(0, 20);
@@ -31,7 +57,7 @@ export class DocumentNumberingService {
     const sequence = await this.prisma.documentSequence.upsert({
       where: {
         companyId_documentType_fiscalYear: {
-          companyId: params.companyId,
+          companyId,
           documentType: params.documentType,
           fiscalYear,
         },
@@ -42,8 +68,8 @@ export class DocumentNumberingService {
         },
       },
       create: {
-        organizationId: params.organizationId,
-        companyId: params.companyId,
+        organizationId,
+        companyId,
         documentType: params.documentType,
         fiscalYear,
         prefix,

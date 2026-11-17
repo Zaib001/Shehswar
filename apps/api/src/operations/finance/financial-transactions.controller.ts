@@ -145,9 +145,10 @@ export class FinancialTransactionsController {
   async createCashReceipt(@Body() dto: Omit<CreateFinancialTransactionDto, 'transactionType'>, @Req() req: any) {
     const orgId = req.user?.organizationId || req.user?.orgId;
     const userId = req.user?.id;
+    const resolvedCompanyId = dto.companyId || req.user?.companyId || req.headers?.['x-company-id'];
     return this.service.createTransaction(
       orgId,
-      { ...dto, transactionType: 'CASH_RECEIPT' },
+      { ...dto, companyId: resolvedCompanyId, transactionType: 'CASH_RECEIPT' },
       userId,
     );
   }
@@ -157,9 +158,10 @@ export class FinancialTransactionsController {
   async createCashPayment(@Body() dto: Omit<CreateFinancialTransactionDto, 'transactionType'>, @Req() req: any) {
     const orgId = req.user?.organizationId || req.user?.orgId;
     const userId = req.user?.id;
+    const resolvedCompanyId = dto.companyId || req.user?.companyId || req.headers?.['x-company-id'];
     return this.service.createTransaction(
       orgId,
-      { ...dto, transactionType: 'CASH_PAYMENT' },
+      { ...dto, companyId: resolvedCompanyId, transactionType: 'CASH_PAYMENT' },
       userId,
     );
   }
@@ -169,9 +171,10 @@ export class FinancialTransactionsController {
   async createBankReceipt(@Body() dto: Omit<CreateFinancialTransactionDto, 'transactionType'>, @Req() req: any) {
     const orgId = req.user?.organizationId || req.user?.orgId;
     const userId = req.user?.id;
+    const resolvedCompanyId = dto.companyId || req.user?.companyId || req.headers?.['x-company-id'];
     return this.service.createTransaction(
       orgId,
-      { ...dto, transactionType: 'BANK_RECEIPT' },
+      { ...dto, companyId: resolvedCompanyId, transactionType: 'BANK_RECEIPT' },
       userId,
     );
   }
@@ -181,9 +184,10 @@ export class FinancialTransactionsController {
   async createBankPayment(@Body() dto: Omit<CreateFinancialTransactionDto, 'transactionType'>, @Req() req: any) {
     const orgId = req.user?.organizationId || req.user?.orgId;
     const userId = req.user?.id;
+    const resolvedCompanyId = dto.companyId || req.user?.companyId || req.headers?.['x-company-id'];
     return this.service.createTransaction(
       orgId,
-      { ...dto, transactionType: 'BANK_PAYMENT' },
+      { ...dto, companyId: resolvedCompanyId, transactionType: 'BANK_PAYMENT' },
       userId,
     );
   }
