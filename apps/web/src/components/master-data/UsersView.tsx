@@ -249,15 +249,22 @@ interface MarketAssignmentItem {
 
         // If creating new employee first (auto-generate code if left blank)
         if (formData.employeeOption === 'new') {
-          const empRes = await ApiClient.post<any>('/api/v1/master-data/employees', {
+          const empPayload: any = {
             employeeCode: (formData.newEmployeeCode || 'AUTO').trim().toUpperCase(),
             firstName: formData.newEmployeeFirstName || formData.firstName,
             lastName: formData.newEmployeeLastName || formData.lastName || '',
-            companyId: formData.companyId || companies[0]?.id,
-            department: formData.newEmployeeDepartment,
-            position: formData.newEmployeePosition,
+            position: formData.newEmployeePosition || 'Sales Officer',
             status: 'ACTIVE',
-          });
+          };
+          const resolvedCompId = formData.companyId || companies[0]?.id;
+          if (resolvedCompId) {
+            empPayload.companyId = resolvedCompId;
+          }
+          if (formData.newEmployeeDepartment) {
+            empPayload.department = formData.newEmployeeDepartment;
+          }
+
+          const empRes = await ApiClient.post<any>('/api/v1/master-data/employees', empPayload);
           const createdEmp = empRes.data?.data || empRes.data;
           if (createdEmp?.id) {
             finalEmployeeId = createdEmp.id;
@@ -276,19 +283,21 @@ interface MarketAssignmentItem {
             effectiveTo: a.effectiveTo ? new Date(a.effectiveTo) : null,
           }));
 
-        const payload = {
+        const payload: any = {
           firstName: formData.firstName,
           lastName: formData.lastName || '',
           email: formData.email,
-          phone: formData.phone,
-          companyId: formData.companyId || companies[0]?.id,
-          roleId: formData.roleId || roles[0]?.id,
-          employeeId: finalEmployeeId || undefined,
           password: formData.password || 'Shehswar@2026!',
-          creditLimit: formData.creditLimit !== '' ? Number(formData.creditLimit) : undefined,
-          targetAmount: formData.targetAmount !== '' ? Number(formData.targetAmount) : undefined,
           marketAssignments: validAssignments,
         };
+        if (formData.phone) payload.phone = formData.phone;
+        const compId = formData.companyId || companies[0]?.id;
+        if (compId) payload.companyId = compId;
+        const rId = formData.roleId || roles[0]?.id;
+        if (rId) payload.roleId = rId;
+        if (finalEmployeeId) payload.employeeId = finalEmployeeId;
+        if (formData.creditLimit !== '') payload.creditLimit = Number(formData.creditLimit);
+        if (formData.targetAmount !== '') payload.targetAmount = Number(formData.targetAmount);
 
         await ApiClient.post('/api/v1/master-data/users', payload);
         showToast({ title: 'Success', message: `User ${formData.email} registered successfully`, type: 'success' });

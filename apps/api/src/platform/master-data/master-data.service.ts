@@ -1247,12 +1247,36 @@ export class MasterDataService {
     const resolvedManagerId = await this.resolveManagerId(dto.managerId);
     const empId = uuidv7();
 
+    let departmentId = dto.departmentId || null;
+    if (!departmentId && dto.department) {
+      const dept = await this.prisma.department.findFirst({
+        where: {
+          companyId,
+          name: { equals: dto.department.trim(), mode: 'insensitive' },
+        },
+      });
+      if (dept) {
+        departmentId = dept.id;
+      } else {
+        const newDept = await this.prisma.department.create({
+          data: {
+            id: uuidv7(),
+            companyId,
+            code: `DEP-${Math.floor(1000 + Math.random() * 9000)}`,
+            name: dto.department.trim(),
+            isActive: true,
+          },
+        }).catch(() => null);
+        if (newDept) departmentId = newDept.id;
+      }
+    }
+
     const created = await this.prisma.employee.create({
       data: {
         id: empId,
         organizationId: dto.organizationId || company.organizationId,
         companyId,
-        departmentId: dto.departmentId || null,
+        departmentId,
         plantId: dto.plantId || null,
         branchId: dto.branchId || null,
         employeeCode,
@@ -1310,7 +1334,7 @@ export class MasterDataService {
 
   async updateEmployee(id: string, dto: UpdateEmployeeDto, actor: { id: string; email?: string }) {
     const previous = await this.findOneEmployee(id);
-    const { userId, ...fieldsToUpdate } = dto;
+    const { userId, department, ...fieldsToUpdate } = dto as any;
 
     let resolvedManagerId = previous.managerId;
     if (fieldsToUpdate.managerId !== undefined) {

@@ -668,8 +668,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createEmployee(finalDto, {
       id: user?.id || 'system',
@@ -946,8 +946,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createRawMaterial(finalDto, { id: user?.id || 'system', email: user?.email });
   }
@@ -993,8 +993,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createPackingMaterial(finalDto, { id: user?.id || 'system', email: user?.email });
   }
@@ -1145,8 +1145,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createFinishedProduct(finalDto, { id: user?.id || 'system', email: user?.email });
   }
@@ -1293,8 +1293,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createQcSpecification(finalDto, { id: user?.id || 'system', email: user?.email });
   }
@@ -1335,8 +1335,8 @@ export class MasterDataController {
   ) {
     const finalDto = {
       ...dto,
-      organizationId: dto.organizationId || ctx.organizationId || user.organizationId,
-      companyId: dto.companyId || ctx.companyId || user.companyId,
+      organizationId: dto.organizationId || ctx?.organizationId || user?.organizationId,
+      companyId: dto.companyId || ctx?.companyId || user?.companyId,
     };
     return this.masterDataService.createFormulaBom(finalDto, { id: user?.id || 'system', email: user?.email });
   }

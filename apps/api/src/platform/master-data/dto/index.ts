@@ -478,14 +478,17 @@ export class UpdateWarehouseDto {
 
 // 7. User DTOs
 export class CreateUserDto {
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   organizationId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   companyId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   employeeId?: string;
@@ -570,10 +573,12 @@ export class UpdateUserDto {
   @IsOptional()
   targetAmount?: number;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   employeeId?: string | null;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   companyId?: string;
@@ -581,6 +586,7 @@ export class UpdateUserDto {
   @IsOptional()
   roleIds?: string[];
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsOptional()
   roleId?: string;
 
@@ -635,22 +641,31 @@ export class UpdateRoleDto {
 
 // 9. Employee DTOs
 export class CreateEmployeeDto {
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   organizationId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   companyId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   departmentId?: string;
 
+  @IsString()
+  @IsOptional()
+  department?: string;
+
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   plantId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   branchId?: string;
@@ -671,6 +686,7 @@ export class CreateEmployeeDto {
   @IsOptional()
   phone?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsEmail()
   @IsOptional()
   email?: string;
@@ -718,24 +734,33 @@ export class CreateEmployeeDto {
   @IsOptional()
   status?: string; // ACTIVE, RESIGNED, TERMINATED, INACTIVE
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   managerId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   userId?: string;
 }
 
 export class UpdateEmployeeDto {
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   departmentId?: string;
 
+  @IsString()
+  @IsOptional()
+  department?: string;
+
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   plantId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   branchId?: string;
@@ -775,6 +800,7 @@ export class UpdateEmployeeDto {
   @IsOptional()
   phone?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsEmail()
   @IsOptional()
   email?: string;
@@ -799,10 +825,12 @@ export class UpdateEmployeeDto {
   @IsOptional()
   status?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   managerId?: string;
 
+  @ValidateIf((_, val) => Boolean(val))
   @IsUUID()
   @IsOptional()
   userId?: string;
