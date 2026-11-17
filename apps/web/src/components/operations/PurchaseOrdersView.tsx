@@ -1428,7 +1428,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     }
 
     try {
-      await ApiClient.post('/api/v1/operations/purchase-orders', {
+      const isEdit = Boolean(selectedOrder?.id);
+      const payload = {
         poNumber: effectivePoNumber,
         poDate: formPoDate || undefined,
         vendorId: formVendorId,
@@ -1460,12 +1461,64 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
           };
         }),
         status: 'CONFIRMED',
+      };
+
+      if (isEdit) {
+        // Edit mode: save changes and close/return as normal
+        await ApiClient.put(`/api/v1/operations/purchase-orders/${selectedOrder!.id}`, payload);
+        showToast({ title: 'Success', message: `Purchase Order ${effectivePoNumber} updated successfully!`, type: 'success' });
+        setSelectedOrder(null);
+        setMode('list');
+        await loadData();
+        return;
+      }
+
+      // Create mode: save and keep modal open for next transaction
+      await ApiClient.post('/api/v1/operations/purchase-orders', payload);
+
+      showToast({
+        title: 'Success',
+        message: `✓ Purchase Order ${effectivePoNumber} created successfully. Ready for the next Purchase Order.`,
+        type: 'success',
       });
 
-      showToast({ title: 'Success', message: `Purchase Order ${effectivePoNumber} saved structurally in database!`, type: 'success' });
-      setMode('list');
-      await loadData();
+      // Reset transaction-specific fields (clear vendor, items, notes, refresh AUTO reference number)
+      setFormVendorId('');
+      setFormExpectedDate('');
+      setFormNotes('');
+      setExtractedExtraFields({});
+      setFormItems([
+        {
+          itemName: '',
+          materialType: 'RAW_MATERIAL',
+          packSize: '25 KG',
+          packCapacity: 25,
+          numberOfPacks: 10,
+          quantity: 250,
+          unit: 'KG',
+          totalPurchaseAmount: 0,
+          costPerPack: 0,
+          unitRate: 0,
+          lineTotal: 0,
+        },
+      ]);
+
+      // Refresh AUTO reference number
+      const nextPo = await fetchNextPoNumber();
+      setFormPoNumber(nextPo || 'AUTO');
+
+      // Refresh list in background
+      loadData();
+
+      // Automatically focus first input (vendor selector) for immediate continuous keyboard entry
+      setTimeout(() => {
+        const vendorEl = document.getElementById('field-po-vendor') || document.querySelector('[data-vendor-selector]');
+        if (vendorEl) {
+          (vendorEl as HTMLElement).focus();
+        }
+      }, 100);
     } catch (err: any) {
+      // Keep modal open, keep user's entered data, show error
       showToast({ title: 'Error', message: err?.message || 'Failed to save purchase order', type: 'error' });
     }
   };
@@ -3051,6 +3104,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                       .map((v) => ({
                         value: v.id,
                         label: v.name || v.code || 'Vendor',
+                        subtext: v.code && v.name && v.code !== v.name ? v.code : undefined,
                         searchTerms: `${v.code || ''} ${v.name || ''}`,
                       }))}
                     placeholder="Type to search vendor..."

@@ -244,6 +244,19 @@ interface MarketAssignmentItem {
 
     try {
       setIsSubmitting(true);
+
+      const validAssignments = formData.marketAssignments
+        .filter((a) => Boolean(a.regionId || a.zoneId || a.territoryId))
+        .map((a) => ({
+          roleScope: a.roleScope,
+          regionId: a.regionId || null,
+          zoneId: a.zoneId || null,
+          territoryId: a.territoryId || null,
+          isPrimary: a.isPrimary,
+          effectiveFrom: a.effectiveFrom ? new Date(a.effectiveFrom) : new Date(),
+          effectiveTo: a.effectiveTo ? new Date(a.effectiveTo) : null,
+        }));
+
       if (mode === 'create') {
         let finalEmployeeId = formData.employeeId;
 
@@ -271,18 +284,6 @@ interface MarketAssignmentItem {
           }
         }
 
-        const validAssignments = formData.marketAssignments
-          .filter((a) => Boolean(a.regionId || a.zoneId || a.territoryId))
-          .map((a) => ({
-            roleScope: a.roleScope,
-            regionId: a.regionId || null,
-            zoneId: a.zoneId || null,
-            territoryId: a.territoryId || null,
-            isPrimary: a.isPrimary,
-            effectiveFrom: a.effectiveFrom ? new Date(a.effectiveFrom) : new Date(),
-            effectiveTo: a.effectiveTo ? new Date(a.effectiveTo) : null,
-          }));
-
         const payload: any = {
           firstName: formData.firstName,
           lastName: formData.lastName || '',
@@ -303,7 +304,7 @@ interface MarketAssignmentItem {
         showToast({ title: 'Success', message: `User ${formData.email} registered successfully`, type: 'success' });
         await fetchData();
       } else if (mode === 'edit' && selectedUser) {
-        const payload = {
+        const payload: any = {
           firstName: formData.firstName,
           lastName: formData.lastName || '',
           phone: formData.phone,
@@ -312,6 +313,7 @@ interface MarketAssignmentItem {
           status: formData.status,
           creditLimit: formData.creditLimit !== '' ? Number(formData.creditLimit) : undefined,
           targetAmount: formData.targetAmount !== '' ? Number(formData.targetAmount) : undefined,
+          marketAssignments: validAssignments,
         };
         await ApiClient.patch(`/api/v1/master-data/users/${selectedUser.id}`, payload);
         showToast({ title: 'Updated', message: 'User account updated', type: 'success' });
@@ -1224,6 +1226,126 @@ interface MarketAssignmentItem {
               </div>
             </CardContent>
           </Card>
+
+          {/* Market Hierarchy & Territory Assignment */}
+          <Card style={{ gridColumn: '1 / -1' }}>
+            <CardHeader>
+              <CardTitle>Market Hierarchy & Territory Coverage</CardTitle>
+            </CardHeader>
+            <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Assign Market Coverage ({isBusinessManagerRole ? 'Regional Scope' : isAreaManagerRole ? 'Zonal Scope' : 'Territory / Field Scope'}):
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                  <Select
+                    label="Region *"
+                    value={draftAssignment.regionId}
+                    onChange={(e) => setDraftAssignment({ ...draftAssignment, regionId: e.target.value, zoneId: '', territoryId: '' })}
+                    options={[
+                      { label: 'Select Region...', value: '' },
+                      ...regions.map((r) => ({ label: `${r.code} - ${r.name}`, value: r.id })),
+                    ]}
+                  />
+
+                  {(isAreaManagerRole || isSalesOfficerRole) && (
+                    <Select
+                      label="Zone *"
+                      value={draftAssignment.zoneId}
+                      onChange={(e) => setDraftAssignment({ ...draftAssignment, zoneId: e.target.value, territoryId: '' })}
+                      options={[
+                        { label: 'Select Zone...', value: '' },
+                        ...zones
+                          .filter((z) => !draftAssignment.regionId || z.regionId === draftAssignment.regionId)
+                          .map((z) => ({ label: `${z.code} - ${z.name}`, value: z.id })),
+                      ]}
+                    />
+                  )}
+
+                  {isSalesOfficerRole && (
+                    <Select
+                      label="Territory *"
+                      value={draftAssignment.territoryId}
+                      onChange={(e) => setDraftAssignment({ ...draftAssignment, territoryId: e.target.value })}
+                      options={[
+                        { label: 'Select Territory...', value: '' },
+                        ...territories
+                          .filter((t) => !draftAssignment.zoneId || t.zoneId === draftAssignment.zoneId)
+                          .map((t) => ({ label: `${t.code} - ${t.name}`, value: t.id })),
+                      ]}
+                    />
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                    <input
+                      type="checkbox"
+                      checked={draftAssignment.isPrimary}
+                      onChange={(e) => setDraftAssignment({ ...draftAssignment, isPrimary: e.target.checked })}
+                    />
+                    <span>Primary Assignment</span>
+                  </label>
+
+                  <Button variant="primary" size="sm" icon={<IconPlus size={14} />} onClick={handleAddAssignment}>
+                    + Add Assignment
+                  </Button>
+                </div>
+              </div>
+
+              {/* List of Configured Assignments */}
+              <div>
+                <strong style={{ fontSize: '13px' }}>Configured Market Assignments ({formData.marketAssignments.length}):</strong>
+                {formData.marketAssignments.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>
+                    No market assignments configured for this user.
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '8px 12px' }}>Scope</th>
+                        <th style={{ padding: '8px 12px' }}>Target Market</th>
+                        <th style={{ padding: '8px 12px' }}>Priority</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {formData.marketAssignments.map((a, idx) => {
+                        const reg = regions.find((r) => r.id === a.regionId);
+                        const z = zones.find((zn) => zn.id === a.zoneId);
+                        const t = territories.find((tr) => tr.id === a.territoryId);
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>{a.roleScope}</td>
+                            <td style={{ padding: '8px 12px' }}>
+                              {t ? `${t.name} (${t.code})` : z ? `${z.name} (${z.code})` : reg ? `${reg.name} (${reg.code})` : '—'}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <span style={{ color: a.isPrimary ? '#059669' : '#64748b', fontWeight: 600 }}>
+                                {a.isPrimary ? 'PRIMARY' : 'SECONDARY'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon={<IconTrash size={14} />}
+                                style={{ color: '#ef4444' }}
+                                onClick={() => handleRemoveAssignment(idx)}
+                              >
+                                Remove
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </FormPageTemplate>
     );
@@ -1272,7 +1394,16 @@ interface MarketAssignmentItem {
                 status: selectedUser.status,
                 creditLimit: selectedUser.creditLimit ? String(selectedUser.creditLimit) : '',
                 targetAmount: selectedUser.targetAmount ? String(selectedUser.targetAmount) : '',
-                marketAssignments: [],
+                marketAssignments: (selectedUser.marketAssignments || []).map((ma: any) => ({
+                  roleScope: ma.roleScope || 'SALES_OFFICER',
+                  regionId: ma.regionId || '',
+                  zoneId: ma.zoneId || '',
+                  territoryId: ma.territoryId || '',
+                  isPrimary: Boolean(ma.isPrimary),
+                  effectiveFrom: ma.effectiveFrom ? String(ma.effectiveFrom).slice(0, 10) : new Date().toISOString().slice(0, 10),
+                  effectiveTo: ma.effectiveTo ? String(ma.effectiveTo).slice(0, 10) : undefined,
+                  tempId: ma.id || Math.random().toString(),
+                })),
               });
               setMode('edit');
             }}

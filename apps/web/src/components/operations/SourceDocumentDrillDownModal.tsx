@@ -267,12 +267,11 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
       isOpen={isOpen}
       onClose={onClose}
       size="xl"
-      title={String(doc?.sourceNumber || sourceNumber || voucherNumber || 'Transaction Document')}
+      title={doc?.sourceNumber || sourceNumber || voucherNumber || 'Transaction Document'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px', padding: '16px 20px', maxHeight: '82vh', overflowY: 'auto' }}>
-        {/* Status header if present */}
         {doc?.status && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '-8px' }}>
             <span
               style={{
                 fontSize: '11px',

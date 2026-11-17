@@ -172,6 +172,201 @@ export class MarketPerformanceService {
   }
 
   /**
+   * Enterprise 4-Tier Market Hierarchy Target & Credit Aggregator
+   * Single Source of Truth: Sales Officer / User Creation records.
+   * Rollup: User (Actual Target & Credit) -> Territory (Sum) -> Zone (Sum) -> Region (Sum) -> Group (Sum).
+   * Strict single-source attribution: zero hardcoded values, zero fake fallbacks, zero double counting.
+   */
+  private async calculateMarketAggregates(companyId?: string) {
+    const whereRegion: any = { isActive: true };
+    if (companyId && companyId.toLowerCase() !== 'all') {
+      whereRegion.companyId = companyId;
+    }
+
+    const [regions, unassignedTerritories, allCreditLimits, allSalesTargets] = await Promise.all([
+      this.prisma.region.findMany({
+        where: whereRegion,
+        include: {
+          zones: {
+            where: { isActive: true },
+            include: {
+              territories: {
+                where: { isActive: true },
+                include: {
+                  salesOfficer: {
+                    select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+                  },
+                  userMarketAssignments: {
+                    where: { status: 'ACTIVE' },
+                    include: {
+                      user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.territory.findMany({
+        where: { isActive: true },
+        include: {
+          salesOfficer: {
+            select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+          },
+          userMarketAssignments: {
+            where: { status: 'ACTIVE' },
+            include: {
+              user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.creditLimit.findMany({
+        where: { level: 'SALES_OFFICER', status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.salesTarget.findMany({
+        where: { level: 'SALES_OFFICER', status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const userCreditMap = new Map<string, number>();
+    for (const cl of allCreditLimits) {
+      userCreditMap.set(cl.entityId, Number(cl.creditLimit || 0));
+    }
+
+    const userTargetMap = new Map<string, number>();
+    for (const st of allSalesTargets) {
+      userTargetMap.set(st.entityId, Number(st.targetAmount || 0));
+    }
+
+    const territoryMap = new Map<
+      string,
+      {
+        targetAmount: number;
+        creditLimit: number;
+        salesOfficersCount: number;
+        salesOfficers: Array<{ id: string; name: string; email?: string; phone?: string; targetAmount: number; creditLimit: number }>;
+      }
+    >();
+
+    for (const t of unassignedTerritories) {
+      const distinctOfficers = new Map<string, { id: string; name: string; email?: string; phone?: string }>();
+      if (t.salesOfficer?.id) {
+        distinctOfficers.set(t.salesOfficer.id, {
+          id: t.salesOfficer.id,
+          name: `${t.salesOfficer.firstName || ''} ${t.salesOfficer.lastName || ''}`.trim(),
+          email: t.salesOfficer.email,
+          phone: t.salesOfficer.phone || undefined,
+        });
+      }
+      for (const uma of t.userMarketAssignments || []) {
+        if (uma.user?.id) {
+          distinctOfficers.set(uma.user.id, {
+            id: uma.user.id,
+            name: `${uma.user.firstName || ''} ${uma.user.lastName || ''}`.trim(),
+            email: uma.user.email,
+            phone: uma.user.phone || undefined,
+          });
+        }
+      }
+
+      let tTarget = 0;
+      let tCredit = 0;
+      const officersList: Array<{ id: string; name: string; email?: string; phone?: string; targetAmount: number; creditLimit: number }> = [];
+
+      for (const [uid, uInfo] of distinctOfficers.entries()) {
+        const uTarget = userTargetMap.get(uid) || 0;
+        const uCredit = userCreditMap.get(uid) || 0;
+        tTarget += uTarget;
+        tCredit += uCredit;
+        officersList.push({
+          id: uid,
+          name: uInfo.name,
+          email: uInfo.email,
+          phone: uInfo.phone,
+          targetAmount: uTarget,
+          creditLimit: uCredit,
+        });
+      }
+
+      territoryMap.set(t.id, {
+        targetAmount: tTarget,
+        creditLimit: tCredit,
+        salesOfficersCount: distinctOfficers.size,
+        salesOfficers: officersList,
+      });
+    }
+
+    const zoneMap = new Map<
+      string,
+      {
+        targetAmount: number;
+        creditLimit: number;
+        territoriesCount: number;
+      }
+    >();
+
+    const regionMap = new Map<
+      string,
+      {
+        targetAmount: number;
+        creditLimit: number;
+        zonesCount: number;
+      }
+    >();
+
+    let totalGroupTarget = 0;
+    let totalGroupCredit = 0;
+
+    for (const r of regions) {
+      let regTarget = 0;
+      let regCredit = 0;
+
+      for (const z of r.zones) {
+        let zoneTarget = 0;
+        let zoneCredit = 0;
+
+        for (const t of z.territories) {
+          const tAgg = territoryMap.get(t.id) || { targetAmount: 0, creditLimit: 0 };
+          zoneTarget += tAgg.targetAmount;
+          zoneCredit += tAgg.creditLimit;
+        }
+
+        zoneMap.set(z.id, {
+          targetAmount: zoneTarget,
+          creditLimit: zoneCredit,
+          territoriesCount: z.territories.length,
+        });
+
+        regTarget += zoneTarget;
+        regCredit += zoneCredit;
+      }
+
+      regionMap.set(r.id, {
+        targetAmount: regTarget,
+        creditLimit: regCredit,
+        zonesCount: r.zones.length,
+      });
+
+      totalGroupTarget += regTarget;
+      totalGroupCredit += regCredit;
+    }
+
+    return {
+      userCreditMap,
+      userTargetMap,
+      territoryMap,
+      zoneMap,
+      regionMap,
+      totalGroupTarget,
+      totalGroupCredit,
+    };
+  }
+
+  /**
    * 1. GROUP LEVEL PERFORMANCE (Punjab Total + Regional Breakdown)
    */
   async getGroupPerformance(companyId: string, filter?: PerformanceFilter) {
@@ -180,7 +375,7 @@ export class MarketPerformanceService {
 
     const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
 
-    const [invoices, regions, salesTargets] = await Promise.all([
+    const [invoices, regions, aggregates] = await Promise.all([
       this.prisma.salesInvoice.findMany({
         where,
         select: {
@@ -222,27 +417,11 @@ export class MarketPerformanceService {
             select: { id: true, firstName: true, lastName: true, phone: true },
           },
           zones: {
-            include: {
-              territories: {
-                include: {
-                  dealers: {
-                    where: { status: 'ACTIVE' },
-                    select: { id: true, monthlySalesTarget: true, annualAgreementTarget: true },
-                  },
-                },
-              },
-            },
+            where: { isActive: true },
           },
         },
       }),
-      this.prisma.salesTarget.findMany({
-        where: {
-          ...compFilter,
-          level: 'REGION',
-          periodYear: year,
-          status: 'ACTIVE',
-        },
-      }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     let totalRevenue = 0;
@@ -273,31 +452,11 @@ export class MarketPerformanceService {
       }
     }
 
-    let calculatedGroupTarget = 0;
-
     const regionalBreakdown = regions.map((r) => {
       const data = regionMap.get(r.id) || { revenue: 0, qty: 0, orderCount: 0, dealers: new Set() };
-
-      // Target calculation: SalesTarget table -> Sum of assigned dealers -> Default fallback
-      const matchingTarget = salesTargets.find((st) => st.entityId === r.id);
-      let regionTarget = matchingTarget ? Number(matchingTarget.targetAmount) : 0;
-
-      if (!regionTarget || regionTarget === 0) {
-        // Sum from all active dealers in this region's territories
-        let dealerTargetsSum = 0;
-        for (const z of r.zones) {
-          for (const t of z.territories) {
-            for (const d of t.dealers) {
-              const mTarget = Number(d.monthlySalesTarget || 0);
-              const aTarget = Number(d.annualAgreementTarget || 0);
-              dealerTargetsSum += mTarget > 0 ? mTarget : Math.round(aTarget / 12);
-            }
-          }
-        }
-        regionTarget = dealerTargetsSum > 0 ? dealerTargetsSum : 40000000; // 40M default
-      }
-
-      calculatedGroupTarget += regionTarget;
+      const rAgg = aggregates.regionMap.get(r.id) || { targetAmount: 0, creditLimit: 0, zonesCount: r.zones.length };
+      const regionTarget = rAgg.targetAmount;
+      const regionCredit = rAgg.creditLimit;
 
       const achievement = regionTarget > 0 ? (data.revenue / regionTarget) * 100 : 0;
       const activeDealers = data.dealers.size;
@@ -313,6 +472,7 @@ export class MarketPerformanceService {
         zonesCount: r.zones.length,
         actualSales: data.revenue,
         target: regionTarget,
+        creditLimit: regionCredit,
         achievementPercent: Number(achievement.toFixed(2)),
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
@@ -321,7 +481,8 @@ export class MarketPerformanceService {
       };
     });
 
-    const finalGroupTarget = calculatedGroupTarget > 0 ? calculatedGroupTarget : 150000000;
+    const finalGroupTarget = aggregates.totalGroupTarget;
+    const finalGroupCredit = aggregates.totalGroupCredit;
     const groupAchievement = finalGroupTarget > 0 ? (totalRevenue / finalGroupTarget) * 100 : 0;
     const activeDealersCount = activeDealersSet.size;
 
@@ -336,6 +497,7 @@ export class MarketPerformanceService {
         activeDealers: activeDealersCount,
         averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: finalGroupTarget,
+        creditLimit: finalGroupCredit,
         achievementPercent: Number(groupAchievement.toFixed(2)),
       },
       regions: regionalBreakdown,
@@ -360,7 +522,7 @@ export class MarketPerformanceService {
 
     const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
 
-    const [region, invoices, zones, salesTargets] = await Promise.all([
+    const [region, invoices, zones, aggregates] = await Promise.all([
       this.prisma.region.findFirst({
         where: { id: regionId, ...compFilter },
         include: {
@@ -403,23 +565,11 @@ export class MarketPerformanceService {
             select: { id: true, firstName: true, lastName: true, phone: true },
           },
           territories: {
-            include: {
-              dealers: {
-                where: { status: 'ACTIVE' },
-                select: { id: true, monthlySalesTarget: true, annualAgreementTarget: true },
-              },
-            },
+            where: { isActive: true },
           },
         },
       }),
-      this.prisma.salesTarget.findMany({
-        where: {
-          ...compFilter,
-          level: 'ZONE',
-          periodYear: year,
-          status: 'ACTIVE',
-        },
-      }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     if (!region) throw new Error('Region not found');
@@ -451,28 +601,11 @@ export class MarketPerformanceService {
       }
     }
 
-    let calculatedRegionTarget = 0;
-
     const zonesBreakdown = zones.map((z) => {
       const data = zoneMap.get(z.id) || { revenue: 0, qty: 0, orderCount: 0, dealers: new Set() };
-
-      // Target calculation: SalesTarget table -> Sum of assigned dealers -> Default fallback
-      const matchingTarget = salesTargets.find((st) => st.entityId === z.id);
-      let zoneTarget = matchingTarget ? Number(matchingTarget.targetAmount) : 0;
-
-      if (!zoneTarget || zoneTarget === 0) {
-        let dealerTargetsSum = 0;
-        for (const t of z.territories) {
-          for (const d of t.dealers) {
-            const mTarget = Number(d.monthlySalesTarget || 0);
-            const aTarget = Number(d.annualAgreementTarget || 0);
-            dealerTargetsSum += mTarget > 0 ? mTarget : Math.round(aTarget / 12);
-          }
-        }
-        zoneTarget = dealerTargetsSum > 0 ? dealerTargetsSum : 15000000; // 15M default zone target
-      }
-
-      calculatedRegionTarget += zoneTarget;
+      const zAgg = aggregates.zoneMap.get(z.id) || { targetAmount: 0, creditLimit: 0, territoriesCount: z.territories.length };
+      const zoneTarget = zAgg.targetAmount;
+      const zoneCredit = zAgg.creditLimit;
 
       const achievement = zoneTarget > 0 ? (data.revenue / zoneTarget) * 100 : 0;
       const activeDealers = data.dealers.size;
@@ -486,6 +619,7 @@ export class MarketPerformanceService {
         territoriesCount: z.territories.length,
         actualSales: data.revenue,
         target: zoneTarget,
+        creditLimit: zoneCredit,
         achievementPercent: Number(achievement.toFixed(2)),
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
@@ -494,7 +628,9 @@ export class MarketPerformanceService {
       };
     });
 
-    const finalRegionTarget = calculatedRegionTarget > 0 ? calculatedRegionTarget : 40000000;
+    const rAgg = aggregates.regionMap.get(region.id) || { targetAmount: 0, creditLimit: 0, zonesCount: zones.length };
+    const finalRegionTarget = rAgg.targetAmount;
+    const finalRegionCredit = rAgg.creditLimit;
     const achievementPercent = finalRegionTarget > 0 ? (totalRevenue / finalRegionTarget) * 100 : 0;
     const activeDealersCount = activeDealersSet.size;
 
@@ -516,6 +652,7 @@ export class MarketPerformanceService {
         activeDealers: activeDealersCount,
         averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: finalRegionTarget,
+        creditLimit: finalRegionCredit,
         achievementPercent: Number(achievementPercent.toFixed(2)),
       },
       zones: zonesBreakdown,
@@ -538,9 +675,7 @@ export class MarketPerformanceService {
       ],
     };
 
-    const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
-
-    const [zone, invoices, territories, salesTargets] = await Promise.all([
+    const [zone, invoices, territories, aggregates] = await Promise.all([
       this.prisma.zone.findFirst({
         where: { id: zoneId },
         include: {
@@ -581,14 +716,7 @@ export class MarketPerformanceService {
           },
         },
       }),
-      this.prisma.salesTarget.findMany({
-        where: {
-          ...compFilter,
-          level: 'TERRITORY',
-          periodYear: year,
-          status: 'ACTIVE',
-        },
-      }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     if (!zone) throw new Error('Zone not found');
@@ -620,25 +748,11 @@ export class MarketPerformanceService {
       }
     }
 
-    let calculatedZoneTarget = 0;
-
     const territoryBreakdown = territories.map((t) => {
       const data = terrMap.get(t.id) || { revenue: 0, qty: 0, orderCount: 0, dealers: new Set() };
-
-      const matchingTarget = salesTargets.find((st) => st.entityId === t.id);
-      let territoryTarget = matchingTarget ? Number(matchingTarget.targetAmount) : 0;
-
-      if (!territoryTarget || territoryTarget === 0) {
-        let dealerTargetsSum = 0;
-        for (const d of t.dealers) {
-          const mTarget = Number(d.monthlySalesTarget || 0);
-          const aTarget = Number(d.annualAgreementTarget || 0);
-          dealerTargetsSum += mTarget > 0 ? mTarget : Math.round(aTarget / 12);
-        }
-        territoryTarget = dealerTargetsSum > 0 ? dealerTargetsSum : 5000000; // 5M territory target
-      }
-
-      calculatedZoneTarget += territoryTarget;
+      const tAgg = aggregates.territoryMap.get(t.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
+      const territoryTarget = tAgg.targetAmount;
+      const territoryCredit = tAgg.creditLimit;
 
       const achievement = territoryTarget > 0 ? (data.revenue / territoryTarget) * 100 : 0;
       const assignedCount = t.dealers?.length || 0;
@@ -650,8 +764,11 @@ export class MarketPerformanceService {
         territoryCode: t.code,
         territoryName: t.name,
         primaryOfficer: t.salesOfficer ? `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim() : 'Unassigned',
+        salesOfficersCount: tAgg.salesOfficersCount,
+        salesOfficers: tAgg.salesOfficers,
         actualSales: data.revenue,
         target: territoryTarget,
+        creditLimit: territoryCredit,
         achievementPercent: Number(achievement.toFixed(2)),
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
@@ -661,7 +778,9 @@ export class MarketPerformanceService {
       };
     });
 
-    const finalZoneTarget = calculatedZoneTarget > 0 ? calculatedZoneTarget : 15000000;
+    const zAgg = aggregates.zoneMap.get(zone.id) || { targetAmount: 0, creditLimit: 0, territoriesCount: territories.length };
+    const finalZoneTarget = zAgg.targetAmount;
+    const finalZoneCredit = zAgg.creditLimit;
     const achievementPercent = finalZoneTarget > 0 ? (totalRevenue / finalZoneTarget) * 100 : 0;
     const activeDealersCount = activeDealersSet.size;
 
@@ -682,6 +801,7 @@ export class MarketPerformanceService {
         activeDealers: activeDealersCount,
         averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: finalZoneTarget,
+        creditLimit: finalZoneCredit,
         achievementPercent: Number(achievementPercent.toFixed(2)),
       },
       territories: territoryBreakdown,
@@ -704,9 +824,7 @@ export class MarketPerformanceService {
       ],
     };
 
-    const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
-
-    const [territory, invoices, salesTargets] = await Promise.all([
+    const [territory, invoices, aggregates] = await Promise.all([
       this.prisma.territory.findFirst({
         where: { id: territoryId },
         include: {
@@ -744,14 +862,7 @@ export class MarketPerformanceService {
           items: { select: { quantity: true, productName: true, packing: true, netAmount: true, rate: true } },
         },
       }),
-      this.prisma.salesTarget.findMany({
-        where: {
-          ...compFilter,
-          level: 'SALES_OFFICER',
-          periodYear: year,
-          status: 'ACTIVE',
-        },
-      }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     if (!territory) throw new Error('Territory not found');
@@ -775,6 +886,15 @@ export class MarketPerformanceService {
       if (uma.user && !officerMap.has(uma.user.id)) {
         const uName = `${uma.user.firstName || ''} ${uma.user.lastName || ''}`.trim() || 'Sales Officer';
         officerMap.set(uma.user.id, { officerName: uName, revenue: 0, qty: 0, orderCount: 0, dealers: new Set() });
+      }
+    }
+
+    const tAgg = aggregates.territoryMap.get(territory.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
+
+    // Ensure all officers from tAgg appear in officerMap
+    for (const off of tAgg.salesOfficers) {
+      if (!officerMap.has(off.id)) {
+        officerMap.set(off.id, { officerName: off.name, revenue: 0, qty: 0, orderCount: 0, dealers: new Set() });
       }
     }
 
@@ -804,23 +924,9 @@ export class MarketPerformanceService {
       if (inv.dealerId) oData.dealers.add(inv.dealerId);
     }
 
-    let calculatedTerritoryTarget = 0;
-
     const officers = Array.from(officerMap.entries()).map(([officerId, data]) => {
-      const matchingTarget = salesTargets.find((st) => st.entityId === officerId);
-      let officerTarget = matchingTarget ? Number(matchingTarget.targetAmount) : 0;
-
-      if (!officerTarget || officerTarget === 0) {
-        // Sum of targets of dealers assigned to this officer
-        const assignedDealers = territory.dealers.filter((d) => d.assignedFieldOfficerId === officerId);
-        let sum = 0;
-        for (const d of assignedDealers) {
-          sum += Number(d.monthlySalesTarget) || Math.round(Number(d.annualAgreementTarget || 0) / 12);
-        }
-        officerTarget = sum > 0 ? sum : 2500000; // 2.5M SO target
-      }
-
-      calculatedTerritoryTarget += officerTarget;
+      const officerTarget = aggregates.userTargetMap.get(officerId) || 0;
+      const officerCredit = aggregates.userCreditMap.get(officerId) || 0;
 
       const achievement = officerTarget > 0 ? (data.revenue / officerTarget) * 100 : 0;
       const assignedCount = territory.dealers.filter((d) => d.assignedFieldOfficerId === officerId).length || territory.dealers.length;
@@ -831,6 +937,7 @@ export class MarketPerformanceService {
         officerName: data.officerName,
         actualSales: data.revenue,
         target: officerTarget,
+        creditLimit: officerCredit,
         achievementPercent: Number(achievement.toFixed(2)),
         totalQuantity: data.qty,
         ordersCount: data.orderCount,
@@ -840,7 +947,9 @@ export class MarketPerformanceService {
       };
     });
 
-    const finalTerritoryTarget = calculatedTerritoryTarget > 0 ? calculatedTerritoryTarget : 5000000;
+    const finalTerritoryTarget = tAgg.targetAmount;
+    const finalTerritoryCredit = tAgg.creditLimit;
+    const achievementPercent = finalTerritoryTarget > 0 ? (totalRevenue / finalTerritoryTarget) * 100 : 0;
     const activeDealersCount = activeDealersSet.size;
 
     return {
@@ -860,7 +969,8 @@ export class MarketPerformanceService {
         activeDealers: activeDealersCount,
         averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: finalTerritoryTarget,
-        achievementPercent: Number(((totalRevenue / finalTerritoryTarget) * 100).toFixed(2)),
+        creditLimit: finalTerritoryCredit,
+        achievementPercent: Number(achievementPercent.toFixed(2)),
       },
       officers,
       products: this.aggregateTopProducts(invoices, totalRevenue),
@@ -888,7 +998,7 @@ export class MarketPerformanceService {
 
     const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
 
-    const [officer, invoices, assignedDealers, assignments, officerSalesTargets] = await Promise.all([
+    const [officer, invoices, assignedDealers, assignments, aggregates] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: officerId },
         select: { id: true, firstName: true, lastName: true, phone: true },
@@ -925,15 +1035,7 @@ export class MarketPerformanceService {
           region: true,
         },
       }),
-      this.prisma.salesTarget.findFirst({
-        where: {
-          ...compFilter,
-          level: 'SALES_OFFICER',
-          entityId: officerId,
-          periodYear: year,
-          status: 'ACTIVE',
-        },
-      }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     let totalRevenue = 0;
@@ -963,13 +1065,10 @@ export class MarketPerformanceService {
       }
     }
 
-    let calculatedDealersTargetSum = 0;
-
     const dealers = Array.from(dealerMap.values()).map((d) => {
       const mTarget = Number(d.dealer?.monthlySalesTarget || 0);
       const aTarget = Number(d.dealer?.annualAgreementTarget || 0);
-      const monthlyTarget = mTarget > 0 ? mTarget : aTarget > 0 ? Math.round(aTarget / 12) : 833333;
-      calculatedDealersTargetSum += monthlyTarget;
+      const monthlyTarget = mTarget > 0 ? mTarget : aTarget > 0 ? Math.round(aTarget / 12) : 0;
 
       const achievement = monthlyTarget > 0 ? (d.revenue / monthlyTarget) * 100 : 0;
 
@@ -986,11 +1085,9 @@ export class MarketPerformanceService {
       };
     });
 
-    const officerTarget = officerSalesTargets
-      ? Number(officerSalesTargets.targetAmount)
-      : calculatedDealersTargetSum > 0
-      ? calculatedDealersTargetSum
-      : 2500000;
+    const officerTarget = aggregates.userTargetMap.get(officerId) || 0;
+    const officerCredit = aggregates.userCreditMap.get(officerId) || 0;
+    const achievementPercent = officerTarget > 0 ? (totalRevenue / officerTarget) * 100 : 0;
 
     const activeDealersCount = dealers.filter((d) => d.actualSales > 0).length;
 
@@ -1013,7 +1110,8 @@ export class MarketPerformanceService {
         activeDealers: activeDealersCount,
         averageDealerSales: activeDealersCount > 0 ? Math.round(totalRevenue / activeDealersCount) : 0,
         target: officerTarget,
-        achievementPercent: Number(((totalRevenue / officerTarget) * 100).toFixed(2)),
+        creditLimit: officerCredit,
+        achievementPercent: Number(achievementPercent.toFixed(2)),
         salaryJustificationRatio: `${salaryRatio}x`,
       },
       dealers,
@@ -1073,7 +1171,7 @@ export class MarketPerformanceService {
     const periodActual = periodInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
     const ytdActual = ytdInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
 
-    const annualTarget = Number(dealer.annualAgreementTarget || 10000000);
+    const annualTarget = Number(dealer.annualAgreementTarget || 0);
     const monthlyTarget = Number(dealer.monthlySalesTarget || Math.round(annualTarget / 12));
     const remainingAnnualTarget = Math.max(0, annualTarget - ytdActual);
     const monthlyAchievement = monthlyTarget > 0 ? (periodActual / monthlyTarget) * 100 : 0;
@@ -1186,7 +1284,7 @@ export class MarketPerformanceService {
     if (filter?.zoneId) where.zoneId = filter.zoneId;
     if (filter?.territoryId) where.territoryId = filter.territoryId;
 
-    const [manager, invoices, zones] = await Promise.all([
+    const [manager, invoices, zones, aggregates] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: managerId },
         select: { id: true, firstName: true, lastName: true, phone: true },
@@ -1210,6 +1308,7 @@ export class MarketPerformanceService {
           territories: true,
         },
       }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     let totalRevenue = 0;
@@ -1238,13 +1337,16 @@ export class MarketPerformanceService {
     }
 
     const territoryBreakdown = Array.from(terrMap.values()).map((t) => {
-      const target = 5000000;
+      const tAgg = aggregates.territoryMap.get(t.territory.id) || { targetAmount: 0, creditLimit: 0 };
+      const target = tAgg.targetAmount;
+      const creditLimit = tAgg.creditLimit;
       return {
         territoryId: t.territory.id,
         territoryName: t.territory.name,
         territoryCode: t.territory.code,
         actualSales: t.revenue,
         target,
+        creditLimit,
         achievementPercent: target > 0 ? Number(((t.revenue / target) * 100).toFixed(2)) : 0,
         totalQuantity: t.qty,
         ordersCount: t.orderCount,
@@ -1252,7 +1354,14 @@ export class MarketPerformanceService {
       };
     });
 
-    const target = 15000000;
+    let managerTarget = 0;
+    let managerCredit = 0;
+    for (const z of zones) {
+      const zAgg = aggregates.zoneMap.get(z.id) || { targetAmount: 0, creditLimit: 0 };
+      managerTarget += zAgg.targetAmount;
+      managerCredit += zAgg.creditLimit;
+    }
+
     return {
       scope: 'AREA_MANAGER',
       manager: {
@@ -1267,8 +1376,9 @@ export class MarketPerformanceService {
         totalOrders: invoices.length,
         activeDealers: activeDealersSet.size,
         averageDealerSales: activeDealersSet.size > 0 ? Math.round(totalRevenue / activeDealersSet.size) : 0,
-        target,
-        achievementPercent: target > 0 ? Number(((totalRevenue / target) * 100).toFixed(2)) : 0,
+        target: managerTarget,
+        creditLimit: managerCredit,
+        achievementPercent: managerTarget > 0 ? Number(((totalRevenue / managerTarget) * 100).toFixed(2)) : 0,
       },
       zones: zones.map((z: any) => ({ id: z.id, name: z.name, code: z.code, territoryCount: z.territories.length })),
       territories: territoryBreakdown,
@@ -1293,7 +1403,7 @@ export class MarketPerformanceService {
     if (filter?.regionId) where.regionId = filter.regionId;
     if (filter?.zoneId) where.zoneId = filter.zoneId;
 
-    const [manager, invoices, regions] = await Promise.all([
+    const [manager, invoices, regions, aggregates] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: managerId },
         select: { id: true, firstName: true, lastName: true, phone: true },
@@ -1317,6 +1427,7 @@ export class MarketPerformanceService {
           zones: true,
         },
       }),
+      this.calculateMarketAggregates(companyId),
     ]);
 
     let totalRevenue = 0;
@@ -1345,13 +1456,16 @@ export class MarketPerformanceService {
     }
 
     const zoneBreakdown = Array.from(zoneMap.values()).map((z) => {
-      const target = 15000000;
+      const zAgg = aggregates.zoneMap.get(z.zone.id) || { targetAmount: 0, creditLimit: 0 };
+      const target = zAgg.targetAmount;
+      const creditLimit = zAgg.creditLimit;
       return {
         zoneId: z.zone.id,
         zoneName: z.zone.name,
         zoneCode: z.zone.code,
         actualSales: z.revenue,
         target,
+        creditLimit,
         achievementPercent: target > 0 ? Number(((z.revenue / target) * 100).toFixed(2)) : 0,
         totalQuantity: z.qty,
         ordersCount: z.orderCount,
@@ -1359,7 +1473,14 @@ export class MarketPerformanceService {
       };
     });
 
-    const target = 35000000;
+    let bmTarget = 0;
+    let bmCredit = 0;
+    for (const r of regions) {
+      const rAgg = aggregates.regionMap.get(r.id) || { targetAmount: 0, creditLimit: 0 };
+      bmTarget += rAgg.targetAmount;
+      bmCredit += rAgg.creditLimit;
+    }
+
     return {
       scope: 'BUSINESS_MANAGER',
       manager: {
@@ -1374,11 +1495,13 @@ export class MarketPerformanceService {
         totalOrders: invoices.length,
         activeDealers: activeDealersSet.size,
         averageDealerSales: activeDealersSet.size > 0 ? Math.round(totalRevenue / activeDealersSet.size) : 0,
-        target,
-        achievementPercent: target > 0 ? Number(((totalRevenue / target) * 100).toFixed(2)) : 0,
+        target: bmTarget,
+        creditLimit: bmCredit,
+        achievementPercent: bmTarget > 0 ? Number(((totalRevenue / bmTarget) * 100).toFixed(2)) : 0,
       },
-      regions: regions.map((r: any) => ({ id: r.id, name: r.name, code: r.code, zoneCount: r.zones.length })),
+      regions: regions.map((r: any) => ({ id: r.id, name: r.name, code: r.code, zoneCount: r.zones?.length || 0 })),
       zones: zoneBreakdown,
+      products: this.aggregateTopProducts(invoices, totalRevenue),
     };
   }
 }

@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Delete,
   Param,
   Body,
@@ -74,6 +75,15 @@ export class OperationalPoController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.poService.create(dto, user);
+  }
+
+  @Put(':id')
+  async updatePurchaseOrder(
+    @Param('id') id: string,
+    @Body() dto: CreateOperationalPoDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.poService.update(id, dto, user);
   }
 
   @Post('batch')

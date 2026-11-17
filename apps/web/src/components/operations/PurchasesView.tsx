@@ -38,6 +38,7 @@ import {
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportPurchaseInvoiceToPdf, PurchaseInvoiceExportData } from '../../lib/pdf-export';
+import { PurchaseCashPaymentsView } from './PurchaseCashPaymentsView';
 
 export interface PurchaseItemRow {
   materialType: 'RAW_MATERIAL' | 'PACKING_MATERIAL' | 'FINISHED_PRODUCT';
@@ -111,7 +112,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
 
   const [invoices, setInvoices] = useState<PurchaseInvoiceRecord[]>([]);
   const [returnsList, setReturnsList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'purchases' | 'returns'>('purchases');
+  const [activeTab, setActiveTab] = useState<'purchases' | 'cash_payments' | 'returns'>('purchases');
   const [vendors, setVendors] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
@@ -1957,8 +1958,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
         />
       </div>
 
-      {/* Tabs Switcher: Purchase Invoices vs Return Invoices */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)', marginBottom: '16px' }}>
+      {/* Tabs Switcher: Purchase Invoices vs Cash Payments vs Return Invoices */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle, #e2e8f0)', marginBottom: '16px', flexWrap: 'wrap' }}>
         <button
           type="button"
           onClick={() => setActiveTab('purchases')}
@@ -1974,6 +1975,22 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
           }}
         >
           Purchase Invoices ({filteredInvoices.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('cash_payments')}
+          style={{
+            padding: '8px 18px',
+            fontWeight: 600,
+            fontSize: '14px',
+            border: 'none',
+            borderBottom: activeTab === 'cash_payments' ? '2px solid #16a34a' : '2px solid transparent',
+            color: activeTab === 'cash_payments' ? '#16a34a' : 'var(--text-secondary, #64748b)',
+            background: 'transparent',
+            cursor: 'pointer',
+          }}
+        >
+          💵 Cash Payments &amp; Liabilities
         </button>
         <button
           type="button"
@@ -1995,6 +2012,8 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialPoData, onC
 
       {isLoading ? (
         <TableSkeleton rows={5} />
+      ) : activeTab === 'cash_payments' ? (
+        <PurchaseCashPaymentsView />
       ) : activeTab === 'purchases' ? (
         filteredInvoices.length === 0 ? (
           <EmptyState

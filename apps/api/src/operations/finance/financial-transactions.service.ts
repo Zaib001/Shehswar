@@ -27,6 +27,7 @@ export interface CreateFinancialTransactionDto {
   partyType?: 'DEALER' | 'VENDOR' | 'EMPLOYEE' | 'OTHER';
   partyId?: string;
   partyName?: string;
+  head?: string;             // Payment Head (Purchase, Car Repairing, Vehicle Expense, Building Expense, Dealer Refund, General Liability, Other)
   amount: number;
   paymentMethod: 'CASH' | 'BANK' | 'CHEQUE' | 'ONLINE' | 'DD' | 'OTHER';
   accountId?: string;        // Cash or Bank account (defaults to 101000 or 102000)
@@ -38,6 +39,7 @@ export interface CreateFinancialTransactionDto {
   referenceNumber?: string;
   remarks?: string;
   attachmentUrl?: string;
+  voucherNumber?: string;
 }
 
 export interface CreateBankAccountDto {
@@ -92,10 +94,26 @@ export class FinancialTransactionsService {
         dto.accountId || defaultCashOrBankCode,
       );
 
-      // Resolve contra account (e.g. 103000 AR, 201000 AP, 601000 Expense, etc.)
-      const contraIdentifier = dto.contraAccountId || dto.contraAccountCode || (
-        dto.transactionType === 'CASH_RECEIPT' || dto.transactionType === 'BANK_RECEIPT' ? '103000' : '601000'
-      );
+      // Resolve contra account based on explicit contraAccountId/code, or head, or default
+      let defaultContra = '601000';
+      if (dto.transactionType === 'CASH_RECEIPT' || dto.transactionType === 'BANK_RECEIPT') {
+        defaultContra = '103000';
+      } else if (dto.head) {
+        const headLower = dto.head.toLowerCase();
+        if (headLower.includes('purchase')) defaultContra = '201000';
+        else if (headLower.includes('refund')) defaultContra = '103000';
+        else if (headLower.includes('car') || headLower.includes('vehicle')) defaultContra = '602000';
+        else if (headLower.includes('building')) defaultContra = '603000';
+        else if (headLower.includes('liability')) defaultContra = '202000';
+        else if (headLower.includes('salary') || headLower.includes('payroll')) defaultContra = '601000';
+        else defaultContra = '609000';
+      } else if (dto.partyType === 'VENDOR') {
+        defaultContra = '201000';
+      } else if (dto.partyType === 'DEALER') {
+        defaultContra = '103000';
+      }
+
+      const contraIdentifier = dto.contraAccountId || dto.contraAccountCode || defaultContra;
       const contraAccount = await this.financeService.resolveAccount(
         tx,
         organizationId,
@@ -103,14 +121,27 @@ export class FinancialTransactionsService {
         contraIdentifier,
       );
 
-      // Generate voucher number
+      // Generate voucher number (e.g. CP-00045 or AUTO)
       const prefix = {
         CASH_RECEIPT: 'CR',
         CASH_PAYMENT: 'CP',
         BANK_RECEIPT: 'BR',
         BANK_PAYMENT: 'BP',
-      }[dto.transactionType];
-      const voucherNumber = `${prefix}-${Date.now().toString().slice(-8)}`;
+      }[dto.transactionType] || 'TX';
+
+      let voucherNumber = dto.voucherNumber?.trim();
+      if (!voucherNumber || voucherNumber === 'AUTO') {
+        const count = await tx.financialTransaction.count({
+          where: { companyId: dto.companyId, transactionType: dto.transactionType },
+        });
+        voucherNumber = `${prefix}-${String(count + 1).padStart(5, '0')}`;
+        const existingVoucher = await tx.financialTransaction.findFirst({
+          where: { companyId: dto.companyId, voucherNumber },
+        });
+        if (existingVoucher) {
+          voucherNumber = `${prefix}-${String(count + 1).padStart(5, '0')}-${Date.now().toString().slice(-4)}`;
+        }
+      }
 
       // Setup journal lines:
       // CASH_RECEIPT: Dr Cash (+), Cr Contra (-)
@@ -149,6 +180,10 @@ export class FinancialTransactionsService {
             },
           ];
 
+      const formattedRemarks = dto.head
+        ? `[Head: ${dto.head}] ${dto.remarks || ''}`.trim()
+        : (dto.remarks || null);
+
       const recordId = uuidv7();
       const journal = await this.financeService.postJournalEntry(tx, {
         organizationId,
@@ -157,7 +192,7 @@ export class FinancialTransactionsService {
         sourceId: recordId,
         referenceType: dto.transactionType,
         referenceNumber: voucherNumber,
-        description: `[${dto.transactionType}] ${dto.partyName ? `Party: ${dto.partyName}. ` : ''}${dto.remarks || ''}`,
+        description: `[${dto.transactionType}] ${dto.head ? `[Head: ${dto.head}] ` : ''}${dto.partyName ? `Party: ${dto.partyName}. ` : ''}${dto.remarks || ''}`,
         entryDate: txDate,
         createdById: userId,
         lines: journalLines,
@@ -210,7 +245,7 @@ export class FinancialTransactionsService {
           bankName: resolvedBankName,
           branchName: resolvedBranchName,
           referenceNumber: dto.referenceNumber || null,
-          remarks: dto.remarks || null,
+          remarks: formattedRemarks,
           attachmentUrl: dto.attachmentUrl || null,
           status: 'POSTED',
           journalEntryId: journal.id,
@@ -263,6 +298,9 @@ export class FinancialTransactionsService {
               debit: 0,
               credit: amount,
               dealerPaymentId: paymentReceipt.id,
+              sourceType: 'CASH_PAYMENT',
+              sourceId: record.id,
+              sourceNumber: voucherNumber,
             });
           } else {
             // Payment to dealer (refund or debit)
@@ -276,6 +314,9 @@ export class FinancialTransactionsService {
               description: `[${dto.transactionType}] Payment to Dealer - ${dto.remarks || voucherNumber}`,
               debit: amount,
               credit: 0,
+              sourceType: 'CASH_PAYMENT',
+              sourceId: record.id,
+              sourceNumber: voucherNumber,
             });
           }
         }
@@ -316,7 +357,40 @@ export class FinancialTransactionsService {
             debit: amount,
             credit: 0,
             vendorPaymentId: vPayment.id,
+            sourceType: 'CASH_PAYMENT',
+            sourceId: record.id,
+            sourceNumber: voucherNumber,
           });
+        }
+      }
+
+      // Secondary Expense Bridge: If Head is an expense liability (Car, Vehicle, Building, General, Other)
+      const isExpenseHead = dto.head && !['purchase', 'dealer refund'].includes(dto.head.toLowerCase());
+      if (isExpenseHead && !isReceipt) {
+        try {
+          await tx.expenseEntry.create({
+            data: {
+              id: uuidv7(),
+              organizationId,
+              companyId: dto.companyId,
+              voucherNumber,
+              expenseDate: txDate,
+              expenseAccountId: contraAccount.id,
+              paymentAccountId: cashOrBankAccount.id,
+              paymentMethod: isBank ? 'BANK' : 'CASH',
+              amount,
+              taxAmount: 0,
+              payee: dto.partyName || dto.partyType || 'Cash Payment Payee',
+              referenceNumber: dto.referenceNumber || record.id,
+              category: dto.head || contraAccount.accountName || 'Operational Expense',
+              description: dto.remarks || `[${dto.head}] Cash Payment Voucher ${voucherNumber}`,
+              status: 'POSTED',
+              approvalStatus: 'APPROVED',
+              createdById: userId || null,
+            },
+          });
+        } catch (expErr: any) {
+          this.logger.warn(`Could not create secondary ExpenseEntry: ${expErr?.message}`);
         }
       }
 
@@ -367,6 +441,139 @@ export class FinancialTransactionsService {
       orderBy: { transactionDate: 'desc' },
       take: 200,
     });
+  }
+
+  /**
+   * Get next sequential voucher number (e.g. CP-00045)
+   */
+  async getNextVoucherNumber(companyId?: string, type: string = 'CASH_PAYMENT') {
+    const prefix = {
+      CASH_RECEIPT: 'CR',
+      CASH_PAYMENT: 'CP',
+      BANK_RECEIPT: 'BR',
+      BANK_PAYMENT: 'BP',
+    }[type] || 'CP';
+
+    const where: any = { transactionType: type };
+    if (companyId && companyId !== 'ALL') where.companyId = companyId;
+
+    const count = await this.prisma.financialTransaction.count({ where });
+    const voucherNumber = `${prefix}-${String(count + 1).padStart(5, '0')}`;
+    return { voucherNumber };
+  }
+
+  /**
+   * Cash Payments & Liability Audit Report (Requirement 7)
+   */
+  async getCashPaymentsReport(filters: {
+    companyId?: string;
+    fromDate?: string;
+    toDate?: string;
+    head?: string;
+    partyType?: string;
+    search?: string;
+  }) {
+    const where: any = {
+      transactionType: 'CASH_PAYMENT',
+      paymentMethod: 'CASH',
+    };
+    if (filters.companyId && filters.companyId !== 'ALL') where.companyId = filters.companyId;
+    if (filters.partyType && filters.partyType !== 'ALL') where.partyType = filters.partyType;
+
+    if (filters.fromDate || filters.toDate) {
+      where.transactionDate = {};
+      if (filters.fromDate) where.transactionDate.gte = new Date(filters.fromDate);
+      if (filters.toDate) where.transactionDate.lte = new Date(filters.toDate);
+    }
+
+    if (filters.search?.trim()) {
+      where.OR = [
+        { voucherNumber: { contains: filters.search.trim(), mode: 'insensitive' } },
+        { partyName: { contains: filters.search.trim(), mode: 'insensitive' } },
+        { referenceNumber: { contains: filters.search.trim(), mode: 'insensitive' } },
+        { remarks: { contains: filters.search.trim(), mode: 'insensitive' } },
+      ];
+    }
+
+    const records = await this.prisma.financialTransaction.findMany({
+      where,
+      include: {
+        account: { select: { id: true, accountCode: true, accountName: true } },
+        contraAccount: { select: { id: true, accountCode: true, accountName: true } },
+        company: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { transactionDate: 'desc' },
+      take: 500,
+    });
+
+    const parsedRecords = records.map((r) => {
+      let head = 'Other';
+      if (r.remarks) {
+        const m = r.remarks.match(/\[Head:\s*([^\]]+)\]/i);
+        if (m && m[1]?.trim()) head = m[1].trim();
+      }
+      if (head === 'Other') {
+        if (r.partyType === 'VENDOR') head = 'Purchase';
+        else if (r.partyType === 'DEALER') head = 'Dealer Refund';
+        else if (r.contraAccount?.accountName) head = r.contraAccount.accountName;
+      }
+      return {
+        ...r,
+        head,
+        amount: Number(r.amount),
+      };
+    });
+
+    const filteredRecords = filters.head && filters.head !== 'ALL'
+      ? parsedRecords.filter((r) => r.head.toLowerCase() === filters.head!.toLowerCase())
+      : parsedRecords;
+
+    const totalCashPaid = filteredRecords.reduce((sum, r) => sum + r.amount, 0);
+    const totalTransactions = filteredRecords.length;
+
+    // Head summary
+    const headMap = new Map<string, { count: number; totalAmount: number }>();
+    for (const r of parsedRecords) {
+      const existing = headMap.get(r.head) || { count: 0, totalAmount: 0 };
+      existing.count += 1;
+      existing.totalAmount += r.amount;
+      headMap.set(r.head, existing);
+    }
+
+    const allRecordsTotal = parsedRecords.reduce((sum, r) => sum + r.amount, 0) || 1;
+    const headSummary = Array.from(headMap.entries())
+      .map(([head, data]) => ({
+        head,
+        count: data.count,
+        totalAmount: data.totalAmount,
+        percentage: Math.round((data.totalAmount / allRecordsTotal) * 1000) / 10,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    // Party type summary
+    const partyMap = new Map<string, { count: number; totalAmount: number }>();
+    for (const r of parsedRecords) {
+      const pt = r.partyType || 'OTHER';
+      const existing = partyMap.get(pt) || { count: 0, totalAmount: 0 };
+      existing.count += 1;
+      existing.totalAmount += r.amount;
+      partyMap.set(pt, existing);
+    }
+    const partyTypeSummary = Array.from(partyMap.entries())
+      .map(([partyType, data]) => ({
+        partyType,
+        count: data.count,
+        totalAmount: data.totalAmount,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    return {
+      totalCashPaid,
+      totalTransactions,
+      headSummary,
+      partyTypeSummary,
+      transactions: filteredRecords,
+    };
   }
 
   /**

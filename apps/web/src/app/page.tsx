@@ -115,6 +115,7 @@ import {
   PurchasesView,
   PurchaseOrdersView,
   PurchaseReturnsView,
+  PurchaseCashPaymentsView,
   DealersView,
   SalesOrdersView,
   SalesInvoicesView,
@@ -212,6 +213,7 @@ function isRoutePermittedForUser(route: string, user: any): { permitted: boolean
       return { permitted: true };
     case 'purchases':
     case 'purchase-orders':
+    case 'purchase-cash-payments':
     case 'purchase-returns':
     case 'dealers':
     case 'rate-lists':
@@ -633,6 +635,7 @@ export default function ShowroomPage() {
               onClearPoData={() => setSelectedPoForConversion(null)}
             />
           )}
+          {currentRoute === 'purchase-cash-payments' && <PurchaseCashPaymentsView />}
           {currentRoute === 'purchase-returns' && <PurchaseReturnsView />}
           {currentRoute === 'rate-lists' && <PricingManagementView />}
           {currentRoute === 'sales-orders' && (

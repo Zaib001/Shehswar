@@ -691,6 +691,24 @@ export const MarketManagementView: React.FC = () => {
                     r.businessManager ? `${r.businessManager.firstName} ${r.businessManager.lastName}` : <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>,
                 },
                 { key: 'zones', header: 'Zones Count', render: (r: any) => r._count?.zones || r.zones?.length || 0 },
+                {
+                  key: 'target',
+                  header: 'Total Target (PKR)',
+                  render: (r: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
+                      PKR {Number(r.targetAmount || 0).toLocaleString()}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'credit',
+                  header: 'Total Credit (PKR)',
+                  render: (r: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#059669' }}>
+                      PKR {Number(r.creditLimit || 0).toLocaleString()}
+                    </span>
+                  ),
+                },
                 { key: 'status', header: 'Status', render: (r: any) => <StatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} /> },
                 {
                   key: 'actions',
@@ -764,7 +782,25 @@ export const MarketManagementView: React.FC = () => {
                   render: (z: any) =>
                     z.areaManager ? `${z.areaManager.firstName} ${z.areaManager.lastName}` : <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>,
                 },
-                { key: 'territories', header: 'Territories Count', render: (z: any) => z._count?.territories || z.territories?.length || 0 },
+                { key: 'territories', header: 'Territories Count', render: (z: any) => z.territoriesCount || z._count?.territories || z.territories?.length || 0 },
+                {
+                  key: 'target',
+                  header: 'Total Target (PKR)',
+                  render: (z: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
+                      PKR {Number(z.targetAmount || 0).toLocaleString()}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'credit',
+                  header: 'Total Credit (PKR)',
+                  render: (z: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#059669' }}>
+                      PKR {Number(z.creditLimit || 0).toLocaleString()}
+                    </span>
+                  ),
+                },
                 { key: 'status', header: 'Status', render: (z: any) => <StatusBadge status={z.isActive ? 'ACTIVE' : 'INACTIVE'} /> },
                 {
                   key: 'actions',
@@ -836,9 +872,46 @@ export const MarketManagementView: React.FC = () => {
                 { key: 'region', header: 'Region', render: (t: any) => t.zone?.region?.name || '—' },
                 {
                   key: 'officer',
-                  header: 'Primary Sales Officer (SO)',
-                  render: (t: any) =>
-                    t.salesOfficer ? `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}` : <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>,
+                  header: 'Sales Officers',
+                  render: (t: any) => {
+                    const officerNames = (t.salesOfficers || [])
+                      .map((o: any) => o.name)
+                      .filter(Boolean);
+                    if (officerNames.length === 0 && t.salesOfficer) {
+                      officerNames.push(`${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim());
+                    }
+                    if (officerNames.length === 0) {
+                      return <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>;
+                    }
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{officerNames[0]}</div>
+                        {officerNames.length > 1 && (
+                          <div style={{ fontSize: '11px', color: '#2563eb', fontWeight: 500 }}>
+                            +{officerNames.length - 1} more ({officerNames.slice(1).join(', ')})
+                          </div>
+                        )}
+                      </div>
+                    );
+                  },
+                },
+                {
+                  key: 'target',
+                  header: 'Total Target (PKR)',
+                  render: (t: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#0284c7' }}>
+                      PKR {Number(t.targetAmount || 0).toLocaleString()}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'credit',
+                  header: 'Total Credit (PKR)',
+                  render: (t: any) => (
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#059669' }}>
+                      PKR {Number(t.creditLimit || 0).toLocaleString()}
+                    </span>
+                  ),
                 },
                 { key: 'dealers', header: 'Dealers Count', render: (t: any) => t._count?.dealers || t.dealers?.length || 0 },
                 { key: 'status', header: 'Status', render: (t: any) => <StatusBadge status={t.isActive ? 'ACTIVE' : 'INACTIVE'} /> },

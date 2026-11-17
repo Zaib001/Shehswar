@@ -1,6 +1,7 @@
 export * from './PurchaseOrdersView';
 export * from './PurchasesView';
 export * from './PurchaseReturnsView';
+export * from './PurchaseCashPaymentsView';
 export * from './SalesOrdersView';
 export * from './SalesReturnsView';
 export * from './DealersView';

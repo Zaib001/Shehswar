@@ -94,6 +94,35 @@ export class FinancialTransactionsController {
     });
   }
 
+  @Get('next-voucher')
+  @ApiOperation({ summary: 'Get next sequential voucher number for cash payment or voucher' })
+  async getNextVoucher(
+    @Query('companyId') companyId?: string,
+    @Query('type') type?: string,
+  ) {
+    return this.service.getNextVoucherNumber(companyId, type || 'CASH_PAYMENT');
+  }
+
+  @Get('cash-payments-report')
+  @ApiOperation({ summary: 'Cash Payments & Liability Audit Report with Head breakdown' })
+  async getCashPaymentsReport(
+    @Query('companyId') companyId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('head') head?: string,
+    @Query('partyType') partyType?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.getCashPaymentsReport({
+      companyId,
+      fromDate,
+      toDate,
+      head,
+      partyType,
+      search,
+    });
+  }
+
   @Get('cash-bank-dashboard')
   @ApiOperation({ summary: 'Cash & Bank Dashboard metrics from authoritative transactions' })
   async getCashBankDashboard(@Query('companyId') companyId?: string) {

@@ -55,6 +55,7 @@ export interface ComboboxOption {
 }
 
 export interface SearchableComboboxProps {
+  id?: string;
   label?: string;
   placeholder: string;
   value: string;
@@ -66,6 +67,7 @@ export interface SearchableComboboxProps {
 }
 
 export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
+  id,
   label,
   placeholder,
   value,
@@ -153,6 +155,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
       )}
 
       <button
+        id={id}
         type="button"
         disabled={disabled}
         title={fullDisplayTitle || placeholder}
@@ -871,6 +874,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
       const res = await ApiClient.post<any>('/api/v1/sales-orders', payload);
       const createdOrder = res.data?.data || res.data;
+      const effectiveOrderNumber = createdOrder?.orderNumber || 'SO-NEW';
 
       if (immediateInvoice && createdOrder?.id && !isExceeded) {
         // Auto-approve
@@ -885,36 +889,57 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
         showToast({
           title: 'Direct Sale Invoice Created!',
-          message: 'Sales Invoice generated, inventory deducted, and dealer ledger updated.',
+          message: `✓ Sales Order ${effectiveOrderNumber} created and invoiced successfully. Ready for the next Sales Order.`,
           type: 'success',
         });
 
-        setMode('list');
-        loadData();
-
         if (invoice && invoice.invoiceNumber) {
           setActiveInvoice(invoice);
-          setIsInvoiceModalOpen(true);
         }
-
-        if (onNavigateToInvoices) {
-          setTimeout(() => {
-            onNavigateToInvoices();
-          }, 800);
-        }
-        return;
+      } else {
+        showToast({
+          title: isExceeded ? 'Order Booked (Credit Hold)' : 'Order Booked Successfully',
+          message: isExceeded
+            ? `✓ Sales Order ${effectiveOrderNumber} placed on CREDIT_HOLD. Ready for next order.`
+            : `✓ Sales Order ${effectiveOrderNumber} created successfully. Ready for the next Sales Order.`,
+          type: isExceeded ? 'warning' : 'success',
+        });
       }
 
-      showToast({
-        title: isExceeded ? 'Order Booked (Credit Hold)' : 'Order Booked Successfully',
-        message: isExceeded
-          ? 'Order booked and placed on CREDIT_HOLD pending credit approval.'
-          : 'Sales order booked successfully.',
-        type: isExceeded ? 'warning' : 'success',
-      });
-      setMode('list');
+      // DO NOT close modal: keep mode === 'create'
+      // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
+      setFormData((prev) => ({
+        ...prev,
+        dealerId: '',
+        notes: '',
+      }));
+      setDealerHierarchy(null);
+      setFormItems([
+        {
+          finishedProductId: '',
+          productName: '',
+          quantity: 1,
+          baseRate: 0,
+          discountPercent: 0,
+          discountAmount: 0,
+          freeQuantity: 0,
+          unitPrice: 0,
+          totalPrice: 0,
+        },
+      ]);
+
+      // Refresh list in background
       loadData();
+
+      // Automatically focus first input (Dealer) for continuous data entry
+      setTimeout(() => {
+        const dealerBtn = document.getElementById('field-so-dealer');
+        if (dealerBtn) {
+          dealerBtn.focus();
+        }
+      }, 100);
     } catch (err: any) {
+      // Keep modal open, keep user's entered data, show error
       showToast({ title: 'Error', message: err.message || 'Failed to create sales order', type: 'error' });
     }
   };
@@ -2808,6 +2833,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
               <div style={{ gridColumn: 'span 7' }}>
                 <SearchableCombobox
+                  id="field-so-dealer"
                   label="Dealer (Customer / Party) *"
                   placeholder="Search and select dealer..."
                   required

@@ -782,6 +782,174 @@ export class OperationalPoService {
     };
   }
 
+  async update(id: string, dto: CreateOperationalPoDto, user: AuthUser) {
+    const companyId = dto.companyId || user.companyId;
+    const existing = await this.prisma.purchaseOrder.findFirst({
+      where: { id, companyId },
+      include: { items: true },
+    });
+    if (!existing) throw new NotFoundException('Purchase Order not found');
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { organizationId: true },
+    });
+    if (!company) throw new NotFoundException('Company not found');
+
+    let subtotal = 0;
+    let taxTotal = 0;
+    let discountTotal = 0;
+    const rawPoDate = dto.poDate || dto.orderDate;
+    const orderDate = rawPoDate ? parseDateOnly(rawPoDate) : existing.orderDate;
+
+    const itemsData = await Promise.all(
+      dto.items.map(async (item: any) => {
+        let materialId = item.materialId || item.rawMaterialId || item.packingMaterialId || item.finishedProductId || null;
+        const materialType = item.materialType || 'RAW_MATERIAL';
+        const cleanName = (item.itemName || '').trim();
+        let materialCodeSnapshot = item.materialCodeSnapshot || null;
+        let resolvedUnit = item.unit ? String(item.unit).trim() : '';
+        let resolvedPackSize = item.packSize ? String(item.packSize).trim() : '';
+
+        if (materialType === 'FINISHED_PRODUCT') {
+          let fp = materialId
+            ? await this.prisma.finishedProduct.findUnique({
+                where: { id: materialId },
+                include: { baseUom: true, salesUom: true, packSize: true },
+              })
+            : null;
+          if (!fp && cleanName) {
+            fp = await this.prisma.finishedProduct.findFirst({
+              where: { companyId, productName: { equals: cleanName, mode: 'insensitive' } },
+              include: { baseUom: true, salesUom: true, packSize: true },
+            });
+          }
+          if (fp) {
+            materialId = fp.id;
+            materialCodeSnapshot = fp.productCode;
+            resolvedUnit = fp.salesUom?.code || fp.baseUom?.code || resolvedUnit || 'KG';
+            resolvedPackSize = fp.packSize?.code || fp.packSize?.name || resolvedPackSize;
+          }
+        } else if (materialType === 'PACKING_MATERIAL') {
+          let pm = materialId
+            ? await this.prisma.packingMaterial.findUnique({
+                where: { id: materialId },
+                include: { baseUom: true },
+              })
+            : null;
+          if (!pm && cleanName) {
+            pm = await this.prisma.packingMaterial.findFirst({
+              where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
+              include: { baseUom: true },
+            });
+          }
+          if (pm) {
+            materialId = pm.id;
+            materialCodeSnapshot = pm.materialCode;
+            resolvedUnit = pm.baseUom?.symbol || pm.baseUom?.code || resolvedUnit || 'Units';
+          }
+        } else {
+          let rm = materialId
+            ? await this.prisma.rawMaterial.findUnique({
+                where: { id: materialId },
+                include: { baseUom: true },
+              })
+            : null;
+          if (!rm && cleanName) {
+            rm = await this.prisma.rawMaterial.findFirst({
+              where: { companyId, materialName: { equals: cleanName, mode: 'insensitive' } },
+              include: { baseUom: true },
+            });
+          }
+          if (rm) {
+            materialId = rm.id;
+            materialCodeSnapshot = rm.materialCode;
+            resolvedUnit = rm.baseUom?.symbol || rm.baseUom?.code || resolvedUnit || 'KG';
+          }
+        }
+
+        const qty = Number(item.quantity) || 1;
+        const rate = Number(item.unitRate) || 0;
+        const line = Number(item.lineTotal) || (qty * rate);
+        const disc = Number(item.discountAmount) || 0;
+        const tax = Number(item.taxAmount) || 0;
+
+        subtotal += line;
+        taxTotal += tax;
+        discountTotal += disc;
+
+        resolvedUnit = (resolvedUnit || item.unit || 'KG').trim();
+        const commercialPackSize = cleanPackSize(resolvedPackSize || item.packSize || item.packing, resolvedUnit);
+
+        return {
+          id: uuidv7(),
+          poId: id,
+          materialId,
+          materialType,
+          itemName: item.itemName,
+          category: materialType,
+          unit: resolvedUnit,
+          quantity: qty,
+          unitRate: rate,
+          discountAmount: disc,
+          taxAmount: tax,
+          lineTotal: line,
+          materialCodeSnapshot,
+          materialNameSnapshot: item.itemName,
+          uomCodeSnapshot: resolvedUnit,
+          specificationSnapshot: commercialPackSize,
+          createdAt: orderDate,
+        };
+      }),
+    );
+
+    const totalAmount = subtotal + taxTotal - discountTotal;
+
+    // Delete existing items
+    await this.prisma.purchaseOrderItem.deleteMany({
+      where: { poId: id },
+    });
+
+    // Create new items
+    await this.prisma.purchaseOrderItem.createMany({
+      data: itemsData,
+    });
+
+    let finalNotes = dto.notes || '';
+    if (dto.extraFields && Object.keys(dto.extraFields).length > 0) {
+      const extraSummary = Object.entries(dto.extraFields)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' | ');
+      if (!finalNotes.includes('[Properties]')) {
+        finalNotes = finalNotes ? `${finalNotes}\n[Properties] ${extraSummary}` : `[Properties] ${extraSummary}`;
+      }
+    }
+
+    const updated = await this.prisma.purchaseOrder.update({
+      where: { id },
+      data: {
+        vendorId: dto.vendorId || existing.vendorId,
+        warehouseId: dto.warehouseId !== undefined ? (dto.warehouseId || null) : existing.warehouseId,
+        deliveryLocation: dto.deliveryLocation !== undefined ? dto.deliveryLocation : existing.deliveryLocation,
+        paymentTerms: dto.paymentTerms || existing.paymentTerms,
+        expectedDeliveryDate: dto.expectedDeliveryDate ? parseDateOnly(dto.expectedDeliveryDate) : existing.expectedDeliveryDate,
+        subtotal,
+        taxAmount: taxTotal,
+        discountAmount: discountTotal,
+        totalAmount,
+        notes: finalNotes || null,
+      },
+      include: {
+        vendor: true,
+        warehouse: true,
+        items: true,
+      },
+    });
+
+    this.logger.log(`Purchase Order ${updated.poNumber} (${id}) updated successfully`);
+    return updated;
+  }
+
   async updateStatus(id: string, status: string, companyId: string) {
     const po = await this.prisma.purchaseOrder.findFirst({
       where: { id, companyId },

@@ -87,6 +87,7 @@ function isRoutePermitted(routeId: string, user: any): boolean {
     case 'dashboard':
     case 'purchases':
     case 'purchase-orders':
+    case 'purchase-cash-payments':
     case 'purchase-returns':
     case 'dealers':
     case 'rate-lists':
@@ -193,6 +194,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { id: 'procurement-vendors', label: 'Vendors / Suppliers' },
           { id: 'purchase-orders', label: 'Purchase Orders' },
           { id: 'purchases', label: 'Purchase Invoices' },
+          { id: 'purchase-cash-payments', label: 'Cash Payments' },
           { id: 'purchase-returns', label: 'Purchase Returns' },
         ],
       },

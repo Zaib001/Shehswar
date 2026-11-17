@@ -44,6 +44,7 @@ import {
   IconAlertTriangle,
   IconMapPin,
   IconUser,
+  IconCreditCard,
 } from '../icons';
 
 interface BreadcrumbItem {
@@ -451,6 +452,7 @@ export const MarketPerformanceView: React.FC = () => {
         periodLabel,
         kpis: [
           { label: 'Total Net Revenue', value: fmtPKR(metrics.totalRevenue), sub: 'Posted Net Sales Only', color: 'var(--brand-primary)' },
+          { label: 'Total Credit Limit', value: fmtPKR(metrics.creditLimit), sub: 'Approved Dealer Credit', color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, sub: 'of assigned target', color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'Total Quantity Sold', value: `${Number(metrics.totalQuantity || 0).toLocaleString()} units`, sub: 'Finished Goods' },
           { label: 'Posted Invoices', value: `${Number(metrics.totalOrders || 0).toLocaleString()}`, sub: 'Zero draft leakage' },
@@ -460,20 +462,22 @@ export const MarketPerformanceView: React.FC = () => {
         tableTitle: 'Regional Sales Roster (Tier 1: Regions)',
         tableSubtitle: 'Provincial geographic rollup across Business Manager regions',
         headers: [
-          { label: 'Region', align: 'left', width: '18%' },
-          { label: 'Business Manager', align: 'left', width: '18%' },
-          { label: 'Zones', align: 'center', width: '8%' },
-          { label: 'Target (PKR)', align: 'right', width: '14%' },
-          { label: 'Actual Sales (PKR)', align: 'right', width: '14%' },
-          { label: 'Achievement', align: 'center', width: '10%' },
-          { label: 'Active Dealers', align: 'center', width: '8%' },
-          { label: 'Avg Dealer Sales', align: 'right', width: '10%' },
+          { label: 'Region', align: 'left', width: '16%' },
+          { label: 'Business Manager', align: 'left', width: '16%' },
+          { label: 'Zones', align: 'center', width: '6%' },
+          { label: 'Target (PKR)', align: 'right', width: '13%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '13%' },
+          { label: 'Actual Sales (PKR)', align: 'right', width: '13%' },
+          { label: 'Achievement', align: 'center', width: '9%' },
+          { label: 'Active Dealers', align: 'center', width: '6%' },
+          { label: 'Avg Dealer Sales', align: 'right', width: '8%' },
         ],
         rows: (performanceData.regions || []).map((r: any) => [
           { text: `${r.regionName} (${r.regionCode || ''})`, bold: true },
           { text: r.businessManager || 'Unassigned' },
           { text: r.zonesCount, align: 'center' },
           { text: fmtPKR(r.target), align: 'right' },
+          { text: fmtPKR(r.creditLimit), align: 'right' },
           { text: fmtPKR(r.actualSales), align: 'right', bold: true },
           {
             text: `${r.achievementPercent}%`,
@@ -499,6 +503,7 @@ export const MarketPerformanceView: React.FC = () => {
         kpis: [
           { label: 'Regional Revenue', value: fmtPKR(metrics.totalRevenue), sub: 'Posted Net Sales Only', color: 'var(--brand-primary)' },
           { label: 'Regional Target', value: fmtPKR(metrics.target), sub: 'Monthly Quota' },
+          { label: 'Regional Credit Limit', value: fmtPKR(metrics.creditLimit), sub: 'Approved Credit', color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, sub: 'of regional target', color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'Active Dealers', value: `${Number(metrics.activeDealers || 0).toLocaleString()}`, sub: 'Regional Accounts', color: '#10b981' },
           { label: 'Avg Dealer Sales', value: fmtPKR(metrics.averageDealerSales), sub: 'Average Order Size' },
@@ -506,19 +511,21 @@ export const MarketPerformanceView: React.FC = () => {
         tableTitle: 'Zonal Breakdown (Tier 2: Zones)',
         tableSubtitle: `Supervised by Business Manager: ${reg.businessManager}`,
         headers: [
-          { label: 'Zone', align: 'left', width: '20%' },
-          { label: 'Area Manager', align: 'left', width: '20%' },
-          { label: 'Territories', align: 'center', width: '10%' },
-          { label: 'Target (PKR)', align: 'right', width: '14%' },
-          { label: 'Actual Sales (PKR)', align: 'right', width: '14%' },
-          { label: 'Achievement', align: 'center', width: '10%' },
-          { label: 'Active Dealers', align: 'center', width: '12%' },
+          { label: 'Zone', align: 'left', width: '18%' },
+          { label: 'Area Manager', align: 'left', width: '18%' },
+          { label: 'Territories', align: 'center', width: '8%' },
+          { label: 'Target (PKR)', align: 'right', width: '13%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '13%' },
+          { label: 'Actual Sales (PKR)', align: 'right', width: '13%' },
+          { label: 'Achievement', align: 'center', width: '9%' },
+          { label: 'Active Dealers', align: 'center', width: '8%' },
         ],
         rows: (performanceData.zones || []).map((z: any) => [
           { text: `${z.zoneName} (${z.zoneCode || ''})`, bold: true },
           { text: z.areaManager || 'Unassigned' },
           { text: z.territoriesCount, align: 'center' },
           { text: fmtPKR(z.target), align: 'right' },
+          { text: fmtPKR(z.creditLimit), align: 'right' },
           { text: fmtPKR(z.actualSales), align: 'right', bold: true },
           {
             text: `${z.achievementPercent}%`,
@@ -543,23 +550,26 @@ export const MarketPerformanceView: React.FC = () => {
         kpis: [
           { label: 'Zone Revenue', value: fmtPKR(metrics.totalRevenue), sub: 'Posted Net Sales Only', color: 'var(--brand-primary)' },
           { label: 'Zone Target', value: fmtPKR(metrics.target), sub: 'Monthly Quota' },
+          { label: 'Zone Credit Limit', value: fmtPKR(metrics.creditLimit), sub: 'Approved Credit', color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, sub: 'of zonal target', color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'Active Dealers', value: `${Number(metrics.activeDealers || 0).toLocaleString()}`, sub: 'Zone Network', color: '#10b981' },
         ],
         tableTitle: 'Territories Breakdown (Tier 3: Territories)',
         tableSubtitle: `Managed by Area Manager: ${zone.areaManager}`,
         headers: [
-          { label: 'Territory', align: 'left', width: '22%' },
-          { label: 'Primary Sales Officer', align: 'left', width: '22%' },
-          { label: 'Target (PKR)', align: 'right', width: '16%' },
-          { label: 'Actual Sales (PKR)', align: 'right', width: '16%' },
-          { label: 'Achievement', align: 'center', width: '12%' },
-          { label: 'Active Dealers', align: 'center', width: '12%' },
+          { label: 'Territory', align: 'left', width: '20%' },
+          { label: 'Primary Sales Officer', align: 'left', width: '18%' },
+          { label: 'Target (PKR)', align: 'right', width: '15%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '15%' },
+          { label: 'Actual Sales (PKR)', align: 'right', width: '15%' },
+          { label: 'Achievement', align: 'center', width: '9%' },
+          { label: 'Active Dealers', align: 'center', width: '8%' },
         ],
         rows: (performanceData.territories || []).map((t: any) => [
           { text: `${t.territoryName} (${t.territoryCode || ''})`, bold: true },
           { text: t.primaryOfficer || 'Direct' },
           { text: fmtPKR(t.target), align: 'right' },
+          { text: fmtPKR(t.creditLimit), align: 'right' },
           { text: fmtPKR(t.actualSales), align: 'right', bold: true },
           {
             text: `${t.achievementPercent}%`,
@@ -584,21 +594,24 @@ export const MarketPerformanceView: React.FC = () => {
         kpis: [
           { label: 'Territory Revenue', value: fmtPKR(metrics.totalRevenue), color: 'var(--brand-primary)' },
           { label: 'Territory Target', value: fmtPKR(metrics.target) },
+          { label: 'Territory Credit Limit', value: fmtPKR(metrics.creditLimit), color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'Active Dealers', value: `${Number(metrics.activeDealers || 0).toLocaleString()}`, color: '#10b981' },
         ],
         tableTitle: 'Sales Officers Roster',
         tableSubtitle: `Direct field officers deployed in ${terr.name}`,
         headers: [
-          { label: 'Sales Officer', align: 'left', width: '25%' },
-          { label: 'Target (PKR)', align: 'right', width: '18%' },
-          { label: 'Actual Posted Sales (PKR)', align: 'right', width: '20%' },
-          { label: 'Achievement', align: 'center', width: '15%' },
-          { label: 'Active Selling Dealers', align: 'center', width: '22%' },
+          { label: 'Sales Officer', align: 'left', width: '22%' },
+          { label: 'Target (PKR)', align: 'right', width: '16%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '16%' },
+          { label: 'Actual Posted Sales (PKR)', align: 'right', width: '18%' },
+          { label: 'Achievement', align: 'center', width: '12%' },
+          { label: 'Active Selling Dealers', align: 'center', width: '16%' },
         ],
         rows: (performanceData.officers || []).map((o: any) => [
           { text: o.officerName, bold: true },
           { text: fmtPKR(o.target), align: 'right' },
+          { text: fmtPKR(o.creditLimit), align: 'right' },
           { text: fmtPKR(o.actualSales), align: 'right', bold: true },
           {
             text: `${o.achievementPercent}%`,
@@ -623,6 +636,7 @@ export const MarketPerformanceView: React.FC = () => {
         kpis: [
           { label: 'Total Posted Sales', value: fmtPKR(metrics.totalRevenue), color: 'var(--brand-primary)' },
           { label: 'Monthly Quota', value: fmtPKR(metrics.target) },
+          { label: 'Credit Limit', value: fmtPKR(metrics.creditLimit), color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
           { label: 'FO Salary Return', value: `${performanceData.metrics?.salaryJustificationRatio || 'N/A'}`, color: '#10b981' },
         ],
@@ -1103,6 +1117,34 @@ export const MarketPerformanceView: React.FC = () => {
                   background: Number(metrics.achievementPercent) >= 100 ? '#10b981' : Number(metrics.achievementPercent) >= 70 ? '#0284c7' : '#ea580c',
                 }}
               />
+            </div>
+          </div>
+
+          {/* Approved Credit Limit */}
+          <div
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                Total Credit Limit
+              </span>
+              <div style={{ padding: '4px', background: 'rgba(5, 150, 105, 0.1)', borderRadius: '6px' }}>
+                <IconCreditCard size={15} color="#059669" />
+              </div>
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', marginTop: '8px', fontFamily: 'monospace' }}>
+              {fmtPKR(metrics.creditLimit)}
+            </div>
+            <div style={{ fontSize: '11px', color: '#059669', marginTop: '4px', fontWeight: 600 }}>
+              Authorized dynamic limit
             </div>
           </div>
 
@@ -1612,6 +1654,7 @@ export const MarketPerformanceView: React.FC = () => {
                   <th style={{ padding: '10px 14px' }}>Business Manager</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Zones</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Active Dealers</th>
@@ -1622,7 +1665,7 @@ export const MarketPerformanceView: React.FC = () => {
               <tbody>
                 {filteredRegions.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                       No regions match the filter criteria.
                     </td>
                   </tr>
@@ -1657,6 +1700,9 @@ export const MarketPerformanceView: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                         {fmtPKR(r.target)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>
+                        {fmtPKR(r.creditLimit)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
                         {fmtPKR(r.actualSales)}
@@ -1762,6 +1808,7 @@ export const MarketPerformanceView: React.FC = () => {
                   <th style={{ padding: '10px 14px' }}>Area Manager</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Territories</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Active Dealers</th>
@@ -1772,7 +1819,7 @@ export const MarketPerformanceView: React.FC = () => {
               <tbody>
                 {filteredZones.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                       No zones match the filter criteria.
                     </td>
                   </tr>
@@ -1807,6 +1854,9 @@ export const MarketPerformanceView: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                         {fmtPKR(z.target)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>
+                        {fmtPKR(z.creditLimit)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
                         {fmtPKR(z.actualSales)}
@@ -1911,6 +1961,7 @@ export const MarketPerformanceView: React.FC = () => {
                   <th style={{ padding: '10px 14px' }}>Territory</th>
                   <th style={{ padding: '10px 14px' }}>Primary Sales Officer</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Active / Assigned</th>
@@ -1921,7 +1972,7 @@ export const MarketPerformanceView: React.FC = () => {
               <tbody>
                 {filteredTerritories.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                       No territories match the filter criteria.
                     </td>
                   </tr>
@@ -1953,6 +2004,9 @@ export const MarketPerformanceView: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                         {fmtPKR(t.target)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>
+                        {fmtPKR(t.creditLimit)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
                         {fmtPKR(t.actualSales)}
@@ -2057,6 +2111,7 @@ export const MarketPerformanceView: React.FC = () => {
                 <tr style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', fontSize: '11.5px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                   <th style={{ padding: '10px 14px' }}>Sales Officer</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Target (PKR)</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right' }}>Credit Limit (PKR)</th>
                   <th style={{ padding: '10px 14px', textAlign: 'right' }}>Actual Posted Sales</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Achievement</th>
                   <th style={{ padding: '10px 14px', textAlign: 'center' }}>Active Dealers</th>
@@ -2067,7 +2122,7 @@ export const MarketPerformanceView: React.FC = () => {
               <tbody>
                 {filteredOfficers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                       No sales officers match the filter criteria.
                     </td>
                   </tr>
@@ -2088,6 +2143,9 @@ export const MarketPerformanceView: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                         {fmtPKR(o.target)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#059669', fontWeight: 600 }}>
+                        {fmtPKR(o.creditLimit)}
                       </td>
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)' }}>
                         {fmtPKR(o.actualSales)}
