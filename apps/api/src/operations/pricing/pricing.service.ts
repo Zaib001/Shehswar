@@ -2025,9 +2025,13 @@ export class PricingService {
         resolvedScheme = schemeRecord;
       }
       // Find Rate List specifically linked to this scheme
+      const rlConditions: any[] = [{ schemeId: dto.requestedSchemeId }];
+      if (schemeRecord?.baseRateListId) {
+        rlConditions.push({ id: schemeRecord.baseRateListId });
+      }
       resolvedRateList = await this.prisma.rateList.findFirst({
         where: {
-          schemeId: dto.requestedSchemeId,
+          OR: rlConditions,
           companyId,
           status: 'ACTIVE',
         },
@@ -2035,8 +2039,13 @@ export class PricingService {
           versions: {
             where: {
               status: 'ACTIVE',
-              effectiveFrom: { lte: orderDate },
-              OR: [{ effectiveTo: null }, { effectiveTo: { gte: orderDate } }],
+              OR: [
+                {
+                  effectiveFrom: { lte: orderDate },
+                  OR: [{ effectiveTo: null }, { effectiveTo: { gte: orderDate } }],
+                },
+                { effectiveTo: null },
+              ],
             },
             orderBy: { versionNumber: 'desc' },
             take: 1,
@@ -2048,6 +2057,32 @@ export class PricingService {
           },
         },
       });
+
+      if (!resolvedRateList?.versions?.[0]?.items?.[0]) {
+        // Fallback: check any active version on this rate list
+        const fallbackRL = await this.prisma.rateList.findFirst({
+          where: {
+            OR: rlConditions,
+            companyId,
+            status: 'ACTIVE',
+          },
+          include: {
+            versions: {
+              where: { status: 'ACTIVE' },
+              orderBy: { versionNumber: 'desc' },
+              take: 1,
+              include: {
+                items: {
+                  where: { finishedProductId: product.id, isActive: true },
+                },
+              },
+            },
+          },
+        });
+        if (fallbackRL?.versions?.[0]?.items?.[0]) {
+          resolvedRateList = fallbackRL;
+        }
+      }
 
       if (resolvedRateList?.versions?.[0]?.items?.[0]) {
         resolvedVersion = resolvedRateList.versions[0];
@@ -2137,12 +2172,17 @@ export class PricingService {
 
     // Case A: Product rate is defined in Scheme's Rate List (Primary business flow)
     if (resolvedItem) {
+      const schemeDiscPct = Number(resolvedScheme?.discountPct || resolvedScheme?.defaultDiscountPct || 0);
+      const itemDiscPct = resolvedItem.discountPercent !== null && resolvedItem.discountPercent !== undefined && Number(resolvedItem.discountPercent) > 0
+        ? Number(resolvedItem.discountPercent)
+        : schemeDiscPct;
+
       const explicitSchemeRate = resolvedItem.schemeRate !== null && resolvedItem.schemeRate !== undefined && Number(resolvedItem.schemeRate) > 0
         ? Number(resolvedItem.schemeRate)
         : resolvedItem.fixedNetRate !== null && resolvedItem.fixedNetRate !== undefined && Number(resolvedItem.fixedNetRate) > 0
           ? Number(resolvedItem.fixedNetRate)
-          : resolvedItem.discountPercent !== null && resolvedItem.discountPercent !== undefined && Number(resolvedItem.discountPercent) > 0
-            ? resolvedBaseRate * (1 - Number(resolvedItem.discountPercent) / 100)
+          : itemDiscPct > 0
+            ? resolvedBaseRate * (1 - itemDiscPct / 100)
             : resolvedBaseRate;
 
       calculatedRate = Number(explicitSchemeRate.toFixed(2));

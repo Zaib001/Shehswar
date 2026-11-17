@@ -69,8 +69,18 @@ export class SalesService {
     filters?: { search?: string; status?: string; salesOfficerId?: string; limit?: number; offset?: number },
     actor?: AuthUser,
   ) {
-    const isSuper = actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN'));
-    const where: any = isSuper ? {} : { companyId };
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const where: any = {};
+    if (companyId && companyId !== 'ALL' && companyId !== 'all') {
+      where.companyId = companyId;
+    } else if (!isSuper) {
+      where.companyId = actor?.companyId || companyId;
+    }
+    // Exclude virtual inter-company mirror records from commercial dealer lists
+    where.NOT = [
+      { code: { startsWith: 'IC-' } },
+      { code: { startsWith: 'IC-D-' } },
+    ];
     if (filters?.status) where.status = filters.status;
     if (filters?.search) {
       where.OR = [
@@ -615,6 +625,7 @@ export class SalesService {
       dealerName: dealer.name,
       creditLimit: Number(dealer.creditLimit || 0),
       currentBalance: Number(dealer.currentBalance || 0),
+      availableCredit: Math.max(0, Number(dealer.creditLimit || 0) - Number(dealer.currentBalance || 0)),
       region: region
         ? {
           id: region.id,
@@ -710,8 +721,13 @@ export class SalesService {
     },
     actor?: AuthUser,
   ) {
-    const isSuper = actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN'));
-    const where: any = isSuper ? {} : { companyId };
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const where: any = {};
+    if (companyId && companyId !== 'ALL' && companyId !== 'all') {
+      where.companyId = companyId;
+    } else if (!isSuper) {
+      where.companyId = actor?.companyId || companyId;
+    }
     if (filters?.dealerId) where.dealerId = filters.dealerId;
     if (filters?.salesOfficerId) where.salesOfficerId = filters.salesOfficerId;
     if (filters?.status) where.status = filters.status;
@@ -825,6 +841,10 @@ export class SalesService {
   async createOrder(dto: CreateSalesOrderDto, actor: AuthUser) {
     const organizationId = dto.organizationId || actor.organizationId;
     const companyId = dto.companyId || actor.companyId;
+
+    if (dto.dealerId === companyId) {
+      throw new BadRequestException('A company cannot be selected as a customer dealer. Please select a valid commercial dealer.');
+    }
 
     const dealer = await this.prisma.dealer.findFirst({
       where: { id: dto.dealerId, companyId },
@@ -1694,8 +1714,13 @@ export class SalesService {
     },
     actor?: AuthUser,
   ) {
-    const isSuper = actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN'));
-    const where: any = isSuper ? {} : { companyId };
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const where: any = {};
+    if (companyId && companyId !== 'ALL' && companyId !== 'all') {
+      where.companyId = companyId;
+    } else if (!isSuper) {
+      where.companyId = actor?.companyId || companyId;
+    }
     if (filters?.dealerId) where.dealerId = filters.dealerId;
     if (filters?.warehouseId) where.warehouseId = filters.warehouseId;
     if (filters?.status) where.postingStatus = filters.status;
@@ -1765,6 +1790,10 @@ export class SalesService {
   async createInvoice(dto: CreateSalesInvoiceDto, actor: AuthUser) {
     const organizationId = dto.organizationId || actor.organizationId;
     const companyId = dto.companyId || actor.companyId;
+
+    if (dto.dealerId === companyId) {
+      throw new BadRequestException('A company cannot be selected as a customer dealer. Please select a valid commercial dealer.');
+    }
 
     const dealer = await this.prisma.dealer.findFirst({
       where: { id: dto.dealerId, companyId },

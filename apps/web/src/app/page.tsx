@@ -254,6 +254,7 @@ export default function ShowroomPage() {
   // Dynamic route initialized to user's permitted domain
   const [currentRoute, setCurrentRoute] = useState<string>('procurement-vendors');
   const [selectedPoForConversion, setSelectedPoForConversion] = useState<any | null>(null);
+  const [selectedDealerForOrder, setSelectedDealerForOrder] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -635,12 +636,23 @@ export default function ShowroomPage() {
           {currentRoute === 'purchase-returns' && <PurchaseReturnsView />}
           {currentRoute === 'rate-lists' && <PricingManagementView />}
           {currentRoute === 'sales-orders' && (
-            <SalesOrdersView onNavigateToInvoices={() => setCurrentRoute('sales-invoices')} />
+            <SalesOrdersView
+              initialDealerId={selectedDealerForOrder}
+              onClearDealerId={() => setSelectedDealerForOrder(null)}
+              onNavigateToInvoices={() => setCurrentRoute('sales-invoices')}
+            />
           )}
           {currentRoute === 'sales-invoices' && (
             <SalesInvoicesView onNavigateToOrders={() => setCurrentRoute('sales-orders')} />
           )}
-          {currentRoute === 'dealers' && <DealersView />}
+          {currentRoute === 'dealers' && (
+            <DealersView
+              onNavigateToCreateOrder={(dealer) => {
+                setSelectedDealerForOrder(dealer.id);
+                setCurrentRoute('sales-orders');
+              }}
+            />
+          )}
           {currentRoute === 'market-management' && <MarketManagementView />}
           {currentRoute === 'market-performance' && <MarketPerformanceView />}
           {currentRoute === 'sales-returns' && <SalesReturnsView />}

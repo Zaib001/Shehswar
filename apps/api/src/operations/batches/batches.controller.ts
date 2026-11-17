@@ -9,6 +9,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
@@ -25,8 +26,9 @@ export class BatchesController {
   async getBatchesForProduct(
     @Param('productId') productId: string,
     @CurrentUser() user: AuthUser,
+    @Query('warehouseId') warehouseId?: string,
   ) {
-    return this.batchesService.getBatchesForProduct(productId, user.companyId);
+    return this.batchesService.getBatchesForProduct(productId, user.companyId, warehouseId);
   }
 
   @Get(':id')

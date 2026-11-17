@@ -432,7 +432,11 @@ const ActionMenuItem: React.FC<ActionMenuItemProps> = ({ icon, label, onClick, d
   );
 };
 
-export const DealersView: React.FC = () => {
+export interface DealersViewProps {
+  onNavigateToCreateOrder?: (dealer: DealerRecord) => void;
+}
+
+export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrder }) => {
   const { showToast } = useToast();
   const [dealers, setDealers] = useState<DealerRecord[]>([]);
   const [salesOfficers, setSalesOfficers] = useState<any[]>([]);
@@ -1181,6 +1185,17 @@ export const DealersView: React.FC = () => {
             {d.name}
           </div>
         </div>
+
+        <ActionMenuItem
+          icon={<IconPlus size={14} style={{ color: '#059669' }} />}
+          label="Create Sales Order"
+          onClick={() => {
+            if (onNavigateToCreateOrder) {
+              onNavigateToCreateOrder(d);
+            }
+            setMenuAnchor(null);
+          }}
+        />
 
         <ActionMenuItem
           icon={<IconDownload size={14} style={{ color: '#2563eb' }} />}

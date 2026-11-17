@@ -8,7 +8,7 @@
  * - Approval Workflow: Manager Approves/Rejects order. Mobile officer gets instant status update.
  * - Conversion to Sale: APPROVED order converted to Sales Invoice (Stock deducted, Dealer ledger debited).
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ListPageTemplate, DetailPageTemplate, FormPageTemplate } from '../templates';
 import {
@@ -37,18 +37,303 @@ import {
   IconMoreVertical,
   IconClose,
   IconFileText,
+  IconChevronDown,
+  IconAlertTriangle,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
 import { SalesInvoiceExportData } from '../../lib/pdf-export';
+import { cleanPackSize } from './PurchaseOrdersView';
+
+export interface ComboboxOption {
+  value: string;
+  label: string;
+  code?: string;
+  sublabel?: string;
+}
+
+export interface SearchableComboboxProps {
+  label?: string;
+  placeholder: string;
+  value: string;
+  onChange: (val: string) => void;
+  options: ComboboxOption[];
+  required?: boolean;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}
+
+export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
+  label,
+  placeholder,
+  value,
+  onChange,
+  options,
+  required = false,
+  disabled = false,
+  style,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  const filteredOptions = options.filter((opt) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      opt.label.toLowerCase().includes(q) ||
+      (opt.sublabel && opt.sublabel.toLowerCase().includes(q)) ||
+      (opt.code && opt.code.toLowerCase().includes(q))
+    );
+  });
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      setHighlightedIndex(0);
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    } else {
+      setSearch('');
+    }
+  }, [isOpen]);
+
+  const handleSelect = (val: string) => {
+    onChange(val);
+    setIsOpen(false);
+  };
+
+  const fullDisplayTitle = selectedOption
+    ? `${selectedOption.code ? `[${selectedOption.code}] ` : ''}${selectedOption.label}${selectedOption.sublabel ? ` (${selectedOption.sublabel})` : ''}`
+    : '';
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        position: 'relative',
+        ...style,
+      }}
+    >
+      {label && (
+        <label
+          style={{
+            fontSize: '12px',
+            fontWeight: 600,
+            color: 'var(--text-secondary, #475569)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
+        </label>
+      )}
+
+      <button
+        type="button"
+        disabled={disabled}
+        title={fullDisplayTitle || placeholder}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            e.preventDefault();
+            if (!disabled) setIsOpen(true);
+          } else if (e.key === 'Tab' || e.key === 'Escape') {
+            setIsOpen(false);
+          }
+        }}
+        style={{
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          boxSizing: 'border-box',
+          height: '38px',
+          padding: '0 12px',
+          borderRadius: '6px',
+          border: '1px solid var(--border-default, #cbd5e1)',
+          backgroundColor: disabled ? '#f8fafc' : '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          outline: 'none',
+          textAlign: 'left',
+          fontSize: '13px',
+          transition: 'border-color 0.15s ease',
+        }}
+      >
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: selectedOption ? '#1e293b' : '#94a3b8',
+            fontWeight: selectedOption ? 600 : 400,
+          }}
+        >
+          {selectedOption ? (
+            <>
+              {selectedOption.code && (
+                <span style={{ fontWeight: 700, color: '#2563eb', marginRight: '6px' }}>
+                  [{selectedOption.code}]
+                </span>
+              )}
+              {selectedOption.label}
+              {selectedOption.sublabel && (
+                <span style={{ color: '#64748b', fontSize: '11px', marginLeft: '6px' }}>
+                  ({selectedOption.sublabel})
+                </span>
+              )}
+            </>
+          ) : (
+            placeholder
+          )}
+        </span>
+        <IconChevronDown size={14} style={{ color: '#64748b', flexShrink: 0, marginLeft: '8px' }} />
+      </button>
+
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 99999,
+            backgroundColor: '#ffffff',
+            border: '1px solid #cbd5e1',
+            borderRadius: '8px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            overflow: 'hidden',
+            maxHeight: '320px',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Type to search..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setHighlightedIndex(0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setHighlightedIndex((prev) => Math.min(filteredOptions.length - 1, prev + 1));
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setHighlightedIndex((prev) => Math.max(0, prev - 1));
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (filteredOptions[highlightedIndex]) {
+                    handleSelect(filteredOptions[highlightedIndex].value);
+                  }
+                } else if (e.key === 'Escape') {
+                  setIsOpen(false);
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '7px 10px',
+                fontSize: '12px',
+                borderRadius: '5px',
+                border: '1px solid #cbd5e1',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '240px' }}>
+            {filteredOptions.length === 0 ? (
+              <div style={{ padding: '12px 14px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+                No matches found
+              </div>
+            ) : (
+              filteredOptions.map((opt, idx) => {
+                const isSelected = opt.value === value;
+                const isHighlighted = idx === highlightedIndex;
+                return (
+                  <div
+                    key={opt.value}
+                    onClick={() => handleSelect(opt.value)}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    style={{
+                      padding: '8px 12px',
+                      cursor: 'pointer',
+                      backgroundColor: isSelected ? '#eff6ff' : isHighlighted ? '#f8fafc' : '#ffffff',
+                      borderBottom: '1px solid #f1f5f9',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '13px', fontWeight: isSelected ? 700 : 500, color: '#0f172a' }}>
+                        {opt.code && (
+                          <span style={{ color: '#2563eb', fontWeight: 700, marginRight: '6px' }}>
+                            [{opt.code}]
+                          </span>
+                        )}
+                        {opt.label}
+                      </span>
+                      {isSelected && <IconCheck size={14} style={{ color: '#2563eb' }} />}
+                    </div>
+                    {opt.sublabel && (
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>
+                        {opt.sublabel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export interface SalesOrderItemRow {
   finishedProductId?: string;
-  rateListId?: string;
-  schemeId?: string;
+  productCode?: string;
   productName: string;
+  packSize?: string;
   packing?: string;
+  batchId?: string;
+  batchNumber?: string;
+  schemeId?: string;
+  rateListId?: string;
   quantity: number;
   baseRate?: number;
   discountPercent?: number;
@@ -58,6 +343,8 @@ export interface SalesOrderItemRow {
   totalPrice: number;
   commercialCondition?: string;
   originalQuantity?: number;
+  availableStock?: number;
+  availableBatches?: any[];
 }
 
 export interface SalesOrderRecord {
@@ -84,10 +371,18 @@ export interface SalesOrderRecord {
 
 export interface SalesOrdersViewProps {
   onNavigateToInvoices?: () => void;
+  initialDealerId?: string | null;
+  onClearDealerId?: () => void;
 }
 
-export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToInvoices }) => {
+export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
+  onNavigateToInvoices,
+  initialDealerId,
+  onClearDealerId,
+}) => {
   const { showToast } = useToast();
+  const { activeCompanyId, activeCompanyName } = useCompany();
+
   const [orders, setOrders] = useState<SalesOrderRecord[]>([]);
   const [dealers, setDealers] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
@@ -186,7 +481,42 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
   const [schemes, setSchemes] = useState<any[]>([]);
   const [dealerHierarchy, setDealerHierarchy] = useState<any | null>(null);
 
+  const companyWarehouses = React.useMemo(() => {
+    return activeCompanyId
+      ? warehouses.filter((w) => !w.companyId || w.companyId === activeCompanyId)
+      : warehouses;
+  }, [warehouses, activeCompanyId]);
+
+  const companyDealers = React.useMemo(() => {
+    return dealers.filter((d) => {
+      if (activeCompanyId && d.companyId && d.companyId !== activeCompanyId) return false;
+      if (d.code && (d.code.startsWith('IC-') || d.code.startsWith('IC-D-'))) return false;
+      if (activeCompanyName && d.name && d.name.toLowerCase() === activeCompanyName.toLowerCase()) return false;
+      return true;
+    });
+  }, [dealers, activeCompanyId, activeCompanyName]);
+
+  const companyProducts = React.useMemo(() => {
+    return activeCompanyId
+      ? products.filter((p) => !p.companyId || p.companyId === activeCompanyId)
+      : products;
+  }, [products, activeCompanyId]);
+
+  const companySchemes = React.useMemo(() => {
+    return activeCompanyId
+      ? schemes.filter((s) => !s.companyId || s.companyId === activeCompanyId)
+      : schemes;
+  }, [schemes, activeCompanyId]);
+
   const handleDealerChange = (dealerId: string) => {
+    if (activeCompanyId && dealerId === activeCompanyId) {
+      showToast({
+        title: 'Invalid Dealer Selection',
+        message: 'The active company cannot be selected as a customer dealer. Please select a commercial dealer.',
+        type: 'error',
+      });
+      return;
+    }
     setFormData((prev) => ({ ...prev, dealerId }));
     if (!dealerId) {
       setDealerHierarchy(null);
@@ -259,7 +589,105 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, activeCompanyId]);
+
+  useEffect(() => {
+    if (initialDealerId) {
+      setMode('create');
+      handleDealerChange(initialDealerId);
+      onClearDealerId?.();
+    }
+  }, [initialDealerId]);
+
+  // Set default warehouse and commercial phase (scheme) when entering create mode
+  useEffect(() => {
+    if (mode === 'create') {
+      if (!formData.warehouseId && companyWarehouses.length > 0) {
+        setFormData((prev) => ({ ...prev, warehouseId: companyWarehouses[0].id }));
+      }
+      if (!formData.schemeId && companySchemes.length > 0) {
+        const defaultScheme = companySchemes.find((s) => s.shortCode === 'SS' || s.code === 'SS') || companySchemes[0];
+        if (defaultScheme) {
+          let linkedRlId = defaultScheme.baseRateListId || defaultScheme.baseRateList?.id;
+          if (!linkedRlId && Array.isArray(defaultScheme.rateLists) && defaultScheme.rateLists.length > 0) {
+            linkedRlId = defaultScheme.rateLists[0].id;
+          }
+          if (!linkedRlId) {
+            const matchedRl = rateLists.find(
+              (rl) => rl.schemeId === defaultScheme.id || (defaultScheme.shortCode && rl.schemeShortCode === defaultScheme.shortCode)
+            );
+            if (matchedRl) linkedRlId = matchedRl.id;
+          }
+          setFormData((prev) => ({
+            ...prev,
+            schemeId: defaultScheme.id,
+            rateListId: linkedRlId || '',
+          }));
+        }
+      }
+    }
+  }, [mode, companyWarehouses, companySchemes, rateLists]);
+
+  // Fetch batches for product in warehouse
+  const fetchBatchesForLine = async (idx: number, productId: string, warehouseId?: string) => {
+    if (!productId) return;
+    try {
+      const wh = warehouseId || formData.warehouseId || companyWarehouses[0]?.id;
+      const whParam = wh ? `?warehouseId=${encodeURIComponent(wh)}` : '';
+      const res = await ApiClient.get<any>(`/api/v1/batches/product/${productId}${whParam}`);
+      const batchList = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setFormItems((prev) => {
+        const next = [...prev];
+        if (next[idx]) {
+          const validBatches = batchList.filter((b: any) => !b.isExpired);
+          const firstWithStock = validBatches.find((b: any) => Number(b.availableQuantity) > 0) || validBatches[0];
+          next[idx] = {
+            ...next[idx],
+            availableBatches: batchList,
+            batchId: next[idx].batchId || (firstWithStock ? firstWithStock.id : undefined),
+            batchNumber: next[idx].batchNumber || (firstWithStock ? firstWithStock.batchNumber : undefined),
+          };
+        }
+        return next;
+      });
+    } catch {
+      // batch fetch failure fallback
+    }
+  };
+
+  const handleWarehouseChange = (warehouseId: string) => {
+    setFormData((prev) => ({ ...prev, warehouseId }));
+    formItems.forEach((it, idx) => {
+      if (it.finishedProductId) {
+        fetchBatchesForLine(idx, it.finishedProductId, warehouseId);
+      }
+    });
+  };
+
+  const handleCommercialPhaseChange = (schemeId: string) => {
+    const selectedScheme = schemes.find((s) => s.id === schemeId);
+    let linkedRlId = '';
+    if (selectedScheme) {
+      if (selectedScheme.baseRateListId) {
+        linkedRlId = selectedScheme.baseRateListId;
+      } else if (selectedScheme.baseRateList?.id) {
+        linkedRlId = selectedScheme.baseRateList.id;
+      } else if (Array.isArray(selectedScheme.rateLists) && selectedScheme.rateLists.length > 0) {
+        linkedRlId = selectedScheme.rateLists[0].id;
+      } else {
+        const matchedRl = rateLists.find(
+          (rl) => rl.schemeId === schemeId || (selectedScheme.shortCode && rl.schemeShortCode === selectedScheme.shortCode),
+        );
+        if (matchedRl) linkedRlId = matchedRl.id;
+      }
+    }
+    setFormData((prev) => ({
+      ...prev,
+      schemeId,
+      rateListId: linkedRlId,
+    }));
+    recalculateAllItems(formData.paymentTerm, schemeId, linkedRlId);
+  };
 
   // Real-time authoritative price resolution for line item
   const resolveLinePrice = async (
@@ -308,7 +736,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
   const recalculateAllItems = (paymentTerm: string, schemeId: string, rateListId?: string) => {
     formItems.forEach((it, idx) => {
       if (it.finishedProductId) {
-        resolveLinePrice(idx, it.finishedProductId, it.quantity, paymentTerm, schemeId, rateListId);
+        const itemScheme = it.schemeId || schemeId;
+        resolveLinePrice(idx, it.finishedProductId, it.quantity, paymentTerm, itemScheme, rateListId);
       }
     });
   };
@@ -319,24 +748,35 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
     const item = { ...updated[index], [field]: value } as SalesOrderItemRow;
 
     if (field === 'finishedProductId') {
-      const prod = products.find((p) => p.id === value);
+      const prod = companyProducts.find((p) => p.id === value);
       if (prod) {
         item.productName = prod.productName;
+        item.productCode = prod.productCode;
+        item.packSize = cleanPackSize(prod.packSize?.name || prod.packSize || prod.packingUnit);
         item.baseRate = Number(prod.defaultSellingPrice || 1200);
         item.unitPrice = Number(prod.defaultSellingPrice || 1200);
         item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
       }
-      resolveLinePrice(index, value, Number(item.quantity) || 1);
+      resolveLinePrice(index, value, Number(item.quantity) || 1, formData.paymentTerm, item.schemeId || formData.schemeId, formData.rateListId);
+      fetchBatchesForLine(index, value, formData.warehouseId || companyWarehouses[0]?.id);
+    } else if (field === 'batchId') {
+      const selectedBatch = item.availableBatches?.find((b) => b.id === value);
+      if (selectedBatch) {
+        item.batchId = selectedBatch.id;
+        item.batchNumber = selectedBatch.batchNumber;
+      } else {
+        item.batchId = value;
+      }
     } else if (field === 'quantity') {
       const qty = Number(value) || 1;
       item.totalPrice = qty * Number(item.unitPrice || 0);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, qty, undefined, item.schemeId);
+        resolveLinePrice(index, item.finishedProductId, qty, formData.paymentTerm, item.schemeId || formData.schemeId, formData.rateListId);
       }
     } else if (field === 'schemeId') {
       item.schemeId = value;
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, undefined, value);
+        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, formData.paymentTerm, value || formData.schemeId, formData.rateListId);
       }
     } else if (field === 'unitPrice') {
       const price = Number(value) || 0;
@@ -370,30 +810,73 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
       showToast({ title: 'Validation Error', message: 'Please select a Dealer', type: 'error' });
       return;
     }
-    if (formItems.some((i) => !i.productName || Number(i.quantity) <= 0)) {
-      showToast({ title: 'Validation Error', message: 'All line items must have a product and quantity', type: 'error' });
+    if (activeCompanyId && formData.dealerId === activeCompanyId) {
+      showToast({
+        title: 'Validation Error',
+        message: 'A company cannot be selected as a customer dealer. Please select a valid commercial dealer.',
+        type: 'error',
+      });
       return;
     }
-    if (immediateInvoice && formItems.some((i) => Number(i.unitPrice) <= 0)) {
-      showToast({ title: 'Validation Error', message: 'To generate an immediate sales invoice, all items must have a resolved price', type: 'error' });
+    const warehouseIdToUse = formData.warehouseId || companyWarehouses[0]?.id;
+    if (!warehouseIdToUse) {
+      showToast({ title: 'Validation Error', message: 'Please select a Dispatch Warehouse', type: 'error' });
       return;
+    }
+    if (formItems.some((i) => !i.finishedProductId || Number(i.quantity) <= 0)) {
+      showToast({ title: 'Validation Error', message: 'All line items must have a finished product and quantity > 0', type: 'error' });
+      return;
+    }
+
+    const totalOrderVal = formItems.reduce((sum, i) => sum + (Number(i.totalPrice) || 0), 0);
+    const creditLimit = Number(dealerHierarchy?.dealer?.creditLimit || 0);
+    const currentBal = Number(dealerHierarchy?.dealer?.currentBalance || 0);
+    const availCredit = dealerHierarchy?.availableCredit !== undefined
+      ? Number(dealerHierarchy.availableCredit)
+      : (creditLimit > 0 ? Math.max(0, creditLimit - currentBal) : 999999999);
+    const isExceeded = creditLimit > 0 && totalOrderVal > availCredit;
+
+    if (isExceeded && immediateInvoice) {
+      showToast({
+        title: 'Credit Limit Exceeded',
+        message: `Order total (PKR ${totalOrderVal.toLocaleString()}) exceeds available credit (PKR ${availCredit.toLocaleString()}). Direct invoice disabled; booking as pending order on CREDIT_HOLD for managerial review.`,
+        type: 'warning',
+      });
+      immediateInvoice = false;
     }
 
     try {
-      const warehouseIdToUse = formData.warehouseId || warehouses[0]?.id;
-      const res = await ApiClient.post<any>('/api/v1/sales-orders', {
+      const payload = {
         ...formData,
         warehouseId: warehouseIdToUse,
-        items: formItems,
-      });
+        companyId: activeCompanyId || undefined,
+        items: formItems.map((it) => ({
+          finishedProductId: it.finishedProductId,
+          productName: it.productName,
+          packing: it.packSize || undefined,
+          batchId: it.batchId || undefined,
+          batchNumber: it.batchNumber || undefined,
+          schemeId: it.schemeId || formData.schemeId || undefined,
+          rateListId: it.rateListId || formData.rateListId || undefined,
+          quantity: Number(it.quantity) || 1,
+          baseRate: Number(it.baseRate) || Number(it.unitPrice) || 0,
+          unitPrice: Number(it.unitPrice) || 0,
+          discountPercent: Number(it.discountPercent) || 0,
+          discountAmount: Number(it.discountAmount) || 0,
+          freeQuantity: Number(it.freeQuantity) || 0,
+          totalPrice: Number(it.totalPrice) || 0,
+          commercialCondition: it.commercialCondition || undefined,
+        })),
+      };
 
+      const res = await ApiClient.post<any>('/api/v1/sales-orders', payload);
       const createdOrder = res.data?.data || res.data;
 
-      if (immediateInvoice && createdOrder?.id) {
-        // 1. Auto-approve
+      if (immediateInvoice && createdOrder?.id && !isExceeded) {
+        // Auto-approve
         await ApiClient.patch(`/api/v1/sales-orders/${createdOrder.id}/approve`, { approved: true });
 
-        // 2. Convert to sale & generate invoice
+        // Convert to sale & generate invoice
         const convRes = await ApiClient.post<any>(`/api/v1/sales-orders/${createdOrder.id}/convert-to-sale`, {
           warehouseId: warehouseIdToUse,
         });
@@ -414,7 +897,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
           setIsInvoiceModalOpen(true);
         }
 
-        // Navigate to Sales Invoices!
         if (onNavigateToInvoices) {
           setTimeout(() => {
             onNavigateToInvoices();
@@ -423,7 +905,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
         return;
       }
 
-      showToast({ title: 'Success', message: 'Sales order booked successfully', type: 'success' });
+      showToast({
+        title: isExceeded ? 'Order Booked (Credit Hold)' : 'Order Booked Successfully',
+        message: isExceeded
+          ? 'Order booked and placed on CREDIT_HOLD pending credit approval.'
+          : 'Sales order booked successfully.',
+        type: isExceeded ? 'warning' : 'success',
+      });
       setMode('list');
       loadData();
     } catch (err: any) {
@@ -2151,7 +2639,27 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
   );
 
   if (mode === 'create') {
-    const totalOrderValue = formItems.reduce((sum, i) => sum + i.totalPrice, 0);
+    const totalOrderValue = formItems.reduce((sum, i) => sum + (Number(i.totalPrice) || 0), 0);
+    const totalGrossValue = formItems.reduce(
+      (sum, i) => sum + ((Number(i.baseRate) || Number(i.unitPrice) || 0) * (Number(i.quantity) || 1)),
+      0,
+    );
+    const totalSchemeDiscount = formItems.reduce(
+      (sum, i) => sum + ((Number(i.discountAmount) || 0) * (Number(i.quantity) || 1)),
+      0,
+    );
+    const totalFreeUnits = formItems.reduce((sum, i) => sum + (Number(i.freeQuantity) || 0), 0);
+
+    const creditLimit = Number(dealerHierarchy?.dealer?.creditLimit || 0);
+    const currentBalance = Number(dealerHierarchy?.dealer?.currentBalance || 0);
+    const availableCredit = dealerHierarchy?.availableCredit !== undefined
+      ? Number(dealerHierarchy.availableCredit)
+      : (creditLimit > 0 ? Math.max(0, creditLimit - currentBalance) : 0);
+    const remainingCredit = creditLimit > 0 ? availableCredit - totalOrderValue : 0;
+    const isCreditExceeded = creditLimit > 0 && totalOrderValue > availableCredit;
+
+    const currentSelectedScheme = schemes.find((s) => s.id === formData.schemeId);
+    const linkedRateList = rateLists.find((rl) => rl.id === formData.rateListId);
 
     return (
       <FormPageTemplate
@@ -2159,22 +2667,84 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
         subtitle="Book order and generate commercial sales invoice immediately or save as pending order for field review."
         breadcrumbs={[{ label: 'Sales Orders', onClick: () => setMode('list') }, { label: 'New Sale' }]}
         onCancel={() => setMode('list')}
-        onSubmit={() => handleCreateOrder(generateInvoiceImmediately)}
-        submitLabel={generateInvoiceImmediately ? 'Create & Generate Sales Invoice' : 'Book Sales Order'}
-        draftLabel={generateInvoiceImmediately ? 'Save as Pending Order' : undefined}
-        onSaveDraft={generateInvoiceImmediately ? () => handleCreateOrder(false) : undefined}
+        onSubmit={() => handleCreateOrder(!isCreditExceeded && generateInvoiceImmediately)}
+        submitLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Create & Generate Sales Invoice' : 'Book Sales Order'}
+        draftLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Save as Pending Order' : undefined}
+        onSaveDraft={!isCreditExceeded && generateInvoiceImmediately ? () => handleCreateOrder(false) : undefined}
       >
+        {/* Active Company Context Banner */}
+        <div
+          style={{
+            padding: '14px 20px',
+            borderRadius: '12px',
+            backgroundColor: '#f0fdf4',
+            border: '1.5px solid #86efac',
+            marginBottom: '18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '8px',
+                backgroundColor: '#16a34a',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '20px',
+                fontWeight: 800,
+              }}
+            >
+              🏢
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Selling Company Context (Active ERP Scope)
+              </div>
+              <div style={{ fontSize: '17px', fontWeight: 800, color: '#14532d' }}>
+                {activeCompanyName || 'Holding Company'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span
+              style={{
+                backgroundColor: '#dcfce7',
+                color: '#166534',
+                fontSize: '12px',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: '8px',
+                border: '1px solid #bbf7d0',
+              }}
+            >
+              Company ID: {activeCompanyId ? `${activeCompanyId.slice(0, 12)}...` : 'Default'}
+            </span>
+            <span style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>
+              Operating seller is strictly locked to this company
+            </span>
+          </div>
+        </div>
+
+        {/* Direct Sale / Invoice Generation Toggle Banner */}
         <div
           style={{
             padding: '16px 20px',
             borderRadius: '12px',
-            backgroundColor: generateInvoiceImmediately ? '#eff6ff' : 'var(--bg-subtle)',
-            border: generateInvoiceImmediately ? '2px solid #3b82f6' : '1px solid var(--border-default)',
+            backgroundColor: isCreditExceeded ? '#fff1f2' : generateInvoiceImmediately ? '#eff6ff' : 'var(--bg-subtle, #f8fafc)',
+            border: isCreditExceeded ? '2px solid #f43f5e' : generateInvoiceImmediately ? '2px solid #3b82f6' : '1px solid var(--border-default, #cbd5e1)',
             marginBottom: '20px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            boxShadow: generateInvoiceImmediately ? '0 4px 12px rgba(59, 130, 246, 0.12)' : 'none',
+            boxShadow: generateInvoiceImmediately && !isCreditExceeded ? '0 4px 12px rgba(59, 130, 246, 0.12)' : 'none',
             transition: 'all 0.2s ease',
           }}
         >
@@ -2183,15 +2753,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               <span
                 style={{
                   fontWeight: 800,
-                  color: generateInvoiceImmediately ? '#1e3a8a' : 'var(--text-primary)',
+                  color: isCreditExceeded ? '#be123c' : generateInvoiceImmediately ? '#1e3a8a' : 'var(--text-primary)',
                   fontSize: '15px',
                 }}
               >
-               Auto-Generate Commercial Sales Invoice Immediately
+                {isCreditExceeded ? 'Direct Invoice Blocked — Credit Limit Exceeded' : 'Auto-Generate Commercial Sales Invoice Immediately'}
               </span>
               <span
                 style={{
-                  backgroundColor: generateInvoiceImmediately ? '#2563eb' : '#6b7280',
+                  backgroundColor: isCreditExceeded ? '#e11d48' : generateInvoiceImmediately ? '#2563eb' : '#6b7280',
                   color: '#ffffff',
                   fontSize: '11px',
                   fontWeight: 700,
@@ -2199,29 +2769,34 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                   borderRadius: '12px',
                 }}
               >
-                {generateInvoiceImmediately ? 'DIRECT SALE' : 'BOOKING ONLY'}
+                {isCreditExceeded ? 'CREDIT HOLD' : generateInvoiceImmediately ? 'DIRECT SALE' : 'BOOKING ONLY'}
               </span>
             </div>
             <div
               style={{
                 fontSize: '13px',
-                color: generateInvoiceImmediately ? '#1e40af' : 'var(--text-secondary)',
+                color: isCreditExceeded ? '#9f1239' : generateInvoiceImmediately ? '#1e40af' : 'var(--text-secondary)',
                 marginTop: '4px',
               }}
             >
-              {generateInvoiceImmediately
-                ? 'Approves order, deducts warehouse inventory, debits dealer ledger, creates numbered Sales Invoice, and moves directly to Sales Invoices!'
+              {isCreditExceeded
+                ? 'Order total exceeds available dealer credit. Must be booked as PENDING / CREDIT_HOLD for credit committee approval.'
+                : generateInvoiceImmediately
+                ? 'Approves order, deducts warehouse inventory, debits dealer ledger, creates numbered Sales Invoice, and redirects directly to Sales Invoices!'
                 : 'Saves as PENDING order visible on mobile app. Manager approval and manual conversion required later.'}
             </div>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isCreditExceeded ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
             <input
               type="checkbox"
-              checked={generateInvoiceImmediately}
+              disabled={isCreditExceeded}
+              checked={!isCreditExceeded && generateInvoiceImmediately}
               onChange={(e) => setGenerateInvoiceImmediately(e.target.checked)}
-              style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
+              style={{ width: '22px', height: '22px', cursor: isCreditExceeded ? 'not-allowed' : 'pointer', accentColor: '#2563eb' }}
             />
-            <span>{generateInvoiceImmediately ? 'Invoice Active' : 'Off'}</span>
+            <span style={{ color: isCreditExceeded ? '#9f1239' : undefined }}>
+              {isCreditExceeded ? 'Disabled' : generateInvoiceImmediately ? 'Invoice Active' : 'Off'}
+            </span>
           </label>
         </div>
 
@@ -2232,57 +2807,58 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
           <CardContent>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
               <div style={{ gridColumn: 'span 7' }}>
-                <Select
-                  label="Dealer *"
+                <SearchableCombobox
+                  label="Dealer (Customer / Party) *"
+                  placeholder="Search and select dealer..."
+                  required
                   value={formData.dealerId}
-                  onChange={(e) => handleDealerChange(e.target.value)}
-                  options={[
-                    { label: 'Select Dealer...', value: '' },
-                    ...dealers.map((d) => ({ label: `${d.code} - ${d.name}`, value: d.id })),
-                  ]}
+                  onChange={(val) => handleDealerChange(val)}
+                  options={companyDealers.map((d) => ({
+                    value: d.id,
+                    label: d.name,
+                    code: d.code,
+                    sublabel: d.phone ? `Phone: ${d.phone}` : d.city || '',
+                  }))}
                 />
               </div>
               <div style={{ gridColumn: 'span 5' }}>
-                <Select
+                <SearchableCombobox
                   label="Dispatch Warehouse *"
-                  value={formData.warehouseId || warehouses[0]?.id || ''}
-                  onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-                  options={[
-                    { label: 'Select Warehouse...', value: '' },
-                    ...warehouses.map((w) => ({ label: `${w.code} - ${w.name}`, value: w.id })),
-                  ]}
+                  placeholder="Select warehouse..."
+                  required
+                  value={formData.warehouseId || companyWarehouses[0]?.id || ''}
+                  onChange={(val) => handleWarehouseChange(val)}
+                  options={companyWarehouses.map((w) => ({
+                    value: w.id,
+                    label: w.name,
+                    code: w.code,
+                    sublabel: w.type || '',
+                  }))}
                 />
               </div>
-              <div style={{ gridColumn: 'span 4' }}>
-                <Select
-                  label="Commercial Rate List *"
-                  value={formData.rateListId}
-                  onChange={(e) => {
-                    const rlId = e.target.value;
-                    setFormData((prev) => ({ ...prev, rateListId: rlId }));
-                    recalculateAllItems(formData.paymentTerm, formData.schemeId, rlId);
-                  }}
-                  options={[
-                    { label: '-- Auto-Resolve Active Rate List --', value: '' },
-                    ...rateLists.map((rl) => ({ label: `${rl.code} - ${rl.name} (${rl.category || 'SEASONAL'})`, value: rl.id })),
-                  ]}
-                />
-              </div>
-              <div style={{ gridColumn: 'span 5' }}>
-                <Select
-                  label="Commercial Pricing Scheme"
+
+              {/* Single Clear Commercial Phase Selector (Replaces redundant Rate List inputs) */}
+              <div style={{ gridColumn: 'span 6' }}>
+                <SearchableCombobox
+                  label="Commercial Phase / Scheme *"
+                  placeholder="Select commercial phase..."
+                  required
                   value={formData.schemeId}
-                  onChange={(e) => {
-                    const sId = e.target.value;
-                    setFormData((prev) => ({ ...prev, schemeId: sId }));
-                    recalculateAllItems(formData.paymentTerm, sId, formData.rateListId);
-                  }}
-                  options={[
-                    { label: '-- Auto-Resolve Scheme from Database --', value: '' },
-                    ...schemes.map((s) => ({ label: `${s.code} - ${s.name} (${s.paymentTerm})`, value: s.id })),
-                  ]}
+                  onChange={(val) => handleCommercialPhaseChange(val)}
+                  options={companySchemes.map((s) => ({
+                    value: s.id,
+                    label: `${s.shortCode || s.code} — ${s.name} (${s.defaultDiscountPct || s.discountPct || 0}% discount)`,
+                    code: s.shortCode || s.code,
+                    sublabel: `Payment: ${s.paymentTerm || 'CASH'}${s.baseRateList?.name ? ` | Linked RL: ${s.baseRateList.name}` : ''}`,
+                  }))}
                 />
+                {linkedRateList && (
+                  <div style={{ fontSize: '11px', color: '#0369a1', marginTop: '4px', fontWeight: 600 }}>
+                    Linked Rate List: {linkedRateList.code} — {linkedRateList.name}
+                  </div>
+                )}
               </div>
+
               <div style={{ gridColumn: 'span 3' }}>
                 <Select
                   label="Payment Term *"
@@ -2299,7 +2875,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                   ]}
                 />
               </div>
-              <div style={{ gridColumn: 'span 4' }}>
+              <div style={{ gridColumn: 'span 3' }}>
                 <Input
                   label="Order Date"
                   type="date"
@@ -2307,7 +2883,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                   onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
                 />
               </div>
-              <div style={{ gridColumn: 'span 8' }}>
+              <div style={{ gridColumn: 'span 12' }}>
                 <Input
                   label="Special Notes / Delivery Remarks"
                   placeholder="e.g. Requested scheme booking, transport dock instructions"
@@ -2317,19 +2893,19 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               </div>
             </div>
 
-            {/* System-Resolved Market Hierarchy Panel */}
+            {/* System-Resolved Market Hierarchy & 5-Tier Financial Card */}
             {dealerHierarchy && (
               <div
                 style={{
-                  marginTop: '16px',
+                  marginTop: '18px',
                   padding: '16px 20px',
                   backgroundColor: '#f8fafc',
-                  border: '1px solid #bfdbfe',
+                  border: isCreditExceeded ? '2px solid #fecdd3' : '1px solid #bfdbfe',
                   borderRadius: '12px',
                   boxShadow: '0 2px 8px rgba(37, 99, 235, 0.06)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ backgroundColor: '#2563eb', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '10px' }}>
                       SYSTEM-RESOLVED MARKET ATTRIBUTION
@@ -2337,14 +2913,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                     <strong style={{ fontSize: '14px', color: '#0f172a' }}>{dealerHierarchy.dealer?.name} ({dealerHierarchy.dealer?.code})</strong>
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b' }}>
-                    Operating Scope: <strong style={{ color: '#0f172a' }}>{dealerHierarchy.company?.name || 'Holding Company'}</strong>
+                    Operating Scope: <strong style={{ color: '#0f172a' }}>{activeCompanyName || 'Holding Company'}</strong>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 1: Region & BM</div>
-                    <div style={{ fontWeight: 700, color: '#1e40af', marginTop: '2px' }}>{dealerHierarchy.region?.name || 'West Region'}</div>
+                    <div style={{ fontWeight: 700, color: '#1e40af', marginTop: '2px' }}>{dealerHierarchy.region?.name || 'Region'}</div>
                     <div style={{ fontSize: '12px', color: '#334155' }}>
                       BM: <strong>{dealerHierarchy.businessManager ? `${dealerHierarchy.businessManager.firstName} ${dealerHierarchy.businessManager.lastName}` : 'Unassigned'}</strong>
                     </div>
@@ -2352,7 +2928,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
 
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 2: Zone & AM</div>
-                    <div style={{ fontWeight: 700, color: '#047857', marginTop: '2px' }}>{dealerHierarchy.zone?.name || 'Faisalabad Zone'}</div>
+                    <div style={{ fontWeight: 700, color: '#047857', marginTop: '2px' }}>{dealerHierarchy.zone?.name || 'Zone'}</div>
                     <div style={{ fontSize: '12px', color: '#334155' }}>
                       AM: <strong>{dealerHierarchy.areaManager ? `${dealerHierarchy.areaManager.firstName} ${dealerHierarchy.areaManager.lastName}` : 'Unassigned'}</strong>
                     </div>
@@ -2360,22 +2936,71 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
 
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 3: Territory & SO</div>
-                    <div style={{ fontWeight: 700, color: '#d97706', marginTop: '2px' }}>{dealerHierarchy.territory?.name || 'Faisalabad-01'}</div>
+                    <div style={{ fontWeight: 700, color: '#d97706', marginTop: '2px' }}>{dealerHierarchy.territory?.name || 'Territory'}</div>
                     <div style={{ fontSize: '12px', color: '#334155' }}>
                       Responsible SO: <strong style={{ color: '#2563eb' }}>{dealerHierarchy.salesOfficer ? `${dealerHierarchy.salesOfficer.firstName} ${dealerHierarchy.salesOfficer.lastName}` : 'ERP Direct'}</strong>
                     </div>
                   </div>
+                </div>
 
+                {/* 5-Tier Financial Metrics */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Dealer Financials</div>
-                    <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-                      Balance: PKR {Number(dealerHierarchy.dealer?.currentBalance || 0).toLocaleString()}
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Dealer Credit Limit</div>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '15px', marginTop: '2px' }}>
+                      PKR {creditLimit.toLocaleString()}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>
-                      Credit Limit: PKR {Number(dealerHierarchy.dealer?.creditLimit || 0).toLocaleString()}
+                  </div>
+                  <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Current Outstanding</div>
+                    <div style={{ fontWeight: 800, color: '#dc2626', fontSize: '15px', marginTop: '2px' }}>
+                      PKR {currentBalance.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Available Credit</div>
+                    <div style={{ fontWeight: 800, color: availableCredit > 0 ? '#16a34a' : '#dc2626', fontSize: '15px', marginTop: '2px' }}>
+                      PKR {availableCredit.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Current Order Value</div>
+                    <div style={{ fontWeight: 800, color: '#2563eb', fontSize: '15px', marginTop: '2px' }}>
+                      PKR {totalOrderValue.toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: `1px solid ${isCreditExceeded ? '#fca5a5' : '#86efac'}` }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Remaining Credit</div>
+                    <div style={{ fontWeight: 800, color: remainingCredit >= 0 ? '#16a34a' : '#dc2626', fontSize: '15px', marginTop: '2px' }}>
+                      PKR {remainingCredit.toLocaleString()}
                     </div>
                   </div>
                 </div>
+
+                {/* Credit Limit Alert Banner */}
+                {isCreditExceeded && (
+                  <div
+                    style={{
+                      marginTop: '14px',
+                      padding: '12px 16px',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #f87171',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      color: '#991b1b',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <IconAlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    <div>
+                      <strong>Credit Limit Exceeded:</strong> Order total of PKR {totalOrderValue.toLocaleString()} exceeds available credit of PKR {availableCredit.toLocaleString()} by PKR {(totalOrderValue - availableCredit).toLocaleString()}.
+                      Immediate invoice generation is disabled; this order will be routed to CREDIT_HOLD pending management approval.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -2387,7 +3012,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               <div>
                 <CardTitle>Ordered Products</CardTitle>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  Product prices, discounts, and bonus quantities resolve authoritatively from the selected Scheme and Rate List.
+                  Commercial rates resolve authoritatively from the selected Phase and Rate List. Select valid warehouse batches.
                 </div>
               </div>
               <Button variant="secondary" size="sm" onClick={addItemRow}>
@@ -2400,19 +3025,23 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                   <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
-                    <th style={{ padding: '12px 14px', minWidth: '260px', whiteSpace: 'nowrap' }}>Finished Product</th>
-                    <th style={{ padding: '12px 10px', minWidth: '160px', whiteSpace: 'nowrap' }}>Line Scheme</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '85px', whiteSpace: 'nowrap' }}>Qty</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '105px', whiteSpace: 'nowrap' }}>Base Rate</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'center', minWidth: '125px', whiteSpace: 'nowrap' }}>Discount</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '95px', whiteSpace: 'nowrap' }}>Free Qty</th>
-                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '115px', whiteSpace: 'nowrap' }}>Net Price</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right', minWidth: '130px', whiteSpace: 'nowrap' }}>Line Total</th>
-                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '45px', whiteSpace: 'nowrap' }}></th>
+                    <th style={{ padding: '12px 14px', minWidth: '220px', whiteSpace: 'nowrap' }}>Finished Product *</th>
+                    <th style={{ padding: '12px 10px', width: '100px', whiteSpace: 'nowrap' }}>Pack Size</th>
+                    <th style={{ padding: '12px 10px', minWidth: '180px', whiteSpace: 'nowrap' }}>Batch in WH *</th>
+                    <th style={{ padding: '12px 10px', minWidth: '150px', whiteSpace: 'nowrap' }}>Phase Override</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '80px', whiteSpace: 'nowrap' }}>Qty *</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '95px', whiteSpace: 'nowrap' }}>Base Rate</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'center', minWidth: '110px', whiteSpace: 'nowrap' }}>Discount</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '80px', whiteSpace: 'nowrap' }}>Free Qty</th>
+                    <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '105px', whiteSpace: 'nowrap' }}>Net Rate</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right', minWidth: '115px', whiteSpace: 'nowrap' }}>Line Total</th>
+                    <th style={{ padding: '12px 8px', textAlign: 'center', width: '40px', whiteSpace: 'nowrap' }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {formItems.map((item, idx) => {
+                    const matchedProd = companyProducts.find((p) => p.id === item.finishedProductId);
+                    const cleanPack = item.packSize || cleanPackSize(matchedProd?.packSize?.name || matchedProd?.packSize || matchedProd?.packingUnit);
                     const hasDiscount = Number(item.discountAmount || 0) > 0;
                     const hasFree = Number(item.freeQuantity || 0) > 0;
 
@@ -2434,17 +3063,73 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                             }}
                           >
                             <option value="">Select Product...</option>
-                            {products.map((p) => {
-                              const stockStr = p.stockOnHand !== undefined && p.stockOnHand !== null ? ` (Stock: ${p.stockOnHand})` : '';
-                              const codeStr = p.productCode ? `${p.productCode} - ` : '';
+                            {companyProducts.map((p) => {
+                              const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
+                              const codeStr = p.productCode ? `[${p.productCode}] ` : '';
                               return (
                                 <option key={p.id} value={p.id}>
-                                  {codeStr}{p.productName}{stockStr}
+                                  {codeStr}{p.productName} ({pPack})
                                 </option>
                               );
                             })}
                           </select>
                         </td>
+
+                        {/* Clean Pack Size Column */}
+                        <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
+                          {item.finishedProductId ? (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                backgroundColor: '#f1f5f9',
+                                color: '#334155',
+                                fontWeight: 700,
+                                fontSize: '12px',
+                                border: '1px solid #e2e8f0',
+                              }}
+                            >
+                              {cleanPack}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>—</span>
+                          )}
+                        </td>
+
+                        {/* Warehouse-Specific Batches */}
+                        <td style={{ padding: '10px' }}>
+                          <select
+                            value={item.batchId || ''}
+                            onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
+                            disabled={!item.finishedProductId}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              color: item.batchId ? '#0f172a' : '#64748b',
+                              backgroundColor: item.finishedProductId ? '#fff' : '#f8fafc',
+                            }}
+                          >
+                            <option value="">Select Batch in WH...</option>
+                            {item.availableBatches && item.availableBatches.length > 0 ? (
+                              item.availableBatches.map((b: any) => (
+                                <option key={b.id} value={b.id} disabled={b.isExpired}>
+                                  {b.batchNumber} (Avail: {b.availableQuantity} units){b.isExpired ? ' [EXPIRED]' : ''}
+                                </option>
+                              ))
+                            ) : (
+                              <option value="" disabled>
+                                {item.finishedProductId ? 'No batches in selected WH' : 'Select product first'}
+                              </option>
+                            )}
+                          </select>
+                        </td>
+
+                        {/* Commercial Phase Line Override */}
                         <td style={{ padding: '10px' }}>
                           <select
                             value={item.schemeId || ''}
@@ -2458,14 +3143,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                               backgroundColor: '#fff',
                             }}
                           >
-                            <option value="">Order Default</option>
-                            {schemes.map((s) => (
+                            <option value="">
+                              Order Default ({currentSelectedScheme?.shortCode || 'SS'})
+                            </option>
+                            {companySchemes.map((s) => (
                               <option key={s.id} value={s.id}>
-                                {s.code} - {s.name}
+                                {s.shortCode || s.code} - {s.name} ({s.defaultDiscountPct || s.discountPct || 0}%)
                               </option>
                             ))}
                           </select>
                         </td>
+
                         <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <input
                             type="number"
@@ -2504,26 +3192,11 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
                             <span style={{ color: '#94a3b8', fontSize: '12px' }}>-</span>
                           )}
                         </td>
-                        <td style={{ padding: '10px', textAlign: 'right' }}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={item.unitPrice}
-                            onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
-                            style={{
-                              width: '95px',
-                              padding: '6px 8px',
-                              textAlign: 'right',
-                              borderRadius: '6px',
-                              border: hasDiscount ? '2px solid #10b981' : '1px solid #cbd5e1',
-                              fontWeight: 700,
-                              fontSize: '13px',
-                              color: hasDiscount ? '#047857' : '#0f172a',
-                            }}
-                          />
+                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: hasDiscount ? '#047857' : '#0f172a' }}>
+                          {item.unitPrice ? `PKR ${Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '14px' }}>
-                          PKR {item.totalPrice.toLocaleString()}
+                          PKR {Number(item.totalPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <Button
@@ -2543,18 +3216,49 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({ onNavigateToIn
               </table>
             </div>
 
+            {/* Order Summary Footer */}
             <div
               style={{
                 display: 'flex',
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '16px',
                 marginTop: '20px',
-                paddingTop: '16px',
-                borderTop: '1px solid var(--border-subtle)',
+                padding: '16px 20px',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '10px',
               }}
             >
-              <div style={{ fontWeight: 800, fontSize: '20px', color: '#047857', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 600 }}>Total Order Value:</span>
-                <span>PKR {totalOrderValue.toLocaleString()}</span>
+              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Gross Total</div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#334155' }}>
+                    PKR {totalGrossValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                {totalSchemeDiscount > 0 && (
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#16a34a', textTransform: 'uppercase', fontWeight: 700 }}>Scheme Savings</div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#16a34a' }}>
+                      -PKR {totalSchemeDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                )}
+                {totalFreeUnits > 0 && (
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#7e22ce', textTransform: 'uppercase', fontWeight: 700 }}>Free Products</div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#7e22ce' }}>
+                      +{totalFreeUnits} Free Units
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontWeight: 800, fontSize: '22px', color: '#047857', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '14px', color: 'var(--text-secondary, #475569)', fontWeight: 600 }}>Net Total Payable:</span>
+                <span>PKR {totalOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             </div>
           </CardContent>

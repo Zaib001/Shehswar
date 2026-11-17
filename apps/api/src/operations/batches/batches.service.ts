@@ -42,7 +42,7 @@ export class BatchesService {
   /**
    * Retrieve all batches for a specific finished product
    */
-  async getBatchesForProduct(finishedProductId: string, companyId: string) {
+  async getBatchesForProduct(finishedProductId: string, companyId: string, warehouseId?: string) {
     const product = await this.prisma.finishedProduct.findFirst({
       where: { id: finishedProductId, companyId },
       select: {
@@ -60,6 +60,14 @@ export class BatchesService {
       throw new NotFoundException(`Finished product '${finishedProductId}' not found`);
     }
 
+    let warehouseStockQty: number | null = null;
+    if (warehouseId) {
+      const stock = await this.prisma.warehouseStock.findFirst({
+        where: { warehouseId, finishedProductId, itemType: 'FINISHED_PRODUCT' },
+      });
+      warehouseStockQty = stock ? Number(stock.quantityOnHand) : 0;
+    }
+
     const batches = await this.prisma.productBatch.findMany({
       where: { finishedProductId, companyId },
       orderBy: [{ isActive: 'desc' }, { manufacturingDate: 'desc' }, { createdAt: 'desc' }],
@@ -69,12 +77,15 @@ export class BatchesService {
 
     return batches.map((b) => {
       const isExpired = b.expiryDate ? new Date(b.expiryDate) < now : false;
+      const batchQty = Number(b.availableQuantity);
+      const effectiveAvailable = warehouseStockQty !== null ? Math.min(batchQty, warehouseStockQty) : batchQty;
       return {
         ...b,
         isExpired,
-        availableQuantity: Number(b.availableQuantity),
+        availableQuantity: effectiveAvailable,
         initialQuantity: Number(b.initialQuantity),
         allocatedQuantity: Number(b.allocatedQuantity),
+        warehouseStockQty: warehouseStockQty !== null ? warehouseStockQty : batchQty,
         finishedProduct: product,
       };
     });

@@ -1715,37 +1715,37 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
     setFormItems(
       order.items && order.items.length > 0
         ? order.items.map((it) => {
-            const cleanPack = cleanPackSize(it.packSize, it.unit);
-            const parsed = parsePackSize(cleanPack, it.unit);
-            const packCap = it.packCapacity || parsed.capacity;
-            const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
-            return {
-              ...it,
-              materialType: it.materialType || 'RAW_MATERIAL',
-              packSize: cleanPack,
-              packCapacity: packCap,
-              numberOfPacks: packs,
-              costPerPack: it.costPerPack || (Number(it.unitRate) || 0) * packCap,
-              unitRate: Number(it.unitRate) || 0,
-              quantity: Number(it.quantity) || 1,
-              lineTotal: Number(it.lineTotal) || ((Number(it.quantity) || 1) * (Number(it.unitRate) || 0)),
-            };
-          })
+          const cleanPack = cleanPackSize(it.packSize, it.unit);
+          const parsed = parsePackSize(cleanPack, it.unit);
+          const packCap = it.packCapacity || parsed.capacity;
+          const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
+          return {
+            ...it,
+            materialType: it.materialType || 'RAW_MATERIAL',
+            packSize: cleanPack,
+            packCapacity: packCap,
+            numberOfPacks: packs,
+            costPerPack: it.costPerPack || (Number(it.unitRate) || 0) * packCap,
+            unitRate: Number(it.unitRate) || 0,
+            quantity: Number(it.quantity) || 1,
+            lineTotal: Number(it.lineTotal) || ((Number(it.quantity) || 1) * (Number(it.unitRate) || 0)),
+          };
+        })
         : [
-            {
-              materialId: '',
-              materialType: 'RAW_MATERIAL',
-              itemName: '',
-              packSize: '1 KG',
-              packCapacity: 1,
-              numberOfPacks: 1,
-              quantity: 1,
-              unit: 'KG',
-              unitRate: 0,
-              totalPurchaseAmount: 0,
-              lineTotal: 0,
-            },
-          ]
+          {
+            materialId: '',
+            materialType: 'RAW_MATERIAL',
+            itemName: '',
+            packSize: '1 KG',
+            packCapacity: 1,
+            numberOfPacks: 1,
+            quantity: 1,
+            unit: 'KG',
+            unitRate: 0,
+            totalPurchaseAmount: 0,
+            lineTotal: 0,
+          },
+        ]
     );
     setMode('create_manual');
   };
@@ -3236,7 +3236,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                         Total Amount (PKR)
                       </th>
                       <th style={{ padding: '10px 4px', width: '38px', textAlign: 'center', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.04em' }}>
-                        
+
                       </th>
                     </tr>
                   </thead>
@@ -3312,8 +3312,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                                 item.materialType === 'PACKING_MATERIAL'
                                   ? 'PACKING_MATERIAL'
                                   : item.materialType === 'OTHER'
-                                  ? 'OTHER'
-                                  : 'RAW_MATERIAL'
+                                    ? 'OTHER'
+                                    : 'RAW_MATERIAL'
                               );
                               setNewMatRate(item.unitRate || 0);
                               setNewMatUnit(item.unit || (item.materialType === 'PACKING_MATERIAL' ? 'PCS' : 'KG'));
@@ -3646,18 +3646,18 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({ onConver
                 setFormItems(
                   selectedOrder.items && selectedOrder.items.length > 0
                     ? selectedOrder.items.map((it) => {
-                        const parsed = parsePackSize(it.packSize, it.unit);
-                        const packCap = it.packCapacity || parsed.capacity;
-                        const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
-                        return {
-                          ...it,
-                          packSize: it.packSize || `${packCap} ${it.unit || 'KG'}`,
-                          packCapacity: packCap,
-                          numberOfPacks: packs,
-                          totalPurchaseAmount: it.totalPurchaseAmount || it.lineTotal || (Number(it.quantity || 1) * Number(it.unitRate || 0)),
-                          costPerPack: it.costPerPack || (packs > 0 ? (Number(it.totalPurchaseAmount || it.lineTotal || 0) / packs) : 0),
-                        };
-                      })
+                      const parsed = parsePackSize(it.packSize, it.unit);
+                      const packCap = it.packCapacity || parsed.capacity;
+                      const packs = it.numberOfPacks || (packCap > 0 ? (Number(it.quantity) || 1) / packCap : 1);
+                      return {
+                        ...it,
+                        packSize: it.packSize || `${packCap} ${it.unit || 'KG'}`,
+                        packCapacity: packCap,
+                        numberOfPacks: packs,
+                        totalPurchaseAmount: it.totalPurchaseAmount || it.lineTotal || (Number(it.quantity || 1) * Number(it.unitRate || 0)),
+                        costPerPack: it.costPerPack || (packs > 0 ? (Number(it.totalPurchaseAmount || it.lineTotal || 0) / packs) : 0),
+                      };
+                    })
                     : [{ itemName: '', materialType: 'RAW_MATERIAL', packSize: '25 KG', packCapacity: 25, numberOfPacks: 10, quantity: 250, unit: 'KG', totalPurchaseAmount: 0, costPerPack: 0, unitRate: 0, lineTotal: 0 }]
                 );
                 setMode('create_manual');
