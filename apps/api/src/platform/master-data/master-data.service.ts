@@ -4625,33 +4625,20 @@ export class MasterDataService {
     const where: any = {};
     if (regionId) where.regionId = regionId;
     if (companyId) where.region = { companyId };
-    const [zones, aggregates] = await Promise.all([
-      this.prisma.zone.findMany({
-        where,
-        include: {
-          region: { include: { company: true, businessManager: true } },
-          areaManager: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-          territories: {
-            include: {
-              salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
-              _count: { select: { dealers: true } },
-            },
+    return this.prisma.zone.findMany({
+      where,
+      include: {
+        region: { include: { company: true, businessManager: true } },
+        areaManager: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+        territories: {
+          include: {
+            salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
+            _count: { select: { dealers: true } },
           },
-          _count: { select: { territories: true } },
         },
-        orderBy: { name: 'asc' },
-      }),
-      this.calculateMarketHierarchyAggregates(companyId),
-    ]);
-
-    return zones.map((z) => {
-      const agg = aggregates.zoneMap.get(z.id) || { targetAmount: 0, creditLimit: 0, territoriesCount: z.territories?.length || 0 };
-      return {
-        ...z,
-        targetAmount: agg.targetAmount,
-        creditLimit: agg.creditLimit,
-        territoriesCount: agg.territoriesCount,
-      };
+        _count: { select: { territories: true } },
+      },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -4670,26 +4657,7 @@ export class MasterDataService {
       },
     });
     if (!zone) throw new NotFoundException(`Zone with ID ${id} not found`);
-
-    const aggregates = await this.calculateMarketHierarchyAggregates(zone.region?.companyId);
-    const agg = aggregates.zoneMap.get(zone.id) || { targetAmount: 0, creditLimit: 0, territoriesCount: zone.territories?.length || 0 };
-
-    return {
-      ...zone,
-      targetAmount: agg.targetAmount,
-      creditLimit: agg.creditLimit,
-      territoriesCount: agg.territoriesCount,
-      territories: zone.territories.map((t) => {
-        const tAgg = aggregates.territoryMap.get(t.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
-        return {
-          ...t,
-          targetAmount: tAgg.targetAmount,
-          creditLimit: tAgg.creditLimit,
-          salesOfficersCount: tAgg.salesOfficersCount,
-          salesOfficers: tAgg.salesOfficers,
-        };
-      }),
-    };
+    return zone;
   }
 
   async createZone(dto: CreateZoneDto, actor: { id: string; email?: string }) {
@@ -4849,46 +4817,32 @@ export class MasterDataService {
     const where: any = {};
     if (zoneId) where.zoneId = zoneId;
     if (companyId) where.zone = { region: { companyId } };
-    const [territories, aggregates] = await Promise.all([
-      this.prisma.territory.findMany({
-        where,
-        include: {
-          zone: {
-            include: {
-              region: {
-                include: {
-                  businessManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
-                },
+    return this.prisma.territory.findMany({
+      where,
+      include: {
+        zone: {
+          include: {
+            region: {
+              include: {
+                businessManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
               },
-              areaManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
             },
+            areaManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
           },
-          salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-          dealers: {
-            select: { id: true, code: true, name: true, city: true, currentBalance: true, assignedFieldOfficerId: true },
-          },
-          userMarketAssignments: {
-            where: { status: 'ACTIVE' },
-            include: {
-              user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-            },
-          },
-          _count: { select: { dealers: true } },
         },
-        orderBy: { name: 'asc' },
-      }),
-      this.calculateMarketHierarchyAggregates(companyId),
-    ]);
-
-    return territories.map((t) => {
-      const agg = aggregates.territoryMap.get(t.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
-      return {
-        ...t,
-        targetAmount: agg.targetAmount,
-        creditLimit: agg.creditLimit,
-        salesOfficersCount: agg.salesOfficersCount,
-        salesOfficers: agg.salesOfficers,
-      };
+        salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+        dealers: {
+          select: { id: true, code: true, name: true, city: true, currentBalance: true, assignedFieldOfficerId: true },
+        },
+        userMarketAssignments: {
+          where: { status: 'ACTIVE' },
+          include: {
+            user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          },
+        },
+        _count: { select: { dealers: true } },
+      },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -4921,17 +4875,7 @@ export class MasterDataService {
       },
     });
     if (!territory) throw new NotFoundException(`Territory with ID ${id} not found`);
-
-    const aggregates = await this.calculateMarketHierarchyAggregates(territory.zone?.region?.companyId);
-    const agg = aggregates.territoryMap.get(territory.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
-
-    return {
-      ...territory,
-      targetAmount: agg.targetAmount,
-      creditLimit: agg.creditLimit,
-      salesOfficersCount: agg.salesOfficersCount,
-      salesOfficers: agg.salesOfficers,
-    };
+    return territory;
   }
 
   async createTerritory(dto: CreateTerritoryDto, actor: { id: string; email?: string }) {
@@ -5253,43 +5197,41 @@ export class MasterDataService {
       }
     }
 
-    const [regions, aggregates] = await Promise.all([
-      this.prisma.region.findMany({
-        where: whereClause,
-        include: {
-          businessManager: {
-            select: { id: true, firstName: true, lastName: true, email: true, phone: true },
-          },
-          zones: {
-            where: { isActive: true },
-            include: {
-              areaManager: {
-                select: { id: true, firstName: true, lastName: true, email: true, phone: true },
-              },
-              territories: {
-                where: { isActive: true },
-                include: {
-                  salesOfficer: {
-                    select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+    const regions = await this.prisma.region.findMany({
+      where: whereClause,
+      include: {
+        businessManager: {
+          select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+        },
+        zones: {
+          where: { isActive: true },
+          include: {
+            areaManager: {
+              select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+            },
+            territories: {
+              where: { isActive: true },
+              include: {
+                salesOfficer: {
+                  select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+                },
+                userMarketAssignments: {
+                  where: { status: 'ACTIVE' },
+                  include: {
+                    user: { select: { id: true, firstName: true, lastName: true, email: true } },
                   },
-                  userMarketAssignments: {
-                    where: { status: 'ACTIVE' },
-                    include: {
-                      user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
-                    },
-                  },
-                  dealers: {
-                    select: {
-                      id: true,
-                      code: true,
-                      name: true,
-                      city: true,
-                      currentBalance: true,
-                      creditLimit: true,
-                      assignedFieldOfficerId: true,
-                      assignedOfficer: {
-                        select: { id: true, firstName: true, lastName: true },
-                      },
+                },
+                dealers: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    city: true,
+                    currentBalance: true,
+                    creditLimit: true,
+                    assignedFieldOfficerId: true,
+                    assignedOfficer: {
+                      select: { id: true, firstName: true, lastName: true },
                     },
                   },
                 },
@@ -5297,38 +5239,100 @@ export class MasterDataService {
             },
           },
         },
-        orderBy: { name: 'asc' },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const [allCreditLimits, allSalesTargets] = await Promise.all([
+      this.prisma.creditLimit.findMany({
+        where: {
+          ...(company?.id ? { companyId: company.id } : {}),
+          status: 'ACTIVE',
+        },
       }),
-      this.calculateMarketHierarchyAggregates(company?.id),
+      this.prisma.salesTarget.findMany({
+        where: {
+          ...(company?.id ? { companyId: company.id } : {}),
+          status: 'ACTIVE',
+        },
+      }),
     ]);
+
+    const salesOfficerLimits = new Map<string, number>();
+    const territoryExplicitLimits = new Map<string, number>();
+    const zoneExplicitLimits = new Map<string, number>();
+    const regionExplicitLimits = new Map<string, number>();
+
+    for (const cl of allCreditLimits) {
+      const val = Number(cl.creditLimit || 0);
+      if (cl.level === 'SALES_OFFICER') salesOfficerLimits.set(cl.entityId, val);
+      else if (cl.level === 'TERRITORY') territoryExplicitLimits.set(cl.entityId, val);
+      else if (cl.level === 'ZONE') zoneExplicitLimits.set(cl.entityId, val);
+      else if (cl.level === 'REGION') regionExplicitLimits.set(cl.entityId, val);
+    }
+
+    const salesOfficerTargets = new Map<string, number>();
+    const territoryExplicitTargets = new Map<string, number>();
+    const zoneExplicitTargets = new Map<string, number>();
+    const regionExplicitTargets = new Map<string, number>();
+
+    for (const st of allSalesTargets) {
+      const val = Number(st.targetAmount || 0);
+      if (st.level === 'SALES_OFFICER') salesOfficerTargets.set(st.entityId, val);
+      else if (st.level === 'TERRITORY') territoryExplicitTargets.set(st.entityId, val);
+      else if (st.level === 'ZONE') zoneExplicitTargets.set(st.entityId, val);
+      else if (st.level === 'REGION') regionExplicitTargets.set(st.entityId, val);
+    }
 
     return {
       company,
       regions: regions.map((r) => {
-        const rAgg = aggregates.regionMap.get(r.id) || { targetAmount: 0, creditLimit: 0, zonesCount: r.zones.length };
         const mappedZones = r.zones.map((z) => {
-          const zAgg = aggregates.zoneMap.get(z.id) || { targetAmount: 0, creditLimit: 0, territoriesCount: z.territories.length };
           const mappedTerritories = z.territories.map((t) => {
-            const tAgg = aggregates.territoryMap.get(t.id) || { targetAmount: 0, creditLimit: 0, salesOfficersCount: 0, salesOfficers: [] };
+            const assignedOfficersWithMetrics = t.userMarketAssignments.map((uma) => ({
+              id: uma.user.id,
+              name: `${uma.user.firstName || ''} ${uma.user.lastName || ''}`.trim(),
+              email: uma.user.email,
+              creditLimit: salesOfficerLimits.get(uma.user.id) || 0,
+              targetAmount: salesOfficerTargets.get(uma.user.id) || 0,
+            }));
+
+            const distinctOfficerIds = new Set<string>();
+            if (t.salesOfficer?.id) distinctOfficerIds.add(t.salesOfficer.id);
+            for (const uma of t.userMarketAssignments) {
+              if (uma.user?.id) distinctOfficerIds.add(uma.user.id);
+            }
+
+            let terrOfficerLimitSum = 0;
+            let terrOfficerTargetSum = 0;
+            for (const offId of distinctOfficerIds) {
+              terrOfficerLimitSum += salesOfficerLimits.get(offId) || 0;
+              terrOfficerTargetSum += salesOfficerTargets.get(offId) || 0;
+            }
+
+            const explicitTerrLimit = territoryExplicitLimits.get(t.id) || 0;
+            const explicitTerrTarget = territoryExplicitTargets.get(t.id) || 0;
+
+            const territoryCreditLimit = terrOfficerLimitSum > 0 ? terrOfficerLimitSum : explicitTerrLimit;
+            const territoryTargetAmount = terrOfficerTargetSum > 0 ? terrOfficerTargetSum : explicitTerrTarget;
 
             return {
               id: t.id,
               code: t.code,
               name: t.name,
-              creditLimit: tAgg.creditLimit,
-              targetAmount: tAgg.targetAmount,
-              salesOfficersCount: tAgg.salesOfficersCount,
+              creditLimit: territoryCreditLimit,
+              targetAmount: territoryTargetAmount,
               primarySalesOfficer: t.salesOfficer
                 ? {
                     id: t.salesOfficer.id,
                     name: `${t.salesOfficer.firstName} ${t.salesOfficer.lastName}`.trim(),
                     email: t.salesOfficer.email,
                     phone: t.salesOfficer.phone,
-                    creditLimit: aggregates.userCreditMap.get(t.salesOfficer.id) || 0,
-                    targetAmount: aggregates.userTargetMap.get(t.salesOfficer.id) || 0,
+                    creditLimit: salesOfficerLimits.get(t.salesOfficer.id) || 0,
+                    targetAmount: salesOfficerTargets.get(t.salesOfficer.id) || 0,
                   }
                 : null,
-              assignedOfficers: tAgg.salesOfficers,
+              assignedOfficers: assignedOfficersWithMetrics,
               dealersCount: t.dealers.length,
               dealers: t.dealers.map((d) => ({
                 id: d.id,
@@ -5344,13 +5348,23 @@ export class MasterDataService {
             };
           });
 
+          let zoneTerrLimitSum = 0;
+          let zoneTerrTargetSum = 0;
+          for (const terr of mappedTerritories) {
+            zoneTerrLimitSum += terr.creditLimit;
+            zoneTerrTargetSum += terr.targetAmount;
+          }
+          const explicitZoneLimit = zoneExplicitLimits.get(z.id) || 0;
+          const explicitZoneTarget = zoneExplicitTargets.get(z.id) || 0;
+          const zoneCreditLimit = zoneTerrLimitSum > 0 ? zoneTerrLimitSum : explicitZoneLimit;
+          const zoneTargetAmount = zoneTerrTargetSum > 0 ? zoneTerrTargetSum : explicitZoneTarget;
+
           return {
             id: z.id,
             code: z.code,
             name: z.name,
-            creditLimit: zAgg.creditLimit,
-            targetAmount: zAgg.targetAmount,
-            territoriesCount: zAgg.territoriesCount,
+            creditLimit: zoneCreditLimit,
+            targetAmount: zoneTargetAmount,
             areaManager: z.areaManager
               ? {
                   id: z.areaManager.id,
@@ -5363,13 +5377,23 @@ export class MasterDataService {
           };
         });
 
+        let regZoneLimitSum = 0;
+        let regZoneTargetSum = 0;
+        for (const zone of mappedZones) {
+          regZoneLimitSum += zone.creditLimit;
+          regZoneTargetSum += zone.targetAmount;
+        }
+        const explicitRegLimit = regionExplicitLimits.get(r.id) || 0;
+        const explicitRegTarget = regionExplicitTargets.get(r.id) || 0;
+        const regionCreditLimit = regZoneLimitSum > 0 ? regZoneLimitSum : explicitRegLimit;
+        const regionTargetAmount = regZoneTargetSum > 0 ? regZoneTargetSum : explicitRegTarget;
+
         return {
           id: r.id,
           code: r.code,
           name: r.name,
-          creditLimit: rAgg.creditLimit,
-          targetAmount: rAgg.targetAmount,
-          zonesCount: rAgg.zonesCount,
+          creditLimit: regionCreditLimit,
+          targetAmount: regionTargetAmount,
           businessManager: r.businessManager
             ? {
                 id: r.businessManager.id,

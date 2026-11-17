@@ -16,7 +16,6 @@ import {
 import {
   IconPlus,
   IconRefresh,
-  IconUpload,
   IconCheck,
   IconEye,
 } from '../icons';
@@ -112,11 +111,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   const [formCashPaid, setFormCashPaid] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
   const [formReferenceNumber, setFormReferenceNumber] = useState<string>('');
-  const [formAttachmentUrl, setFormAttachmentUrl] = useState<string>('');
-
-  // Optional Document Upload & Extraction
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [extractedInfo, setExtractedInfo] = useState<any | null>(null);
 
   // Drill-Down Modal
   const [drillDownDoc, setDrillDownDoc] = useState<{
@@ -185,7 +179,9 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     const fetchEntities = async () => {
       try {
         const [vRes, dRes, eRes, poRes] = await Promise.all([
-          ApiClient.get<any>('/api/v1/vendors').catch(() => ({ data: [] })),
+          ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000')
+            .catch(() => ApiClient.get<any>('/api/v1/vendors'))
+            .catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/dealers').catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/master-data/employees').catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/operations/purchase-orders').catch(() => ({ data: [] })),
@@ -230,8 +226,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     setFormCashPaid('');
     setFormDescription('');
     setFormReferenceNumber('');
-    setFormAttachmentUrl('');
-    setExtractedInfo(null);
     setIsModalOpen(true);
   };
 
@@ -296,81 +290,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     }
   };
 
-  // Optional Invoice / Receipt Upload & Extraction
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    setExtractedInfo(null);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('documentType', 'VENDOR_INVOICE');
-      if (activeCompanyId) formData.append('companyId', activeCompanyId);
-
-      const res = await ApiClient.uploadFile<any>('/api/v1/operations/ocr/upload', formData);
-
-      const data = res.data?.data || res.data;
-      const parsed = data.parsedData || {};
-
-      setExtractedInfo({
-        vendorName: data.matchedVendor?.name || parsed.vendorName || parsed.supplierName || '',
-        vendorId: data.matchedVendor?.id || null,
-        invoiceNumber: parsed.invoiceNumber || parsed.poNumber || '',
-        invoiceDate: parsed.invoiceDate || parsed.poDate || '',
-        totalAmount: parsed.totalAmount || parsed.grossTotal || 0,
-        items: parsed.items || [],
-        fileName: file.name,
-      });
-
-      if (data.fileUrl) {
-        setFormAttachmentUrl(data.fileUrl);
-      }
-
-      showToast({
-        title: 'Document Analyzed',
-        message: `Extracted details from "${file.name}". You can review and apply them below.`,
-        type: 'info',
-      });
-    } catch (err: any) {
-      showToast({
-        title: 'Extraction Note',
-        message: err.message || 'File uploaded. You may enter details manually.',
-        type: 'warning',
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  // Apply Extracted Info into Form
-  const applyExtractedInfo = () => {
-    if (!extractedInfo) return;
-    if (extractedInfo.vendorId) {
-      setFormPartyType('VENDOR');
-      setFormPartyId(extractedInfo.vendorId);
-      setFormPartyName(extractedInfo.vendorName);
-    } else if (extractedInfo.vendorName) {
-      setFormPartyType('OTHER');
-      setFormPartyName(extractedInfo.vendorName);
-    }
-    if (extractedInfo.invoiceNumber) {
-      setFormReferenceNumber(extractedInfo.invoiceNumber);
-    }
-    if (extractedInfo.invoiceDate) {
-      setFormDate(extractedInfo.invoiceDate.slice(0, 10));
-    }
-    if (extractedInfo.totalAmount > 0) {
-      setFormCashPaid(String(extractedInfo.totalAmount));
-    }
-    if (extractedInfo.items?.length > 0) {
-      const itemDesc = extractedInfo.items.map((it: any) => it.itemName || it.name).filter(Boolean).join(', ');
-      setFormDescription((prev) => prev || `Items: ${itemDesc}`);
-    }
-    showToast({ title: 'Applied', message: 'Extracted details applied to payment form', type: 'success' });
-  };
-
   // Save Cash Payment (Strictly Cash Only)
   const handleSavePayment = async () => {
     const amountNum = parseFloat(formCashPaid.replace(/,/g, ''));
@@ -405,7 +324,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         paymentMethod: 'CASH',
         referenceNumber: formReferenceNumber.trim() || undefined,
         remarks: formDescription.trim() || undefined,
-        attachmentUrl: formAttachmentUrl || undefined,
       };
 
       await ApiClient.post('/api/v1/financial-transactions/cash-payment', payload);
@@ -1029,88 +947,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 onChange={(e) => setFormDescription(e.target.value)}
               />
             </div>
-          </div>
-
-          {/* Optional Attachment / Invoice Upload (Section 3 & 4) */}
-          <div
-            style={{
-              padding: '14px',
-              backgroundColor: '#f8fafc',
-              borderRadius: '8px',
-              border: '1.5px dashed #cbd5e1',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <div>
-                <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#334155' }}>
-                  Attachment / Invoice Upload (Optional)
-                </span>
-                <span style={{ fontSize: '11.5px', color: '#64748b', marginLeft: '8px' }}>
-                  Manual entry is always available without upload
-                </span>
-              </div>
-              {isUploading && <span style={{ fontSize: '11.5px', color: '#0284c7' }}>Analyzing document...</span>}
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={handleFileUpload}
-                id="cash-payment-upload-input"
-                style={{ display: 'none' }}
-              />
-              <label
-                htmlFor="cash-payment-upload-input"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '6px 14px',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  color: '#334155',
-                }}
-              >
-                <IconUpload size={14} /> Upload Invoice / Receipt
-              </label>
-              {formAttachmentUrl && (
-                <span style={{ fontSize: '11.5px', color: '#16a34a', fontWeight: 600 }}>
-                  ✓ Receipt Attached
-                </span>
-              )}
-            </div>
-
-            {/* Extracted Details Confirmation Banner */}
-            {extractedInfo && (
-              <div
-                style={{
-                  marginTop: '12px',
-                  padding: '10px 14px',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '6px',
-                  border: '1px solid #86efac',
-                  fontSize: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <strong style={{ color: '#166534' }}>Extracted Information Detected:</strong>
-                  <Button size="sm" variant="primary" onClick={applyExtractedInfo}>
-                    <IconCheck size={13} /> Apply to Form
-                  </Button>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', color: '#334155' }}>
-                  <div>Vendor: <strong>{extractedInfo.vendorName || 'Not detected'}</strong></div>
-                  <div>Invoice No: <strong>{extractedInfo.invoiceNumber || 'Not detected'}</strong></div>
-                  <div>Date: <strong>{extractedInfo.invoiceDate || 'Not detected'}</strong></div>
-                  <div>Amount: <strong>PKR {Number(extractedInfo.totalAmount || 0).toLocaleString()}</strong></div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Modal Actions */}

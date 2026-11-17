@@ -22,7 +22,7 @@ import {
   VendorStatus,
 } from '@shehswar/types';
 
-@Controller('api/v1/procurement/vendors')
+@Controller(['api/v1/procurement/vendors', 'api/v1/vendors'])
 export class VendorController {
   constructor(private readonly vendorService: VendorService) {}
 
