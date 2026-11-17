@@ -64,6 +64,24 @@ const DEFAULT_HEADS = [
   'Other',
 ];
 
+const unpackArray = (res: any): any[] => {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.data)) return res.data;
+  if (Array.isArray(res.data?.items)) return res.data.items;
+  if (Array.isArray(res.data?.data)) return res.data.data;
+  if (Array.isArray(res.items)) return res.items;
+  if (Array.isArray(res.data?.rows)) return res.data.rows;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+};
+
+const normalizeVendor = (v: any) => ({
+  id: v.id,
+  code: v.code || '',
+  name: v.name || v.legalName || v.vendorName || 'Unnamed Vendor',
+});
+
 export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> = ({
   activeCompanyId,
   activeCompanyName: _activeCompanyName,
@@ -187,10 +205,18 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           ApiClient.get<any>('/api/v1/operations/purchase-orders').catch(() => ({ data: [] })),
         ]);
 
-        const vList = Array.isArray(vRes.data) ? vRes.data : vRes.data?.data || [];
-        const dList = Array.isArray(dRes.data) ? dRes.data : dRes.data?.data || [];
-        const eList = Array.isArray(eRes.data) ? eRes.data : eRes.data?.data || [];
-        const poList = Array.isArray(poRes.data) ? poRes.data : poRes.data?.data || [];
+        const vList = unpackArray(vRes).map(normalizeVendor);
+        const dList = unpackArray(dRes).map((d: any) => ({
+          id: d.id,
+          code: d.code || '',
+          name: d.name || d.dealerName || 'Dealer',
+        }));
+        const eList = unpackArray(eRes).map((e: any) => ({
+          id: e.id,
+          employeeCode: e.employeeCode || e.code || '',
+          fullName: e.fullName || e.name || 'Employee',
+        }));
+        const poList = unpackArray(poRes);
 
         setVendors(vList);
         setDealers(dList);
@@ -217,10 +243,26 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       setNextVoucherNo('CP-AUTO');
     }
 
+    let activeVendors = vendors;
+    if (activeVendors.length === 0) {
+      try {
+        const vRes = await ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000')
+          .catch(() => ApiClient.get<any>('/api/v1/vendors'))
+          .catch(() => null);
+        const unpacked = unpackArray(vRes).map(normalizeVendor);
+        if (unpacked.length > 0) {
+          activeVendors = unpacked;
+          setVendors(unpacked);
+        }
+      } catch {
+        // silent
+      }
+    }
+
     setFormDate(new Date().toISOString().slice(0, 10));
     setFormPartyType('VENDOR');
-    setFormPartyId(vendors[0]?.id || '');
-    setFormPartyName(vendors[0]?.name || '');
+    setFormPartyId(activeVendors[0]?.id || '');
+    setFormPartyName(activeVendors[0]?.name || '');
     setFormHead('Purchase');
     setCustomHead('');
     setFormCashPaid('');
