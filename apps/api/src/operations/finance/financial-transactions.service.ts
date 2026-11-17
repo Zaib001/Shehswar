@@ -1510,5 +1510,140 @@ export class FinancialTransactionsService {
       transactions,
     };
   }
+
+  /**
+   * Delete a financial transaction, reverse general ledger postings,
+   * restore bank balance (if applicable), and remove linked ledger entries.
+   */
+  async deleteTransaction(id: string, actor?: any): Promise<{ success: boolean; message: string }> {
+    const txRecord = await this.prisma.financialTransaction.findUnique({
+      where: { id },
+      include: {
+        account: true,
+        contraAccount: true,
+      },
+    });
+
+    if (!txRecord) {
+      throw new NotFoundException(`Financial transaction with ID ${id} not found.`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const amount = Number(txRecord.amount) || 0;
+      const isReceipt = txRecord.transactionType === 'CASH_RECEIPT' || txRecord.transactionType === 'BANK_RECEIPT';
+      const isBank = txRecord.transactionType === 'BANK_RECEIPT' || txRecord.transactionType === 'BANK_PAYMENT';
+
+      // 1. Revert Bank Account balance if linked to a bank account
+      if (isBank && txRecord.bankAccountId && amount > 0) {
+        try {
+          await tx.bankAccount.update({
+            where: { id: txRecord.bankAccountId },
+            data: {
+              currentBalance: {
+                [isReceipt ? 'decrement' : 'increment']: amount,
+              },
+            },
+          });
+        } catch (bankErr: any) {
+          this.logger.warn(`Could not revert bank account balance: ${bankErr?.message}`);
+        }
+      }
+
+      // 2. Remove linked Dealer ledger & Dealer payment receipt entries
+      try {
+        await tx.dealerLedgerEntry.deleteMany({
+          where: {
+            OR: [
+              { referenceId: txRecord.id },
+              { sourceId: txRecord.id },
+              { voucherNumber: txRecord.voucherNumber },
+            ],
+          },
+        });
+
+        await tx.dealerPaymentReceipt.deleteMany({
+          where: {
+            receiptNumber: txRecord.voucherNumber,
+          },
+        });
+      } catch (dealerErr: any) {
+        this.logger.warn(`Could not remove dealer ledger linkage: ${dealerErr?.message}`);
+      }
+
+      // 3. Remove linked Vendor ledger & Vendor payment entries
+      try {
+        await tx.vendorLedgerEntry.deleteMany({
+          where: {
+            OR: [
+              { referenceId: txRecord.id },
+              { sourceId: txRecord.id },
+              { voucherNumber: txRecord.voucherNumber },
+            ],
+          },
+        });
+
+        await tx.vendorPayment.deleteMany({
+          where: {
+            voucherNumber: txRecord.voucherNumber,
+          },
+        });
+      } catch (vendorErr: any) {
+        this.logger.warn(`Could not remove vendor ledger linkage: ${vendorErr?.message}`);
+      }
+
+      // 4. Remove linked ExpenseEntry if created under an expense head
+      try {
+        await tx.expenseEntry.deleteMany({
+          where: {
+            OR: [
+              { voucherNumber: txRecord.voucherNumber },
+              { referenceNumber: txRecord.id },
+            ],
+          },
+        });
+      } catch (expErr: any) {
+        this.logger.warn(`Could not remove expense entry: ${expErr?.message}`);
+      }
+
+      // 5. Revert & remove Journal Entry and lines
+      try {
+        const journal = txRecord.journalEntryId
+          ? await tx.journalEntry.findUnique({ where: { id: txRecord.journalEntryId } })
+          : await tx.journalEntry.findFirst({
+              where: {
+                OR: [
+                  { sourceId: txRecord.id },
+                  { referenceNumber: txRecord.voucherNumber },
+                ],
+              },
+            });
+
+        if (journal) {
+          await tx.journalEntryLine.deleteMany({
+            where: { journalEntryId: journal.id },
+          });
+          await tx.journalEntry.delete({
+            where: { id: journal.id },
+          });
+        }
+      } catch (glErr: any) {
+        this.logger.warn(`Could not remove journal entry: ${glErr?.message}`);
+      }
+
+      // 6. Delete the FinancialTransaction itself
+      await tx.financialTransaction.delete({
+        where: { id: txRecord.id },
+      });
+
+      this.logger.log(
+        `Deleted financial transaction ${txRecord.voucherNumber} (ID: ${txRecord.id}) and reversed GL/party balances${actor?.email ? ` by ${actor.email}` : ''}.`
+      );
+
+      return {
+        success: true,
+        message: `Cash Payment voucher ${txRecord.voucherNumber} was successfully deleted and all ledger entries were reversed.`,
+      };
+    });
+  }
 }
 

@@ -18,6 +18,7 @@ import {
   IconRefresh,
   IconCheck,
   IconEye,
+  IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { useCompany } from '../../context/company-context';
@@ -219,6 +220,40 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     sourceId?: string;
     voucherNumber?: string;
   }>({ isOpen: false });
+
+  // Delete Modal State
+  const [voucherToDelete, setVoucherToDelete] = useState<CashPaymentRecord | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  const handleOpenDeleteModal = (row: CashPaymentRecord) => {
+    setVoucherToDelete(row);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!voucherToDelete) return;
+    setIsDeleting(true);
+    try {
+      await ApiClient.delete(`/api/v1/financial-transactions/${voucherToDelete.id}`);
+      showToast({
+        title: 'Voucher Deleted',
+        message: `Cash Payment voucher ${voucherToDelete.voucherNumber} has been permanently deleted and GL entries reversed.`,
+        type: 'success',
+      });
+      setIsDeleteModalOpen(false);
+      setVoucherToDelete(null);
+      await loadData();
+    } catch (err: any) {
+      showToast({
+        title: 'Delete Failed',
+        message: err?.message || 'Failed to delete cash payment voucher',
+        type: 'error',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Handle Preset Changes
   const applyDatePreset = (preset: 'ALL' | 'TODAY' | 'MONTH' | 'LAST_MONTH' | 'YEAR' | 'CUSTOM') => {
@@ -955,27 +990,53 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                         PKR {Number(p.amount).toLocaleString()}
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDrillDownDoc({ isOpen: true, sourceType: 'CASH_PAYMENT', sourceId: p.id, voucherNumber: p.voucherNumber });
-                          }}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid #cbd5e1',
-                            backgroundColor: '#ffffff',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: '#0f172a',
-                          }}
-                        >
-                          <IconEye size={12} /> View
-                        </button>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDrillDownDoc({ isOpen: true, sourceType: 'CASH_PAYMENT', sourceId: p.id, voucherNumber: p.voucherNumber });
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: '#ffffff',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              color: '#0f172a',
+                            }}
+                            title="View Voucher Details & GL Entries"
+                          >
+                            <IconEye size={12} /> View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDeleteModal(p);
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              border: '1px solid #fecaca',
+                              backgroundColor: '#fef2f2',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              color: '#dc2626',
+                              fontWeight: 600,
+                            }}
+                            title="Delete Cash Payment voucher & reverse GL"
+                          >
+                            <IconTrash size={12} /> Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1347,7 +1408,96 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           sourceId={drillDownDoc.sourceId}
           voucherNumber={drillDownDoc.voucherNumber}
           companyId={effectiveCompanyId}
+          onUpdated={loadData}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && voucherToDelete && (
+        <Modal
+          isOpen={isDeleteModalOpen}
+          onClose={() => !isDeleting && setIsDeleteModalOpen(false)}
+          title="Delete Cash Payment Voucher"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '6px 0' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px 16px',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+              }}
+            >
+              <span style={{ fontSize: '24px', lineHeight: 1 }}>⚠️</span>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#991b1b' }}>
+                  Permanent Deletion &amp; GL Reversal
+                </div>
+                <div style={{ fontSize: '12.5px', color: '#7f1d1d', marginTop: '4px', lineHeight: 1.4 }}>
+                  Deleting this cash payment will permanently delete voucher <strong>{voucherToDelete.voucherNumber}</strong>, reverse the Cash General Ledger (GL) entry of <strong>PKR {Number(voucherToDelete.amount).toLocaleString()}</strong>, and restore any linked vendor or dealer subledger balances.
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+                padding: '14px',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '13px',
+              }}
+            >
+              <div>
+                <span style={{ color: '#64748b', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Voucher No</span>
+                <span style={{ fontWeight: 700, color: '#0284c7', fontFamily: 'monospace' }}>{voucherToDelete.voucherNumber}</span>
+              </div>
+              <div>
+                <span style={{ color: '#64748b', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Payment Date</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{voucherToDelete.transactionDate ? voucherToDelete.transactionDate.slice(0, 10) : '—'}</span>
+              </div>
+              <div>
+                <span style={{ color: '#64748b', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Paid To / Party</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{voucherToDelete.partyName || voucherToDelete.partyType || '—'}</span>
+              </div>
+              <div>
+                <span style={{ color: '#64748b', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Expense / Liability Head</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{voucherToDelete.head}</span>
+              </div>
+              <div style={{ gridColumn: 'span 2', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                <span style={{ color: '#64748b', fontSize: '11px', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Cash Paid Amount</span>
+                <span style={{ fontSize: '18px', fontWeight: 800, color: '#b91c1c' }}>
+                  PKR {Number(voucherToDelete.amount).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <Button
+                variant="secondary"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                icon={<IconTrash size={15} />}
+                style={{ backgroundColor: '#dc2626', color: '#ffffff' }}
+              >
+                {isDeleting ? 'Deleting & Reversing...' : 'Confirm Delete Voucher'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

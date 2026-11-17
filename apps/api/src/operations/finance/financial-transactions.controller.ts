@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Query,
   Param,
@@ -208,6 +209,13 @@ export class FinancialTransactionsController {
     @Query('salaryMonth') salaryMonth?: string,
   ) {
     return this.service.getSalaryPayments({ companyId, employeeId, salaryMonth });
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete financial transaction, reverse GL entries, and restore party balances' })
+  async deleteTransaction(@Param('id') id: string, @Req() req: any) {
+    const actor = req.user;
+    return this.service.deleteTransaction(id, actor);
   }
 }
 

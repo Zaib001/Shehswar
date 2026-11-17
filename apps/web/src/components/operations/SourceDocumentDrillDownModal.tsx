@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Modal, Button, TableSkeleton } from '../ui';
-import { IconDownload, IconEdit, IconCheck, IconClose } from '../icons';
+import { IconDownload, IconEdit, IconCheck, IconClose, IconTrash } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportSourceDocumentToPdf } from '../../lib/pdf-export';
@@ -83,6 +83,7 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Editable draft state
   const [editNotes, setEditNotes] = useState<string>('');
@@ -260,6 +261,46 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
     return isEditing ? editAmount : Number(doc.netAmount || 0);
   }, [doc, editableItems.length, isEditing, currentEditedItemsTotal, editAmount]);
 
+  const isDeletableFinancialTx = useMemo(() => {
+    if (!doc) return false;
+    const st = doc.sourceType?.toUpperCase();
+    return (
+      st === 'CASH_PAYMENT' ||
+      st === 'CASH_RECEIPT' ||
+      st === 'BANK_PAYMENT' ||
+      st === 'BANK_RECEIPT' ||
+      st === 'FINANCIAL_TRANSACTION'
+    );
+  }, [doc]);
+
+  const handleDeleteFinancialTx = async () => {
+    if (!doc?.sourceId) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${doc.sourceType.replace(/_/g, ' ')} voucher ${doc.sourceNumber}? This will reverse the Cash/GL journal entry permanently.`
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await ApiClient.delete(`/api/v1/financial-transactions/${doc.sourceId}`);
+      showToast({
+        title: 'Voucher Deleted',
+        message: `${doc.sourceNumber} has been permanently deleted and ledger entries reversed.`,
+        type: 'success',
+      });
+      onUpdated?.();
+      onClose();
+    } catch (err: any) {
+      showToast({
+        title: 'Delete Failed',
+        message: err.message || 'Failed to delete transaction',
+        type: 'error',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -378,6 +419,27 @@ export const SourceDocumentDrillDownModal: React.FC<SourceDocumentDrillDownModal
                 >
                   <IconDownload size={14} /> Print / Export PDF
                 </Button>
+
+                {isDeletableFinancialTx && !isEditing && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleDeleteFinancialTx}
+                    disabled={isDeleting}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      height: '32px',
+                      backgroundColor: '#fee2e2',
+                      borderColor: '#fca5a5',
+                      color: '#b91c1c',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <IconTrash size={14} /> {isDeleting ? 'Deleting...' : 'Delete Voucher'}
+                  </Button>
+                )}
 
                 {!isEditing ? (
                   <Button
