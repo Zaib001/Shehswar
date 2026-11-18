@@ -271,7 +271,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       const codeStr = p.productCode ? `[${p.productCode}] ` : '';
       const categoryName =
         typeof p.category === 'object' && p.category !== null
-          ? (p.category.name || '')
+          ? String(p.category.name || p.category.code || '')
           : typeof p.category === 'string'
           ? p.category
           : '';
@@ -280,10 +280,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         categoryName ? `Category: ${categoryName}` : '',
       ].filter(Boolean);
       return {
-        value: p.id,
-        label: `${codeStr}${p.productName} (${pPack})`,
-        subtext: subparts.join(' • ') || undefined,
-        searchTerms: `${p.productCode || ''} ${p.productName || ''} ${p.sku || ''} ${categoryName || ''} ${pPack || ''}`,
+        value: String(p.id),
+        label: `${codeStr}${p.productName || 'Unnamed Product'} (${pPack})`,
+        subtext: subparts.length > 0 ? subparts.join(' • ') : undefined,
+        searchTerms: `${p.productCode || ''} ${p.productName || ''} ${p.sku || ''} ${categoryName} ${pPack}`,
       };
     });
   }, [companyProducts]);

@@ -5,22 +5,26 @@ import { createPortal } from 'react-dom';
 import { IconChevronDown, IconCheck, IconClose, IconSearch } from '../icons';
 
 export interface SelectOption {
-  label: string;
+  label: string | any;
   value: string;
   subtext?: string | any;
-  badge?: string;
+  badge?: string | any;
   disabled?: boolean;
   searchTerms?: string;
 }
 
-function safeFormatSubtext(sub: any): string {
-  if (!sub) return '';
-  if (typeof sub === 'string') return sub;
-  if (typeof sub === 'number' || typeof sub === 'boolean') return String(sub);
-  if (typeof sub === 'object') {
-    return sub.name || sub.label || sub.title || sub.code || '';
+function safeFormatValue(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'object') {
+    return val.name || val.label || val.title || val.code || '';
   }
-  return '';
+  return String(val);
+}
+
+function safeFormatSubtext(sub: any): string {
+  return safeFormatValue(sub);
 }
 
 export interface SelectProps {
@@ -318,7 +322,7 @@ export const Select: React.FC<SelectProps> = ({
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', flex: 1, alignItems: 'center', minWidth: 0 }}>
           {selectedValues.length === 0 ? (
             <span style={{ color: '#94A3B8', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {placeholder}
+              {safeFormatValue(placeholder)}
             </span>
           ) : isMulti ? (
             selectedValues.map((v) => {
@@ -341,7 +345,7 @@ export const Select: React.FC<SelectProps> = ({
                   }}
                 >
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {opt?.label || v}
+                    {safeFormatValue(opt?.label || v)}
                   </span>
                   <button
                     type="button"
@@ -372,9 +376,9 @@ export const Select: React.FC<SelectProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
               }}
-              title={selectedOptionObj?.label || selectedValues[0]}
+              title={safeFormatValue(selectedOptionObj?.label || selectedValues[0])}
             >
-              {selectedOptionObj?.label || selectedValues[0]}
+              {safeFormatValue(selectedOptionObj?.label || selectedValues[0])}
             </span>
           )}
         </div>
@@ -612,9 +616,9 @@ export const Select: React.FC<SelectProps> = ({
                   >
                     <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {opt.label}
+                        {safeFormatValue(opt.label)}
                       </div>
-                      {Boolean(opt.subtext) && safeFormatSubtext(opt.subtext) && (
+                      {Boolean(opt.subtext) && Boolean(safeFormatSubtext(opt.subtext)) && (
                         <div style={{ fontSize: '11px', color: '#64748B', marginTop: '1px', fontWeight: 400 }}>
                           {safeFormatSubtext(opt.subtext)}
                         </div>
@@ -633,7 +637,7 @@ export const Select: React.FC<SelectProps> = ({
                             color: '#475569',
                           }}
                         >
-                          {opt.badge}
+                          {safeFormatValue(opt.badge)}
                         </span>
                       )}
 

@@ -5,11 +5,21 @@ import { IconSearch, IconChevronDown, IconClose, IconCheck, IconPlus } from '../
 
 export interface ComboboxOption {
   value: string;
-  label: string;
-  subtext?: string;
-  badge?: string;
+  label: string | any;
+  subtext?: string | any;
+  badge?: string | any;
   searchTerms?: string;
   disabled?: boolean;
+}
+
+function safeFormatValue(val: any): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+  if (typeof val === 'object') {
+    return val.name || val.label || val.title || val.code || '';
+  }
+  return String(val);
 }
 
 export interface SearchableComboboxProps {
@@ -77,22 +87,23 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   // Sync input text with selected value when closed or value changes externally
   useEffect(() => {
     if (!isOpen) {
-      setQuery(selectedOption ? selectedOption.label : '');
+      setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
     }
   }, [value, selectedOption, isOpen]);
 
   // Filter options based on typed query
   const filteredOptions = useMemo(() => {
-    if (!query || (selectedOption && query === selectedOption.label && !isOpen)) {
+    const selectedLabel = selectedOption ? safeFormatValue(selectedOption.label) : '';
+    if (!query || (selectedOption && query === selectedLabel && !isOpen)) {
       return options;
     }
     const q = query.toLowerCase().trim();
     return options.filter((opt) => {
-      const labelMatch = (opt.label || '').toLowerCase().includes(q);
-      const subtextMatch = (opt.subtext || '').toLowerCase().includes(q);
-      const valMatch = (opt.value || '').toLowerCase().includes(q);
-      const badgeMatch = (opt.badge || '').toLowerCase().includes(q);
-      const searchTermsMatch = (opt.searchTerms || '').toLowerCase().includes(q);
+      const labelMatch = safeFormatValue(opt.label).toLowerCase().includes(q);
+      const subtextMatch = safeFormatValue(opt.subtext).toLowerCase().includes(q);
+      const valMatch = safeFormatValue(opt.value).toLowerCase().includes(q);
+      const badgeMatch = safeFormatValue(opt.badge).toLowerCase().includes(q);
+      const searchTermsMatch = safeFormatValue(opt.searchTerms).toLowerCase().includes(q);
       return labelMatch || subtextMatch || valMatch || badgeMatch || searchTermsMatch;
     });
   }, [options, query, selectedOption, isOpen]);
@@ -500,11 +511,11 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                             lineHeight: 1.35,
                           }}
                         >
-                          {opt.label}
+                          {safeFormatValue(opt.label)}
                         </span>
                         {isSelected && <IconCheck size={14} style={{ color: '#2563EB', flexShrink: 0 }} />}
                       </div>
-                      {opt.subtext && (
+                      {Boolean(opt.subtext) && Boolean(safeFormatValue(opt.subtext)) && (
                         <span
                           style={{
                             fontSize: '11px',
@@ -513,12 +524,12 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                             wordBreak: 'break-word',
                           }}
                         >
-                          {opt.subtext}
+                          {safeFormatValue(opt.subtext)}
                         </span>
                       )}
                     </div>
 
-                    {opt.badge && (
+                    {Boolean(opt.badge) && Boolean(safeFormatValue(opt.badge)) && (
                       <span
                         style={{
                           fontSize: '11px',
@@ -531,7 +542,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                           flexShrink: 0,
                         }}
                       >
-                        {opt.badge}
+                        {safeFormatValue(opt.badge)}
                       </span>
                     )}
                   </li>
