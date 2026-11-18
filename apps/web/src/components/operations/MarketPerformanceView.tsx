@@ -25,7 +25,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useCompany } from '../../context/company-context';
-import { Button, PdfViewerModal } from '../ui';
+import {
+  Button,
+  PdfViewerModal,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardDescription,
+} from '../ui';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
 import {
   SalesInvoiceExportData,
@@ -265,41 +273,48 @@ export const MarketPerformanceView: React.FC = () => {
 
   // Helper: Achievement Badge
   const renderAchievementBadge = (pct: number) => {
-    let bg = 'rgba(239, 68, 68, 0.12)';
-    let color = '#ef4444';
+    let bg = '#fef2f2';
+    let color = '#dc2626';
+    let border = '#fecaca';
     let text = 'Needs Focus';
 
     if (pct >= 100) {
-      bg = 'rgba(16, 185, 129, 0.15)';
-      color = '#10b981';
+      bg = '#f0fdf4';
+      color = '#16a34a';
+      border = '#bbf7d0';
       text = 'Target Met';
     } else if (pct >= 75) {
-      bg = 'rgba(2, 132, 199, 0.15)';
+      bg = '#f0f9ff';
       color = '#0284c7';
+      border = '#bae6fd';
       text = 'On Track';
     } else if (pct >= 40) {
-      bg = 'rgba(234, 88, 12, 0.15)';
-      color = '#ea580c';
+      bg = '#fffbeb';
+      color = '#d97706';
+      border = '#fde68a';
       text = 'Moderate';
     }
 
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-        <span
-          style={{
-            padding: '3px 8px',
-            borderRadius: '6px',
-            fontSize: '11.5px',
-            fontWeight: 800,
-            background: bg,
-            color,
-            fontFamily: 'monospace',
-          }}
-        >
-          {pct}%
-        </span>
-        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>{text}</span>
-      </div>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '5px',
+          padding: '3px 10px',
+          borderRadius: '9999px',
+          fontSize: '11px',
+          fontWeight: 700,
+          background: bg,
+          color: color,
+          border: `1px solid ${border}`,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <span style={{ fontFamily: 'monospace', fontWeight: 800 }}>{Number(pct || 0).toFixed(0)}%</span>
+        <span style={{ opacity: 0.6 }}>•</span>
+        <span>{text}</span>
+      </span>
     );
   };
 
@@ -951,69 +966,69 @@ export const MarketPerformanceView: React.FC = () => {
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: '14px',
+          gap: '16px',
         }}
       >
         {/* Metric 1: Total Revenue */}
-        <div
+        <Card
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '16px 20px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '18px 20px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Total Net Revenue
             </span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(37, 99, 235, 0.1)', color: 'var(--brand-primary)' }}>
+            <div style={{ padding: '7px', borderRadius: '8px', background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb' }}>
               <IconTrendingUp size={16} />
             </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>
             {fmtPKR(metrics.totalRevenue)}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
             <span>Posted Dispatched Sales</span>
             <span style={{ color: '#10b981', fontWeight: 700 }}>100% Tax Invoices</span>
           </div>
-        </div>
+        </Card>
 
         {/* Metric 2: Quota & Target */}
-        <div
+        <Card
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '16px 20px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '18px 20px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Target & Quota
             </span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+            <div style={{ padding: '7px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', color: '#10b981' }}>
               <IconShield size={16} />
             </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>
             {fmtPKR(metrics.target)}
           </div>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Achievement</span>
+          <div style={{ marginTop: '2px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: '11.5px', color: '#64748b' }}>Achievement</span>
               {renderAchievementBadge(metrics.achievementPercent || 0)}
             </div>
-            <div style={{ width: '100%', height: '5px', background: 'var(--border-subtle)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
               <div
                 style={{
                   width: `${Math.min(metrics.achievementPercent || 0, 100)}%`,
@@ -1024,67 +1039,67 @@ export const MarketPerformanceView: React.FC = () => {
               />
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Metric 3: Credit Limit */}
-        <div
+        <Card
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '16px 20px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '18px 20px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Total Credit Limit
             </span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(5, 150, 105, 0.1)', color: '#059669' }}>
+            <div style={{ padding: '7px', borderRadius: '8px', background: 'rgba(5, 150, 105, 0.08)', color: '#059669' }}>
               <IconCreditCard size={16} />
             </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>
             {fmtPKR(metrics.creditLimit)}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
             <span>Approved Dealer Credit</span>
             <span style={{ color: '#059669', fontWeight: 700 }}>Monitored Exposure</span>
           </div>
-        </div>
+        </Card>
 
         {/* Metric 4: Volume & Orders */}
-        <div
+        <Card
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '16px 20px',
-            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.02)',
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: '18px 20px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Sales Volume & Orders
             </span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(234, 88, 12, 0.1)', color: '#ea580c' }}>
+            <div style={{ padding: '7px', borderRadius: '8px', background: 'rgba(234, 88, 12, 0.08)', color: '#ea580c' }}>
               <IconPackage size={16} />
             </div>
           </div>
-          <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-            {Number(metrics.totalQuantity || 0).toLocaleString()} <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Units</span>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>
+            {Number(metrics.totalQuantity || 0).toLocaleString()} <span style={{ fontSize: '14px', fontWeight: 600, color: '#64748b' }}>Units</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', marginTop: '2px' }}>
             <span>{metrics.totalOrders || 0} Posted Invoices</span>
             <span style={{ color: '#10b981', fontWeight: 700 }}>{metrics.activeDealers || 0} Active Dealers</span>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* ───────────────────────────────────────────────────────── */}
@@ -1137,36 +1152,30 @@ export const MarketPerformanceView: React.FC = () => {
         <>
           {/* TIER 1: PROVINCIAL GROUP (REGIONS BREAKDOWN) */}
           {currentLevel === 'GROUP' && (
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
+            <Card style={{ border: '1px solid #e2e8f0', borderRadius: '12px', background: '#fff', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)', overflow: 'hidden' }}>
+              <CardHeader
                 style={{
                   padding: '16px 20px',
-                  borderBottom: '1px solid var(--border-subtle)',
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#fff',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
                   gap: '12px',
+                  margin: 0,
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  <CardTitle style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
                     Tier 1: Punjab Provincial Total — Operating Regions
-                  </h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  </CardTitle>
+                  <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                     Provincial geographic rollup across Business Manager regions • Click any Region to inspect Zones
-                  </div>
+                  </CardDescription>
                 </div>
                 <div style={{ position: 'relative', width: '260px' }}>
-                  <IconSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <IconSearch size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input
                     type="text"
                     value={tableSearch}
@@ -1174,134 +1183,131 @@ export const MarketPerformanceView: React.FC = () => {
                     placeholder="Filter regions..."
                     style={{
                       width: '100%',
-                      padding: '6px 12px 6px 32px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-subtle)',
-                      color: 'var(--text-primary)',
+                      padding: '7px 12px 7px 32px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      color: '#0f172a',
                       fontSize: '12.5px',
+                      outline: 'none',
                     }}
                   />
                 </div>
-              </div>
+              </CardHeader>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Region</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Business Manager</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Zones</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Target (PKR)</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Credit Limit</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Actual Posted Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Achievement</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Active Dealers</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Avg Dealer Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRegions.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                          No operating regions found.
-                        </td>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Region</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Business Manager</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Zones</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Target (PKR)</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Credit Limit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Actual Posted Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Active Dealers</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Avg Dealer Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
                       </tr>
-                    ) : (
-                      filteredRegions.map((r: any) => (
-                        <tr
-                          key={r.regionId}
-                          style={{
-                            borderBottom: '1px solid var(--border-subtle)',
-                            cursor: 'pointer',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{r.regionName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{r.regionCode}</div>
-                          </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>
-                            {r.businessManager || <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {r.zonesCount}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(r.target)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(r.creditLimit)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: 'var(--brand-primary)', fontFamily: 'monospace' }}>
-                            {fmtPKR(r.actualSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            {renderAchievementBadge(r.achievementPercent)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {r.activeDealers}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(r.averageDealerSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            <Button
-                              variant="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigateToRegion(r.regionId, r.regionName, r.regionCode);
-                              }}
-                              style={{ fontSize: '12px', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <span>View Zones</span>
-                              <IconArrowRight size={13} />
-                            </Button>
+                    </thead>
+                    <tbody>
+                      {filteredRegions.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                            No operating regions found.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      ) : (
+                        filteredRegions.map((r: any) => (
+                          <tr
+                            key={r.regionId}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              cursor: 'pointer',
+                              transition: 'background-color 150ms ease',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a' }}>{r.regionName}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{r.regionCode}</div>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                              {r.businessManager || <span style={{ color: '#94a3b8' }}>Unassigned</span>}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {r.zonesCount}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(r.target)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(r.creditLimit)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                              {fmtPKR(r.actualSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {renderAchievementBadge(r.achievementPercent)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {r.activeDealers}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(r.averageDealerSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <Button
+                                variant="secondary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToRegion(r.regionId, r.regionName, r.regionCode);
+                                }}
+                                style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                              >
+                                <span>View Zones</span>
+                                <IconArrowRight size={13} />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* TIER 2: REGION SCOPE (ZONES BREAKDOWN) */}
           {currentLevel === 'REGION' && (
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
+            <Card style={{ border: '1px solid #e2e8f0', borderRadius: '12px', background: '#fff', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)', overflow: 'hidden' }}>
+              <CardHeader
                 style={{
                   padding: '16px 20px',
-                  borderBottom: '1px solid var(--border-subtle)',
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#fff',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
                   gap: '12px',
+                  margin: 0,
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  <CardTitle style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
                     Tier 2: {performanceData.region?.name || 'Region'} — Zonal Breakdown
-                  </h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  </CardTitle>
+                  <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                     Supervised by Business Manager: <strong>{performanceData.region?.businessManager || 'Direct'}</strong> • Click any Zone to inspect Territories
-                  </div>
+                  </CardDescription>
                 </div>
                 <div style={{ position: 'relative', width: '260px' }}>
-                  <IconSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <IconSearch size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input
                     type="text"
                     value={tableSearch}
@@ -1309,134 +1315,131 @@ export const MarketPerformanceView: React.FC = () => {
                     placeholder="Filter zones..."
                     style={{
                       width: '100%',
-                      padding: '6px 12px 6px 32px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-subtle)',
-                      color: 'var(--text-primary)',
+                      padding: '7px 12px 7px 32px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      color: '#0f172a',
                       fontSize: '12.5px',
+                      outline: 'none',
                     }}
                   />
                 </div>
-              </div>
+              </CardHeader>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Zone</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Area Manager</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Territories</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Target (PKR)</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Credit Limit</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Actual Posted Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Achievement</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Active Dealers</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Avg Dealer Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredZones.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                          No zones found in this region.
-                        </td>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Zone</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Area Manager</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Territories</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Target (PKR)</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Credit Limit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Actual Posted Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Active Dealers</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Avg Dealer Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
                       </tr>
-                    ) : (
-                      filteredZones.map((z: any) => (
-                        <tr
-                          key={z.zoneId}
-                          style={{
-                            borderBottom: '1px solid var(--border-subtle)',
-                            cursor: 'pointer',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{z.zoneName}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{z.zoneCode}</div>
-                          </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>
-                            {z.areaManager || <span style={{ color: 'var(--text-muted)' }}>Unassigned</span>}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {z.territoriesCount}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(z.target)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(z.creditLimit)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: 'var(--brand-primary)', fontFamily: 'monospace' }}>
-                            {fmtPKR(z.actualSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            {renderAchievementBadge(z.achievementPercent)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {z.activeDealers}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(z.averageDealerSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            <Button
-                              variant="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigateToZone(z.zoneId, z.zoneName, z.zoneCode);
-                              }}
-                              style={{ fontSize: '12px', padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              <span>View Territories</span>
-                              <IconArrowRight size={13} />
-                            </Button>
+                    </thead>
+                    <tbody>
+                      {filteredZones.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                            No zones found in this region.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      ) : (
+                        filteredZones.map((z: any) => (
+                          <tr
+                            key={z.zoneId}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              cursor: 'pointer',
+                              transition: 'background-color 150ms ease',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a' }}>{z.zoneName}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{z.zoneCode}</div>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                              {z.areaManager || <span style={{ color: '#94a3b8' }}>Unassigned</span>}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {z.territoriesCount}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(z.target)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(z.creditLimit)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                              {fmtPKR(z.actualSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {renderAchievementBadge(z.achievementPercent)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {z.activeDealers}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(z.averageDealerSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <Button
+                                variant="secondary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToZone(z.zoneId, z.zoneName, z.zoneCode);
+                                }}
+                                style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                              >
+                                <span>View Territories</span>
+                                <IconArrowRight size={13} />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* TIER 3: ZONE SCOPE (TERRITORIES BREAKDOWN) */}
           {currentLevel === 'ZONE' && (
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
+            <Card style={{ border: '1px solid #e2e8f0', borderRadius: '12px', background: '#fff', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)', overflow: 'hidden' }}>
+              <CardHeader
                 style={{
                   padding: '16px 20px',
-                  borderBottom: '1px solid var(--border-subtle)',
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#fff',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
                   gap: '12px',
+                  margin: 0,
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  <CardTitle style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
                     Tier 3: {performanceData.zone?.name || 'Zone'} — Territories Breakdown
-                  </h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  </CardTitle>
+                  <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                     Responsible Area Manager: <strong>{performanceData.zone?.areaManager || 'Direct'}</strong> • Click any Territory to inspect Dealers Network
-                  </div>
+                  </CardDescription>
                 </div>
                 <div style={{ position: 'relative', width: '260px' }}>
-                  <IconSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <IconSearch size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input
                     type="text"
                     value={tableSearch}
@@ -1444,144 +1447,142 @@ export const MarketPerformanceView: React.FC = () => {
                     placeholder="Filter territories..."
                     style={{
                       width: '100%',
-                      padding: '6px 12px 6px 32px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-subtle)',
-                      color: 'var(--text-primary)',
+                      padding: '7px 12px 7px 32px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      color: '#0f172a',
                       fontSize: '12.5px',
+                      outline: 'none',
                     }}
                   />
                 </div>
-              </div>
+              </CardHeader>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Territory</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Primary Sales Officer</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Target (PKR)</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Credit Limit</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Actual Posted Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Achievement</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Active / Assigned</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Avg Dealer Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTerritories.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                          No territories found in this zone.
-                        </td>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Territory</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Primary Sales Officer</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Target (PKR)</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Credit Limit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Actual Posted Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Active / Assigned</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Avg Dealer Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
                       </tr>
-                    ) : (
-                      filteredTerritories.map((t: any) => (
-                        <tr
-                          key={t.territoryId}
-                          style={{
-                            borderBottom: '1px solid var(--border-subtle)',
-                            cursor: 'pointer',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{t.territoryName}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{t.territoryCode}</span>
-                              <span
-                                style={{
-                                  fontSize: '10.5px',
-                                  padding: '1px 6px',
-                                  borderRadius: '4px',
-                                  background: t.assignedDealers > 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(100, 116, 139, 0.12)',
-                                  color: t.assignedDealers > 0 ? '#10b981' : 'var(--text-secondary)',
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {t.assignedDealers} Dealer account(s) registered
-                              </span>
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>
-                            <div style={{ fontWeight: 600 }}>{t.primaryOfficer || 'Direct / Unassigned'}</div>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(t.target)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(t.creditLimit)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: 'var(--brand-primary)', fontFamily: 'monospace' }}>
-                            {fmtPKR(t.actualSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            {renderAchievementBadge(t.achievementPercent)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {t.activeDealers} / {t.assignedDealers}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(t.averageDealerSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            <Button
-                              variant="primary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigateToTerritory(t.territoryId, t.territoryName, t.territoryCode);
-                              }}
-                              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            >
-                              <IconEye size={13} />
-                              <span>View Dealers ({t.assignedDealers})</span>
-                            </Button>
+                    </thead>
+                    <tbody>
+                      {filteredTerritories.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: '#64748b' }}>
+                            No territories found in this zone.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      ) : (
+                        filteredTerritories.map((t: any) => (
+                          <tr
+                            key={t.territoryId}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              cursor: 'pointer',
+                              transition: 'background-color 150ms ease',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a' }}>{t.territoryName}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{t.territoryCode}</span>
+                                <span
+                                  style={{
+                                    fontSize: '10.5px',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    background: t.assignedDealers > 0 ? '#ecfdf5' : '#f1f5f9',
+                                    color: t.assignedDealers > 0 ? '#047857' : '#64748b',
+                                    border: t.assignedDealers > 0 ? '1px solid #a7f3d0' : '1px solid #e2e8f0',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {t.assignedDealers} Dealer account(s) registered
+                                </span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                              <div style={{ fontWeight: 600 }}>{t.primaryOfficer || 'Direct / Unassigned'}</div>
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(t.target)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(t.creditLimit)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                              {fmtPKR(t.actualSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {renderAchievementBadge(t.achievementPercent)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {t.activeDealers} / {t.assignedDealers}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(t.averageDealerSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <Button
+                                variant="primary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToTerritory(t.territoryId, t.territoryName, t.territoryCode);
+                                }}
+                                style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                              >
+                                <IconEye size={13} />
+                                <span>View Dealers ({t.assignedDealers})</span>
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* TIER 4: TERRITORY SCOPE (DIRECT DEALERS NETWORK) */}
           {currentLevel === 'TERRITORY' && (
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
+            <Card style={{ border: '1px solid #e2e8f0', borderRadius: '12px', background: '#fff', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)', overflow: 'hidden' }}>
+              <CardHeader
                 style={{
                   padding: '16px 20px',
-                  borderBottom: '1px solid var(--border-subtle)',
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#fff',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
                   gap: '12px',
+                  margin: 0,
                 }}
               >
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  <CardTitle style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
                     Tier 4: {performanceData.territory?.name || 'Territory'} — Dealers Network
-                  </h3>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  </CardTitle>
+                  <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
                     Primary Sales Officer: <strong>{performanceData.territory?.primaryOfficer || 'Assigned'}</strong> • All Dealer accounts belonging to this territory
-                  </div>
+                  </CardDescription>
                 </div>
                 <div style={{ position: 'relative', width: '260px' }}>
-                  <IconSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <IconSearch size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input
                     type="text"
                     value={tableSearch}
@@ -1589,145 +1590,151 @@ export const MarketPerformanceView: React.FC = () => {
                     placeholder="Filter dealers..."
                     style={{
                       width: '100%',
-                      padding: '6px 12px 6px 32px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-subtle)',
-                      color: 'var(--text-primary)',
+                      padding: '7px 12px 7px 32px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      color: '#0f172a',
                       fontSize: '12.5px',
+                      outline: 'none',
                     }}
                   />
                 </div>
-              </div>
+              </CardHeader>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Dealer Account</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>City</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase' }}>Assigned Sales Officer</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Target (PKR)</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Credit Limit</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'right' }}>Actual Posted Sales</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Achievement</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Units Sold</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Invoices</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11.5px', textTransform: 'uppercase', textAlign: 'center' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredDealers.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                          <IconPackage size={32} style={{ color: 'var(--text-muted)', margin: '0 auto 8px', display: 'block' }} />
-                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>No Dealers Found</div>
-                          <div style={{ fontSize: '12px', marginTop: '2px' }}>No dealer accounts mapped to this territory yet.</div>
-                        </td>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dealer Account</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>City</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Sales Officer</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Target (PKR)</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Credit Limit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Actual Posted Sales</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Units Sold</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Invoices</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
                       </tr>
-                    ) : (
-                      filteredDealers.map((d: any) => (
-                        <tr
-                          key={d.dealerId}
-                          style={{
-                            borderBottom: '1px solid var(--border-subtle)',
-                            cursor: 'pointer',
-                            transition: 'background 0.15s ease',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-subtle)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <td style={{ padding: '12px 14px' }}>
-                            <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{d.dealerName}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{d.dealerCode}</span>
-                              {d.phone && <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>• {d.phone}</span>}
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>
-                            {d.city || '—'}
-                          </td>
-                          <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>
-                            <div style={{ fontWeight: 600 }}>{d.assignedOfficer || performanceData.territory?.primaryOfficer || 'Assigned'}</div>
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(d.target)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontFamily: 'monospace' }}>
-                            {fmtPKR(d.creditLimit)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, color: 'var(--brand-primary)', fontFamily: 'monospace' }}>
-                            {fmtPKR(d.actualSales)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            {renderAchievementBadge(d.achievementPercent)}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {Number(d.totalQuantity || 0).toLocaleString()}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {d.ordersCount || 0}
-                          </td>
-                          <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                            <Button
-                              variant="primary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigateToDealer(d.dealerId, d.dealerName, d.dealerCode);
-                              }}
-                              style={{ fontSize: '12px', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                            >
-                              <span>Open Card</span>
-                              <IconArrowRight size={13} />
-                            </Button>
+                    </thead>
+                    <tbody>
+                      {filteredDealers.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                            <IconPackage size={32} style={{ color: '#94a3b8', margin: '0 auto 8px', display: 'block' }} />
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>No Dealers Found</div>
+                            <div style={{ fontSize: '12px', marginTop: '2px' }}>No dealer accounts mapped to this territory yet.</div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      ) : (
+                        filteredDealers.map((d: any) => (
+                          <tr
+                            key={d.dealerId}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              cursor: 'pointer',
+                              transition: 'background-color 150ms ease',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: 700, color: '#0f172a' }}>{d.dealerName}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{d.dealerCode}</span>
+                                {d.phone && <span style={{ fontSize: '11px', color: '#94a3b8' }}>• {d.phone}</span>}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                              {d.city || '—'}
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                              <div style={{ fontWeight: 600 }}>{d.assignedOfficer || performanceData.territory?.primaryOfficer || 'Assigned'}</div>
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(d.target)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
+                              {fmtPKR(d.creditLimit)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
+                              {fmtPKR(d.actualSales)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {renderAchievementBadge(d.achievementPercent)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {Number(d.totalQuantity || 0).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                              {d.ordersCount || 0}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <Button
+                                variant="primary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateToDealer(d.dealerId, d.dealerName, d.dealerCode);
+                                }}
+                                style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
+                              >
+                                <span>Open Card</span>
+                                <IconArrowRight size={13} />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* TIER 5: DEALER TARGET & PERFORMANCE CARD */}
           {currentLevel === 'DEALER' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {/* Dealer Profile Card */}
-              <div
+              <Card
                 style={{
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-lg)',
+                  background: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '12px',
                   padding: '20px 24px',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.03)',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
                         {performanceData.dealer?.name}
                       </h2>
-                      <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '4px', background: 'var(--bg-subtle)', fontFamily: 'monospace', fontWeight: 700 }}>
+                      <span style={{ fontSize: '12px', padding: '3px 8px', borderRadius: '6px', background: '#f1f5f9', border: '1px solid #e2e8f0', fontFamily: 'monospace', fontWeight: 700, color: '#475569' }}>
                         {performanceData.dealer?.code}
                       </span>
+                      <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '12px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', fontWeight: 700 }}>
+                        {performanceData.dealer?.status || 'ACTIVE'}
+                      </span>
                     </div>
-                    <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      Territory: <strong>{performanceData.dealer?.territory}</strong> • Zone: <strong>{performanceData.dealer?.zone}</strong> • Region: <strong>{performanceData.dealer?.region}</strong>
+                    <div style={{ fontSize: '12.5px', color: '#64748b', marginTop: '6px' }}>
+                      Territory: <strong style={{ color: '#0f172a' }}>{performanceData.dealer?.territory}</strong> &bull; Zone: <strong style={{ color: '#0f172a' }}>{performanceData.dealer?.zone}</strong> &bull; Region: <strong style={{ color: '#0f172a' }}>{performanceData.dealer?.region}</strong>
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Approved Credit Limit</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#059669', fontFamily: 'monospace' }}>
+                    <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Approved Credit Limit</div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#059669', fontFamily: 'monospace', marginTop: '2px' }}>
                         {fmtPKR(performanceData.creditControl?.creditLimit)}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Current Exposure</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                    <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Current Exposure</div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#dc2626', fontFamily: 'monospace', marginTop: '2px' }}>
                         {fmtPKR(performanceData.creditControl?.currentBalance)}
                       </div>
                     </div>
@@ -1738,195 +1745,203 @@ export const MarketPerformanceView: React.FC = () => {
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '12px',
+                    gap: '16px',
                     marginTop: '18px',
                     paddingTop: '16px',
-                    borderTop: '1px solid var(--border-subtle)',
+                    borderTop: '1px solid #f1f5f9',
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Assigned Sales Officer</div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                      <IconUser size={14} style={{ color: 'var(--brand-primary)' }} />
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Assigned Sales Officer</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                      <IconUser size={14} style={{ color: '#2563eb' }} />
                       <span>{performanceData.dealer?.assignedOfficer || 'Direct / Unassigned'}</span>
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>City & Location</div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                      <IconMapPin size={14} style={{ color: 'var(--text-secondary)' }} />
-                      <span>{performanceData.dealer?.city || 'Punjab'}</span>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>City & Location</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                      <IconMapPin size={14} style={{ color: '#64748b' }} />
+                      <span>{performanceData.dealer?.city || 'Punjab'}{performanceData.dealer?.address ? ` — ${performanceData.dealer.address}` : ''}</span>
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Contact Phone</div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px', fontFamily: 'monospace' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Contact Phone</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 600, color: '#0f172a', marginTop: '2px', fontFamily: 'monospace' }}>
                       {performanceData.dealer?.phone || '—'}
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Credit Status</div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#10b981', marginTop: '2px' }}>
-                      Active & Good Standing
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Available Credit</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#059669', marginTop: '2px', fontFamily: 'monospace' }}>
+                      {fmtPKR(performanceData.creditControl?.availableCredit)}
                     </div>
                   </div>
                 </div>
-              </div>
+              </Card>
 
               {/* 4 Financial Target Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Period Actual Sales</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--brand-primary)', fontFamily: 'monospace', marginTop: '4px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Period Actual Sales</div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace', marginTop: '4px' }}>
                     {fmtPKR(performanceData.targets?.monthlyActualSales)}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                    <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Target: {fmtPKR(performanceData.targets?.monthlyTarget)}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Target: {fmtPKR(performanceData.targets?.monthlyTarget)}</span>
                     {renderAchievementBadge(performanceData.targets?.monthlyAchievementPercent || 0)}
                   </div>
-                </div>
+                </Card>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Annual Agreement Target</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'monospace', marginTop: '4px' }}>
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Annual Agreement Target</div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', marginTop: '4px' }}>
                     {fmtPKR(performanceData.targets?.annualAgreementTarget)}
                   </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                    Approved annual distributor contract
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
+                    Approved annual distributor agreement quota
                   </div>
-                </div>
+                </Card>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>YTD Cumulative Sales</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#0284c7', fontFamily: 'monospace', marginTop: '4px' }}>
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>YTD Cumulative Sales</div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#0284c7', fontFamily: 'monospace', marginTop: '4px' }}>
                     {fmtPKR(performanceData.targets?.ytdActualSales)}
                   </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
                     <strong style={{ color: '#0284c7' }}>{performanceData.targets?.ytdAchievementPercent || 0}%</strong> of Annual Agreement
                   </div>
-                </div>
+                </Card>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px 20px' }}>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Salary Return Multiple</div>
-                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#10b981', fontFamily: 'monospace', marginTop: '4px' }}>
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Salary Return Multiple</div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, color: '#16a34a', fontFamily: 'monospace', marginTop: '4px' }}>
                     {performanceData.salaryJustification?.returnMultiple || 'N/A'} Return
                   </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                    Commercial Return on Sales Officer Cost
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
+                    Commercial return on field sales cost
                   </div>
-                </div>
+                </Card>
               </div>
 
               {/* Product Formulation Breakdown & Recent Invoices Grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '16px' }}>
                 {/* Formulation Breakdown */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-                  <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                      Product-Level Formulation Breakdown
-                    </h4>
-                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Commercial volume & revenue per agricultural formulation
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <CardHeader style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', background: '#fff', margin: 0 }}>
+                    <div>
+                      <CardTitle style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                        Product-Level Formulation Breakdown
+                      </CardTitle>
+                      <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        Commercial volume & revenue per agricultural formulation
+                      </CardDescription>
                     </div>
-                  </div>
-                  <div style={{ overflowX: 'auto', maxHeight: '380px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
-                      <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-subtle)' }}>
-                        <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Product</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center' }}>Pack</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'right' }}>Qty</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'right' }}>Amount (PKR)</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center' }}>Share</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredProducts.length === 0 ? (
+                  </CardHeader>
+                  <CardContent style={{ padding: 0 }}>
+                    <div style={{ overflowX: 'auto', maxHeight: '380px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <tr>
-                            <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                              No product sales recorded in this period.
-                            </td>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Product</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Pack</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Qty</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Amount (PKR)</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Share</th>
                           </tr>
-                        ) : (
-                          filteredProducts.map((p: any, idx: number) => (
-                            <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                              <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>{p.productName}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>{p.packing}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace' }}>{Number(p.quantitySold).toLocaleString()}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>{fmtPKR(p.salesAmount)}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                <span style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(2, 132, 199, 0.1)', color: '#0284c7', fontSize: '11px', fontWeight: 700 }}>
-                                  {p.shareOfTotalPercent}%
-                                </span>
+                        </thead>
+                        <tbody>
+                          {filteredProducts.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                                No product sales recorded in this period.
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                          ) : (
+                            filteredProducts.map((p: any, idx: number) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{p.productName}</td>
+                                <td style={{ padding: '10px 14px', textAlign: 'center', color: '#64748b' }}>{p.packing}</td>
+                                <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'monospace', color: '#0f172a' }}>{Number(p.quantitySold).toLocaleString()}</td>
+                                <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace', color: '#2563eb' }}>{fmtPKR(p.salesAmount)}</td>
+                                <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                                  <span style={{ padding: '2px 7px', borderRadius: '4px', background: '#eff6ff', color: '#1d4ed8', fontSize: '11px', fontWeight: 700, border: '1px solid #bfdbfe' }}>
+                                    {p.shareOfTotalPercent}%
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* Posted Invoices */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-                  <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                      Posted Sales Invoices in Period
-                    </h4>
-                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Legally dispatched commercial tax invoices
+                <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <CardHeader style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', background: '#fff', margin: 0 }}>
+                    <div>
+                      <CardTitle style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+                        Posted Sales Invoices in Period
+                      </CardTitle>
+                      <CardDescription style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                        Legally dispatched commercial tax invoices
+                      </CardDescription>
                     </div>
-                  </div>
-                  <div style={{ overflowX: 'auto', maxHeight: '380px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
-                      <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-subtle)' }}>
-                        <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase' }}>Invoice #</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center' }}>Date</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center' }}>Items</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'right' }}>Net Amount</th>
-                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '11px', textTransform: 'uppercase', textAlign: 'center' }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(performanceData.invoices || []).length === 0 ? (
+                  </CardHeader>
+                  <CardContent style={{ padding: 0 }}>
+                    <div style={{ overflowX: 'auto', maxHeight: '380px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                           <tr>
-                            <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                              No posted invoices found in this period.
-                            </td>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Invoice #</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Date</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Items</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Net Amount</th>
+                            <th style={{ padding: '9px 14px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
                           </tr>
-                        ) : (
-                          (performanceData.invoices || []).map((inv: any) => (
-                            <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                              <td style={{ padding: '8px 12px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                                {inv.invoiceNumber}
-                              </td>
-                              <td style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                                {new Date(inv.invoiceDate).toLocaleDateString()}
-                              </td>
-                              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                {inv.itemsCount} lines
-                              </td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, fontFamily: 'monospace', color: 'var(--brand-primary)' }}>
-                                {fmtPKR(inv.netAmount)}
-                              </td>
-                              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => openInvoicePreview(inv.id)}
-                                  style={{ fontSize: '11px', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                >
-                                  <IconEye size={12} />
-                                  <span>View</span>
-                                </Button>
+                        </thead>
+                        <tbody>
+                          {(performanceData.invoices || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
+                                No posted invoices found in this period.
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                          ) : (
+                            (performanceData.invoices || []).map((inv: any) => (
+                              <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 14px', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                                  {inv.invoiceNumber}
+                                </td>
+                                <td style={{ padding: '10px 14px', textAlign: 'center', color: '#64748b' }}>
+                                  {new Date(inv.invoiceDate).toLocaleDateString()}
+                                </td>
+                                <td style={{ padding: '10px 14px', textAlign: 'center', color: '#475569' }}>
+                                  {inv.itemsCount} lines
+                                </td>
+                                <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontFamily: 'monospace', color: '#2563eb' }}>
+                                  {fmtPKR(inv.netAmount)}
+                                </td>
+                                <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => openInvoicePreview(inv.id)}
+                                    style={{ fontSize: '11px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <IconEye size={12} />
+                                    <span>View</span>
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </div>
           )}

@@ -17,7 +17,7 @@
  *   5. Average Dealer Sales (Revenue / Active Dealers)
  *   6. Target Achievement % ((Actual Sales / Target) * 100)
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 
 export interface PerformanceFilter {
@@ -1266,41 +1266,75 @@ export class MarketPerformanceService {
    */
   async getDealerCard(companyId: string, dealerId: string, filter?: PerformanceFilter) {
     const { start, end, year, month, periodLabel, isAllTime } = this.resolveDateRange(filter);
-    const baseCondition = this.baseWhere(companyId, start, end, isAllTime);
 
     // YTD boundary: January 1 of the selected year
     const ytdStart = new Date(year, 0, 1, 0, 0, 0, 0);
 
     const compFilter = companyId && companyId.toLowerCase() !== 'all' ? { companyId } : {};
 
-    const [dealer, periodInvoices, ytdInvoices] = await Promise.all([
-      this.prisma.dealer.findFirst({
-        where: { id: dealerId, ...compFilter },
+    const dealerInclude = {
+      territory: {
         include: {
-          territory: {
+          zone: {
             include: {
-              zone: { include: { region: true } },
+              region: {
+                include: {
+                  businessManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
+                },
+              },
+              areaManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
             },
           },
-          assignedOfficer: {
-            select: { id: true, firstName: true, lastName: true, phone: true },
+          salesOfficer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          userMarketAssignments: {
+            where: { status: 'ACTIVE' },
+            include: {
+              user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+            },
           },
         },
-      }),
+      },
+      assignedOfficer: {
+        select: { id: true, firstName: true, lastName: true, phone: true },
+      },
+      officerAssignments: {
+        include: {
+          user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        },
+      },
+    };
+
+    let dealer = await this.prisma.dealer.findFirst({
+      where: { id: dealerId, ...compFilter },
+      include: dealerInclude,
+    });
+
+    if (!dealer && compFilter.companyId) {
+      dealer = await this.prisma.dealer.findFirst({
+        where: { id: dealerId },
+        include: dealerInclude,
+      });
+    }
+
+    if (!dealer) throw new NotFoundException('Dealer not found');
+
+    const effectiveCompany = dealer.companyId || companyId || 'ALL';
+    const invoiceWhere = this.baseWhere(effectiveCompany, start, end, isAllTime);
+    const ytdWhere = this.baseWhere(effectiveCompany, ytdStart, end, false);
+
+    const [periodInvoices, ytdInvoices] = await Promise.all([
       this.prisma.salesInvoice.findMany({
-        where: { ...baseCondition, dealerId },
+        where: { ...invoiceWhere, dealerId },
         include: {
           items: true,
         },
         orderBy: { invoiceDate: 'desc' },
       }),
       this.prisma.salesInvoice.findMany({
-        where: { ...this.baseWhere(companyId, ytdStart, end, false), dealerId },
+        where: { ...ytdWhere, dealerId },
         select: { netAmount: true },
       }),
     ]);
-
-    if (!dealer) throw new Error('Dealer not found');
 
     const periodActual = periodInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
     const ytdActual = ytdInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
@@ -1377,7 +1411,11 @@ export class MarketPerformanceService {
         },
         assignedOfficer: dealer.assignedOfficer
           ? `${dealer.assignedOfficer.firstName} ${dealer.assignedOfficer.lastName}`.trim()
-          : 'Unassigned',
+          : dealer.officerAssignments?.[0]?.user
+          ? `${dealer.officerAssignments[0].user.firstName} ${dealer.officerAssignments[0].user.lastName}`.trim()
+          : dealer.territory?.salesOfficer
+          ? `${dealer.territory.salesOfficer.firstName} ${dealer.territory.salesOfficer.lastName}`.trim()
+          : 'Direct / Unassigned',
       },
       period: { year, month, start, end, periodLabel },
       targets: {
