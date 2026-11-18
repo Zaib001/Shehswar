@@ -73,6 +73,7 @@ export interface SalesOrderItemRow {
 export interface SalesOrderRecord {
   id: string;
   orderNumber: string;
+  companyId?: string;
   orderDate: string;
   dealerId: string;
   salesOfficerId?: string;
@@ -121,9 +122,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   const [orderToConvert, setOrderToConvert] = useState<SalesOrderRecord | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [convertItems, setConvertItems] = useState<SalesOrderItemRow[]>([]);
-  const [convertSchemeId, setConvertSchemeId] = useState('');
-  const [convertRateListId, setConvertRateListId] = useState('');
-  const [convertPaymentTerm, setConvertPaymentTerm] = useState('CASH');
   const [isResolvingConvertPricing, setIsResolvingConvertPricing] = useState(false);
   const [isConvertingToSale, setIsConvertingToSale] = useState(false);
 
@@ -518,15 +516,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     }
   };
 
-  const handleHeaderRateListChange = (newRateListId: string) => {
-    setFormData((prev) => ({ ...prev, rateListId: newRateListId }));
-    formItems.forEach((it, idx) => {
-      if (it.finishedProductId) {
-        resolveLinePrice(idx, it.finishedProductId, Number(it.quantity) || 1, it.schemeId, newRateListId);
-      }
-    });
-  };
-
   // Form item updates
   const updateItem = (index: number, field: string, value: any) => {
     const updated = [...formItems];
@@ -549,7 +538,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       }
       updated[index] = item;
       setFormItems(updated);
-      resolveLinePrice(index, value, Number(item.quantity) || 1, item.schemeId);
+      resolveLinePrice(index, value, Number(item.quantity) || 1, item.schemeId, item.rateListId);
       fetchBatchesForLine(index, value, formData.warehouseId || companyWarehouses[0]?.id);
       return;
     } else if (field === 'batchId') {
@@ -561,6 +550,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         item.batchId = value;
         item.batchNumber = undefined;
       }
+    } else if (field === 'rateListId') {
+      item.rateListId = value;
+      updated[index] = item;
+      setFormItems(updated);
+      if (item.finishedProductId) {
+        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, item.schemeId, value);
+      }
+      return;
     } else if (field === 'quantity') {
       const qty = Number(value) || 1;
       item.quantity = qty;
@@ -568,7 +565,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       updated[index] = item;
       setFormItems(updated);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, qty, item.schemeId);
+        resolveLinePrice(index, item.finishedProductId, qty, item.schemeId, item.rateListId);
       }
       return;
     } else if (field === 'schemeId') {
@@ -576,7 +573,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       updated[index] = item;
       setFormItems(updated);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, value);
+        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, value, item.rateListId);
       }
       return;
     } else if (field === 'unitPrice') {
@@ -596,6 +593,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       {
         finishedProductId: '',
         productName: '',
+        rateListId: '',
         schemeId: defaultSchemeId,
         quantity: 1,
         baseRate: 0,
@@ -1195,30 +1193,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     }
   };
 
-  const handleConvertSchemeChange = (newSchemeId: string) => {
-    setConvertSchemeId(newSchemeId);
-    const matchedScheme = schemes.find((s) => s.id === newSchemeId);
-    let linkedRlId = convertRateListId;
-    if (matchedScheme) {
-      const linked = rateLists.find((rl) => rl.schemeId === newSchemeId || (matchedScheme.shortCode && rl.schemeShortCode === matchedScheme.shortCode));
-      if (linked) {
-        linkedRlId = linked.id;
-        setConvertRateListId(linked.id);
-      }
-    }
-    recalculateConvertPricing(convertItems, newSchemeId, linkedRlId, convertPaymentTerm);
-  };
-
-  const handleConvertRateListChange = (newRateListId: string) => {
-    setConvertRateListId(newRateListId);
-    recalculateConvertPricing(convertItems, convertSchemeId, newRateListId, convertPaymentTerm);
-  };
-
-  const handleConvertPaymentTermChange = (newPaymentTerm: string) => {
-    setConvertPaymentTerm(newPaymentTerm);
-    recalculateConvertPricing(convertItems, convertSchemeId, convertRateListId, newPaymentTerm);
-  };
-
   // Open Convert to Sale Modal with adjustable items & dynamic scheme pricing
   const openConvertModal = (order: SalesOrderRecord) => {
     setOrderToConvert(order);
@@ -1226,9 +1200,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     const schemeToUse = order.schemeId || '';
     const rateListToUse = order.rateListId || rateLists[0]?.id || '';
     const paymentTermToUse = order.paymentTerm || 'CASH';
-    setConvertSchemeId(schemeToUse);
-    setConvertRateListId(rateListToUse);
-    setConvertPaymentTerm(paymentTermToUse);
 
     const initialItems = (order.items || []).map((i) => ({
       ...i,
@@ -1242,8 +1213,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       discountAmount: Number(i.discountAmount) || 0,
       freeQuantity: Number(i.freeQuantity) || 0,
       totalPrice: Number(i.totalPrice) || (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0),
-      schemeId: i.schemeId || schemeToUse,
-      rateListId: i.rateListId || rateListToUse,
+      schemeId: i.schemeId || schemeToUse || '',
+      rateListId: i.rateListId || rateListToUse || '',
+      commercialCondition: i.commercialCondition || '',
     }));
     setConvertItems(initialItems);
     setIsConvertModalOpen(true);
@@ -1251,6 +1223,45 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     // Auto-resolve prices if any item has 0 price or if scheme/rate list is available
     if (initialItems.some((it) => !it.unitPrice || it.unitPrice === 0) || schemeToUse || rateListToUse) {
       recalculateConvertPricing(initialItems, schemeToUse, rateListToUse, paymentTermToUse, order.dealerId);
+    }
+  };
+
+  const updateConvertItemScheme = async (index: number, newSchemeId: string) => {
+    const updated = [...convertItems];
+    const prev = updated[index];
+    if (!prev) return;
+    const item = { ...prev, schemeId: newSchemeId };
+    updated[index] = item;
+    setConvertItems(updated);
+
+    if (item.finishedProductId && orderToConvert) {
+      try {
+        const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+          companyId: orderToConvert.companyId || activeCompanyId || undefined,
+          dealerId: orderToConvert.dealerId,
+          finishedProductId: item.finishedProductId,
+          quantity: Number(item.quantity) || 1,
+          paymentTerm: orderToConvert.paymentTerm || 'CASH',
+          requestedSchemeId: newSchemeId || undefined,
+          requestedRateListId: item.rateListId || orderToConvert.rateListId || undefined,
+          rateListId: item.rateListId || orderToConvert.rateListId || undefined,
+        });
+        const r = res.data?.data || res.data;
+        if (r) {
+          item.baseRate = Number(r.baseRate || 0);
+          item.unitPrice = Number(r.finalUnitRate || r.baseRate || 0);
+          item.discountPercent = Number(r.discountPercent || 0);
+          item.discountAmount = Number(r.discountAmount || 0);
+          item.freeQuantity = Number(r.freeQuantity || 0);
+          item.totalPrice = Number(r.finalAmount || (Number(r.finalUnitRate || 0) * Number(item.quantity || 1)));
+          item.commercialCondition = r.commercialCondition || undefined;
+          item.schemeId = newSchemeId;
+          updated[index] = item;
+          setConvertItems([...updated]);
+        }
+      } catch {
+        // Keep fallback
+      }
     }
   };
 
@@ -1267,21 +1278,24 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     if (item.finishedProductId && orderToConvert) {
       try {
         const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+          companyId: orderToConvert.companyId || activeCompanyId || undefined,
           dealerId: orderToConvert.dealerId,
           finishedProductId: item.finishedProductId,
           quantity: qty,
-          paymentTerm: convertPaymentTerm,
-          requestedSchemeId: convertSchemeId || undefined,
-          rateListId: convertRateListId || undefined,
+          paymentTerm: orderToConvert.paymentTerm || 'CASH',
+          requestedSchemeId: item.schemeId || undefined,
+          requestedRateListId: item.rateListId || orderToConvert.rateListId || undefined,
+          rateListId: item.rateListId || orderToConvert.rateListId || undefined,
         });
         const r = res.data?.data || res.data;
         if (r) {
-          item.baseRate = r.baseRate;
-          item.unitPrice = r.finalUnitRate;
-          item.discountPercent = r.discountPercent;
-          item.discountAmount = r.discountAmount;
-          item.freeQuantity = r.freeQuantity || 0;
-          item.totalPrice = r.finalAmount;
+          item.baseRate = Number(r.baseRate || 0);
+          item.unitPrice = Number(r.finalUnitRate || r.baseRate || 0);
+          item.discountPercent = Number(r.discountPercent || 0);
+          item.discountAmount = Number(r.discountAmount || 0);
+          item.freeQuantity = Number(r.freeQuantity || 0);
+          item.totalPrice = Number(r.finalAmount || (Number(r.finalUnitRate || 0) * qty));
+          item.commercialCondition = r.commercialCondition || undefined;
           updated[index] = item;
           setConvertItems([...updated]);
         }
@@ -1300,7 +1314,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
     setIsConvertingToSale(true);
     try {
-      // 1. Update order with selected scheme and dynamic prices
+      const targetCompanyId = orderToConvert.companyId || activeCompanyId;
+      const compParam = targetCompanyId ? `?companyId=${targetCompanyId}` : '';
+
+      // 1. Update order with line-item schemes and dynamic prices
       const totalDiscount = convertItems.reduce(
         (sum, it) => sum + (Number(it.discountAmount || 0) * Number(it.quantity || 1)),
         0,
@@ -1309,12 +1326,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         (sum, it) => sum + Number(it.freeQuantity || 0),
         0,
       );
+      const primarySchemeId = convertItems.find((it) => it.schemeId)?.schemeId || orderToConvert.schemeId || null;
 
-      await ApiClient.patch(`/api/v1/sales-orders/${orderToConvert.id}`, {
+      await ApiClient.patch(`/api/v1/sales-orders/${orderToConvert.id}${compParam}`, {
+        companyId: targetCompanyId,
         warehouseId: selectedWarehouseId,
-        schemeId: convertSchemeId || null,
-        rateListId: convertRateListId || null,
-        paymentTerm: convertPaymentTerm,
+        schemeId: primarySchemeId,
+        rateListId: orderToConvert.rateListId || null,
+        paymentTerm: orderToConvert.paymentTerm || 'CASH',
         discountAmount: totalDiscount,
         freeQuantityTotal: totalFree,
         items: convertItems.map((i) => ({
@@ -1328,19 +1347,23 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           discountAmount: Number(i.discountAmount || 0),
           freeQuantity: Number(i.freeQuantity || 0),
           totalPrice: Number(i.totalPrice) || (Number(i.quantity) * Number(i.unitPrice)),
-          schemeId: convertSchemeId || null,
-          rateListId: convertRateListId || null,
+          schemeId: i.schemeId || null,
+          rateListId: i.rateListId || orderToConvert.rateListId || null,
           commercialCondition: i.commercialCondition || null,
         })),
       });
 
       // 2. If order is PENDING, auto-approve first before converting!
       if (orderToConvert.status === 'PENDING') {
-        await ApiClient.patch(`/api/v1/sales-orders/${orderToConvert.id}/approve`, { approved: true });
+        await ApiClient.patch(`/api/v1/sales-orders/${orderToConvert.id}/approve${compParam}`, {
+          approved: true,
+          companyId: targetCompanyId,
+        });
       }
 
       // 3. Convert to Sale and generate invoice
-      const res = await ApiClient.post<any>(`/api/v1/sales-orders/${orderToConvert.id}/convert-to-sale`, {
+      const res = await ApiClient.post<any>(`/api/v1/sales-orders/${orderToConvert.id}/convert-to-sale${compParam}`, {
+        companyId: targetCompanyId,
         warehouseId: selectedWarehouseId,
         items: convertItems.length > 0 ? convertItems : undefined,
       });
@@ -2299,33 +2322,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             </div>
           ) : null}
 
-          {/* Scheme, Rate List, Payment Term, and Warehouse Selectors (Spacious 2x2 grid) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
-            <Select
-              label="Select Scheme (Auto-Updates Prices) *"
-              value={convertSchemeId}
-              onChange={(e) => handleConvertSchemeChange(e.target.value)}
-              options={[
-                { label: 'Standard Catalogue (No Scheme)', value: '' },
-                ...schemeOptions,
-              ]}
-            />
-            <Select
-              label="Commercial Rate List *"
-              value={convertRateListId}
-              onChange={(e) => handleConvertRateListChange(e.target.value)}
-              options={rateListOptions}
-            />
-            <Select
-              label="Payment Term *"
-              value={convertPaymentTerm}
-              onChange={(e) => handleConvertPaymentTermChange(e.target.value)}
-              options={[
-                { label: 'CASH (Immediate Settlement)', value: 'CASH' },
-                { label: 'CREDIT (Standard Terms)', value: 'CREDIT' },
-                { label: 'ADVANCE (Pre-Payment)', value: 'ADVANCE' },
-              ]}
-            />
+          {/* Dispatch Warehouse Selector */}
+          <div style={{ maxWidth: '420px', marginBottom: '12px' }}>
             <Select
               label="Dispatch Warehouse *"
               value={selectedWarehouseId}
@@ -2347,9 +2345,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 color: '#065f46',
                 fontSize: '12px',
                 fontWeight: 600,
+                marginBottom: '10px',
               }}
             >
-              <span>Dynamically fetching rate list & calculating scheme prices...</span>
+              <span>Dynamically calculating scheme prices...</span>
             </div>
           )}
 
@@ -2362,12 +2361,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
-                  <th style={{ padding: '12px 14px', minWidth: '220px', whiteSpace: 'nowrap' }}>Product</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center', width: '80px', whiteSpace: 'nowrap' }}>Ordered</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center', width: '90px', whiteSpace: 'nowrap' }}>Dispatch Qty</th>
+                  <th style={{ padding: '12px 14px', minWidth: '200px', whiteSpace: 'nowrap' }}>Product</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'center', width: '70px', whiteSpace: 'nowrap' }}>Ordered</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'center', width: '85px', whiteSpace: 'nowrap' }}>Dispatch Qty</th>
+                  <th style={{ padding: '12px 10px', minWidth: '180px', whiteSpace: 'nowrap' }}>Scheme</th>
                   <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '100px', whiteSpace: 'nowrap' }}>Base Rate</th>
                   <th style={{ padding: '12px 10px', textAlign: 'center', minWidth: '130px', whiteSpace: 'nowrap' }}>Scheme Discount</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '95px', whiteSpace: 'nowrap' }}>Free Bags</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '85px', whiteSpace: 'nowrap' }}>Free Bags</th>
                   <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '105px', whiteSpace: 'nowrap' }}>Net Unit Rate</th>
                   <th style={{ padding: '12px 14px', textAlign: 'right', minWidth: '120px', whiteSpace: 'nowrap' }}>Line Total</th>
                 </tr>
@@ -2409,6 +2409,19 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                             fontWeight: 700,
                             fontSize: '13px',
                           }}
+                        />
+                      </td>
+                      {/* Product-Specific Commercial Scheme */}
+                      <td style={{ padding: '8px 10px', minWidth: '180px' }}>
+                        <Select
+                          placeholder="-- Select Scheme --"
+                          value={item.schemeId || ''}
+                          options={[
+                            { label: 'Standard Catalogue (No Scheme)', value: '' },
+                            ...schemeOptions,
+                          ]}
+                          onChange={(e: any) => updateConvertItemScheme(idx, e?.target?.value || e)}
+                          isSearchable={true}
                         />
                       </td>
                       <td style={{ padding: '10px 10px', textAlign: 'right', color: '#64748b' }}>
@@ -2665,7 +2678,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           </CardHeader>
           <CardContent>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
-              <div style={{ gridColumn: 'span 4' }}>
+              <div style={{ gridColumn: 'span 5' }}>
                 <SearchableCombobox
                   id="field-so-dealer"
                   label="Dealer (Customer / Party) *"
@@ -2677,7 +2690,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   nextFocusId="field-so-warehouse"
                 />
               </div>
-              <div style={{ gridColumn: 'span 3' }}>
+              <div style={{ gridColumn: 'span 4' }}>
                 <SearchableCombobox
                   id="field-so-warehouse"
                   label="Dispatch Warehouse *"
@@ -2691,21 +2704,11 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                     subtext: w.code ? `Code: ${w.code}${w.type ? ` • ${w.type}` : ''}` : w.type,
                     searchTerms: `${w.name} ${w.code || ''} ${w.type || ''}`,
                   }))}
-                  nextFocusId="field-so-rate-list"
+                  nextFocusId="field-so-order-date"
                 />
               </div>
 
               <div style={{ gridColumn: 'span 3' }}>
-                <Select
-                  id="field-so-rate-list"
-                  label="Commercial Rate List"
-                  value={formData.rateListId || ''}
-                  onChange={(e) => handleHeaderRateListChange(e.target.value)}
-                  options={rateListOptions}
-                />
-              </div>
-
-              <div style={{ gridColumn: 'span 2' }}>
                 <Input
                   id="field-so-order-date"
                   label="Order Date *"
@@ -2915,8 +2918,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
                     <th style={{ padding: '10px 10px', width: '36px', textAlign: 'center' }}>#</th>
                     <th style={{ padding: '10px 12px', minWidth: '220px' }}>Finished Product *</th>
-                    <th style={{ padding: '10px 12px', minWidth: '190px' }}>Batch in WH *</th>
-                    <th style={{ padding: '10px 12px', minWidth: '160px' }}>Scheme *</th>
+                    <th style={{ padding: '10px 12px', minWidth: '180px' }}>Batch in WH *</th>
+                    <th style={{ padding: '10px 12px', minWidth: '180px' }}>Commercial Rate List</th>
+                    <th style={{ padding: '10px 12px', minWidth: '180px' }}>Scheme *</th>
                     <th style={{ padding: '10px 8px', textAlign: 'center', width: '90px' }}>Qty *</th>
                     <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '95px' }}>Base Rate</th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', minWidth: '110px' }}>Discount</th>
@@ -2961,6 +2965,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               disabled: b.isExpired,
                             }))}
                             onChange={(e: any) => updateItem(idx, 'batchId', e?.target?.value || e)}
+                            isSearchable={true}
+                          />
+                        </td>
+
+                        {/* Product-Specific Commercial Rate List */}
+                        <td style={{ padding: '10px 12px', minWidth: '180px' }}>
+                          <Select
+                            placeholder="Standard Catalogue"
+                            value={item.rateListId || ''}
+                            options={rateListOptions}
+                            onChange={(e: any) => updateItem(idx, 'rateListId', e?.target?.value || e)}
                             isSearchable={true}
                           />
                         </td>

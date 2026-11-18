@@ -288,7 +288,7 @@ export class SalesOrdersController {
       (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
       (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
       user.companyId;
-    return this.salesService.findOneOrder(id, effectiveCompanyId);
+    return this.salesService.findOneOrder(id, effectiveCompanyId, user);
   }
 
   @Post()
@@ -311,8 +311,9 @@ export class SalesOrdersController {
     @Param('id') id: string,
     @Body() dto: any,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.updateOrder(id, dto, user);
+    return this.salesService.updateOrder(id, dto, user, queryCompanyId);
   }
 
   @Put(':id')
@@ -320,8 +321,9 @@ export class SalesOrdersController {
     @Param('id') id: string,
     @Body() dto: any,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.updateOrder(id, dto, user);
+    return this.salesService.updateOrder(id, dto, user, queryCompanyId);
   }
 
   @Patch(':id/approve')
@@ -329,8 +331,9 @@ export class SalesOrdersController {
     @Param('id') id: string,
     @Body() dto: ApproveSalesOrderDto,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.approveOrder(id, dto, user);
+    return this.salesService.approveOrder(id, dto, user, queryCompanyId);
   }
 
   @Patch(':id/reject')
@@ -338,22 +341,28 @@ export class SalesOrdersController {
     @Param('id') id: string,
     @Body('rejectionReason') rejectionReason: string,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.rejectOrder(id, rejectionReason, user);
+    return this.salesService.rejectOrder(id, rejectionReason, user, queryCompanyId);
   }
 
   @Post(':id/convert-to-sale')
   async convertToSale(
     @Param('id') id: string,
-    @Body() body: { warehouseId: string; items?: any[]; netAmount?: number; notes?: string },
+    @Body() body: { warehouseId: string; items?: any[]; netAmount?: number; notes?: string; companyId?: string },
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.convertOrderToSale(id, body, user);
+    return this.salesService.convertOrderToSale(id, body, user, queryCompanyId);
   }
 
   @Delete(':id')
-  async deleteOrder(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.deleteOrder(id, user);
+  async deleteOrder(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    return this.salesService.deleteOrder(id, user, queryCompanyId);
   }
 }
 

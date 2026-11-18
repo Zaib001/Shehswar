@@ -60,6 +60,31 @@ export class SalesService {
     private readonly codeGen: CodeGenerationService,
   ) { }
 
+  /**
+   * Helper to resolve all valid company IDs for the current company context
+   * (e.g. parent company sees parent + child companies; child company sees child + parent company)
+   */
+  private async resolveAllowedCompanyIds(companyId?: string): Promise<string[]> {
+    if (!companyId || companyId === 'ALL') return [];
+    try {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      if (!comp) return [companyId];
+
+      const ids = [comp.id];
+      if (comp.isParent && comp.childCompanies && comp.childCompanies.length > 0) {
+        ids.push(...comp.childCompanies.map((c) => c.id));
+      } else if (comp.parentCompanyId) {
+        ids.push(comp.parentCompanyId);
+      }
+      return ids;
+    } catch {
+      return companyId ? [companyId] : [];
+    }
+  }
+
   // ============================
   // DEALER MANAGEMENT
   // ============================
@@ -927,9 +952,15 @@ export class SalesService {
     return { total, data: orders.map((o) => this.serializeOrder(o)) };
   }
 
-  async findOneOrder(id: string, companyId: string) {
+  async findOneOrder(id: string, companyId?: string, actor?: AuthUser) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId || actor?.companyId);
+    const where: any = { id };
+    if (!isSuper && allowedCompanyIds.length > 0) {
+      where.companyId = { in: allowedCompanyIds };
+    }
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id, companyId },
+      where,
       include: {
         dealer: { select: { id: true, name: true, code: true, currentBalance: true, creditLimit: true, phone: true } },
         salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -1287,6 +1318,7 @@ export class SalesService {
   async updateOrder(
     id: string,
     dto: {
+      companyId?: string;
       warehouseId?: string;
       notes?: string;
       orderDate?: string | Date;
@@ -1318,9 +1350,20 @@ export class SalesService {
       }>;
     },
     actor: AuthUser,
+    queryCompanyId?: string,
   ) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const targetCompId = dto?.companyId || queryCompanyId || actor.companyId;
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(targetCompId);
+    if (dto?.companyId && !allowedCompanyIds.includes(dto.companyId)) {
+      allowedCompanyIds.push(dto.companyId);
+    }
+    const where: any = { id };
+    if (!isSuper && allowedCompanyIds.length > 0) {
+      where.companyId = { in: allowedCompanyIds };
+    }
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id, companyId: actor.companyId },
+      where,
       include: { items: true },
     });
     if (!order) throw new NotFoundException('Sales order not found');
@@ -1421,11 +1464,22 @@ export class SalesService {
    */
   async approveOrRejectOrder(
     id: string,
-    dto: ApproveSalesOrderDto,
+    dto: ApproveSalesOrderDto & { companyId?: string },
     actor: AuthUser,
+    queryCompanyId?: string,
   ) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const targetCompId = dto?.companyId || queryCompanyId || actor.companyId;
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(targetCompId);
+    if (dto?.companyId && !allowedCompanyIds.includes(dto.companyId)) {
+      allowedCompanyIds.push(dto.companyId);
+    }
+    const where: any = { id };
+    if (!isSuper && allowedCompanyIds.length > 0) {
+      where.companyId = { in: allowedCompanyIds };
+    }
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id, companyId: actor.companyId },
+      where,
     });
     if (!order) throw new NotFoundException('Sales order not found');
     if (order.status !== 'PENDING') {
@@ -1466,12 +1520,12 @@ export class SalesService {
     return this.serializeOrder(updated);
   }
 
-  async approveOrder(id: string, dto: ApproveSalesOrderDto, actor: AuthUser) {
-    return this.approveOrRejectOrder(id, { ...dto, approved: true }, actor);
+  async approveOrder(id: string, dto: ApproveSalesOrderDto, actor: AuthUser, queryCompanyId?: string) {
+    return this.approveOrRejectOrder(id, { ...dto, approved: true }, actor, queryCompanyId);
   }
 
-  async rejectOrder(id: string, rejectionReason: string, actor: AuthUser) {
-    return this.approveOrRejectOrder(id, { approved: false, rejectionReason }, actor);
+  async rejectOrder(id: string, rejectionReason: string, actor: AuthUser, queryCompanyId?: string) {
+    return this.approveOrRejectOrder(id, { approved: false, rejectionReason }, actor, queryCompanyId);
   }
 
   // ============================
@@ -1485,11 +1539,22 @@ export class SalesService {
    */
   async convertOrderToSale(
     orderId: string,
-    dto: Partial<CreateSalesInvoiceDto>,
+    dto: Partial<CreateSalesInvoiceDto> & { companyId?: string },
     actor: AuthUser,
+    queryCompanyId?: string,
   ) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const targetCompId = (dto as any)?.companyId || queryCompanyId || actor.companyId;
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(targetCompId);
+    if ((dto as any)?.companyId && !allowedCompanyIds.includes((dto as any).companyId)) {
+      allowedCompanyIds.push((dto as any).companyId);
+    }
+    const where: any = { id: orderId };
+    if (!isSuper && allowedCompanyIds.length > 0) {
+      where.companyId = { in: allowedCompanyIds };
+    }
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id: orderId, companyId: actor.companyId },
+      where,
       include: {
         items: { include: { finishedProduct: true } },
         dealer: {
@@ -1848,9 +1913,15 @@ export class SalesService {
     });
   }
 
-  async deleteOrder(id: string, actor: AuthUser) {
+  async deleteOrder(id: string, actor: AuthUser, queryCompanyId?: string) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(queryCompanyId || actor.companyId);
+    const where: any = { id };
+    if (!isSuper && allowedCompanyIds.length > 0) {
+      where.companyId = { in: allowedCompanyIds };
+    }
     const order = await this.prisma.salesOrder.findFirst({
-      where: { id },
+      where,
       include: { salesInvoices: true },
     });
     if (!order) throw new NotFoundException('Sales order not found');
