@@ -65,6 +65,7 @@ export const Select: React.FC<SelectProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const isKeyboardNavRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -248,9 +249,28 @@ export const Select: React.FC<SelectProps> = ({
           if (!disabled) {
             if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
               e.preventDefault();
+              isKeyboardNavRef.current = true;
               handleToggle();
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              isKeyboardNavRef.current = true;
+              if (!isOpen) {
+                updatePosition();
+                setIsOpen(true);
+              }
             } else if (e.key === 'Escape') {
               setIsOpen(false);
+            } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+              if (!isOpen) {
+                updatePosition();
+                setIsOpen(true);
+              }
+              setSearch(e.key);
+              setTimeout(() => {
+                if (searchInputRef.current) {
+                  searchInputRef.current.focus();
+                }
+              }, 30);
             }
           }
         }}
@@ -438,9 +458,11 @@ export const Select: React.FC<SelectProps> = ({
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                       e.preventDefault();
+                      isKeyboardNavRef.current = true;
                       setHighlightedIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
                     } else if (e.key === 'ArrowUp') {
                       e.preventDefault();
+                      isKeyboardNavRef.current = true;
                       setHighlightedIndex((prev) => Math.max(prev - 1, 0));
                     } else if (e.key === 'Enter') {
                       e.preventDefault();
@@ -498,6 +520,7 @@ export const Select: React.FC<SelectProps> = ({
 
           {/* Options Scrollable List */}
           <div
+            onMouseMove={() => { isKeyboardNavRef.current = false; }}
             style={{
               overflowY: 'auto',
               flex: 1,
@@ -558,7 +581,9 @@ export const Select: React.FC<SelectProps> = ({
                       userSelect: 'none',
                     }}
                     onMouseEnter={(e) => {
-                      setHighlightedIndex(idx);
+                      if (!isKeyboardNavRef.current) {
+                        setHighlightedIndex(idx);
+                      }
                       if (!isSelected && !opt.disabled) {
                         e.currentTarget.style.backgroundColor = '#F8FAFC';
                         e.currentTarget.style.transform = 'translateX(2px)';

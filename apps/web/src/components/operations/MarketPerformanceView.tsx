@@ -228,6 +228,16 @@ export const MarketPerformanceView: React.FC = () => {
     }
   };
 
+  const canGoBack = breadcrumbs.length > 1;
+  const handleGoBack = () => {
+    if (canGoBack) {
+      const parentItem = breadcrumbs[breadcrumbs.length - 2];
+      if (parentItem) {
+        handleBreadcrumbClick(parentItem, breadcrumbs.length - 2);
+      }
+    }
+  };
+
   // Preview an individual invoice
   const openInvoicePreview = async (invoiceId: string) => {
     try {
@@ -360,44 +370,6 @@ export const MarketPerformanceView: React.FC = () => {
     );
   }, [performanceData?.products, tableSearch]);
 
-  // Navigation: Go Back helper across canonical 5-tier path
-  const canGoBack = currentLevel !== 'GROUP';
-  const handleGoBack = () => {
-    setTableSearch('');
-    if (currentLevel === 'DEALER') {
-      const terrCrumb = breadcrumbs.find((b) => b.level === 'TERRITORY');
-      if (terrCrumb && terrCrumb.id) {
-        setSelectedTerritoryId(terrCrumb.id);
-        setCurrentLevel('TERRITORY');
-        setSelectedDealerId(null);
-        setBreadcrumbs((prev) => prev.slice(0, 4));
-      } else {
-        navigateToGroup();
-      }
-    } else if (currentLevel === 'TERRITORY') {
-      const zoneCrumb = breadcrumbs.find((b) => b.level === 'ZONE');
-      if (zoneCrumb && zoneCrumb.id) {
-        setSelectedZoneId(zoneCrumb.id);
-        setCurrentLevel('ZONE');
-        setSelectedTerritoryId(null);
-        setBreadcrumbs((prev) => prev.slice(0, 3));
-      } else {
-        navigateToGroup();
-      }
-    } else if (currentLevel === 'ZONE') {
-      const regCrumb = breadcrumbs.find((b) => b.level === 'REGION');
-      if (regCrumb && regCrumb.id) {
-        setSelectedRegionId(regCrumb.id);
-        setCurrentLevel('REGION');
-        setSelectedZoneId(null);
-        setBreadcrumbs((prev) => prev.slice(0, 2));
-      } else {
-        navigateToGroup();
-      }
-    } else if (currentLevel === 'REGION') {
-      navigateToGroup();
-    }
-  };
 
   // Tier PDF Data Builder
   const buildCurrentTierPdfData = (): MarketPerformancePdfData | null => {
@@ -511,18 +483,18 @@ export const MarketPerformanceView: React.FC = () => {
           { label: 'Zone Target', value: fmtPKR(metrics.target), sub: 'Monthly Quota' },
           { label: 'Zone Credit Limit', value: fmtPKR(metrics.creditLimit), sub: 'Approved Credit', color: '#059669' },
           { label: 'Quota Achievement', value: `${metrics.achievementPercent || 0}%`, sub: 'of zonal target', color: Number(metrics.achievementPercent) >= 100 ? '#10b981' : '#0284c7' },
-          { label: 'Active Dealers', value: `${Number(metrics.activeDealers || 0).toLocaleString()}`, sub: 'Zone Network', color: '#10b981' },
+          { label: 'Dealers (Active / Reg)', value: `${Number(metrics.activeDealers || 0).toLocaleString()} / ${Number(metrics.assignedDealers || metrics.activeDealers || 0).toLocaleString()}`, sub: 'Trading / Registered', color: '#10b981' },
         ],
         tableTitle: 'Territories Breakdown (Tier 3: Territories)',
         tableSubtitle: `Managed by Area Manager: ${zone.areaManager}`,
         headers: [
           { label: 'Territory', align: 'left', width: '20%' },
           { label: 'Primary Sales Officer', align: 'left', width: '18%' },
-          { label: 'Target (PKR)', align: 'right', width: '15%' },
-          { label: 'Credit Limit (PKR)', align: 'right', width: '15%' },
-          { label: 'Actual Sales (PKR)', align: 'right', width: '15%' },
+          { label: 'Target (PKR)', align: 'right', width: '14%' },
+          { label: 'Credit Limit (PKR)', align: 'right', width: '14%' },
+          { label: 'Actual Sales (PKR)', align: 'right', width: '14%' },
           { label: 'Achievement', align: 'center', width: '9%' },
-          { label: 'Active Dealers', align: 'center', width: '8%' },
+          { label: 'Dealers (Active / Reg)', align: 'center', width: '11%' },
         ],
         rows: (performanceData.territories || []).map((t: any) => [
           { text: `${t.territoryName} (${t.territoryCode || ''})`, bold: true },
@@ -537,7 +509,7 @@ export const MarketPerformanceView: React.FC = () => {
             badgeBg: t.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
             badgeColor: t.achievementPercent >= 100 ? '#166534' : '#0369a1',
           },
-          { text: t.activeDealers, align: 'center' },
+          { text: `${t.activeDealers ?? 0} / ${t.assignedDealers ?? 0}`, align: 'center' },
         ]),
       };
     } else if (currentLevel === 'TERRITORY') {

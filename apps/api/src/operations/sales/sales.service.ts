@@ -303,8 +303,14 @@ export class SalesService {
     return this.serializeDealer(dealer);
   }
 
-  async updateDealer(id: string, dto: any, actor: AuthUser) {
-    const dealer = await this.prisma.dealer.findFirst({ where: { id, companyId: actor.companyId } });
+  async updateDealer(id: string, dto: any, actor: AuthUser, companyId?: string) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const effectiveCompanyId = companyId || actor.companyId;
+    const where: any = { id };
+    if (!isSuper) {
+      where.companyId = effectiveCompanyId;
+    }
+    const dealer = await this.prisma.dealer.findFirst({ where });
     if (!dealer) throw new NotFoundException('Dealer not found');
 
     const newTerritoryId = dto.territoryId !== undefined ? (dto.territoryId || null) : dealer.territoryId;
@@ -370,8 +376,14 @@ export class SalesService {
     return this.serializeDealer(updated);
   }
 
-  async assignSalesOfficer(dealerId: string, userIds: string[], actor: AuthUser) {
-    const dealer = await this.prisma.dealer.findFirst({ where: { id: dealerId, companyId: actor.companyId } });
+  async assignSalesOfficer(dealerId: string, userIds: string[], actor: AuthUser, companyId?: string) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const effectiveCompanyId = companyId || actor.companyId;
+    const where: any = { id: dealerId };
+    if (!isSuper) {
+      where.companyId = effectiveCompanyId;
+    }
+    const dealer = await this.prisma.dealer.findFirst({ where });
     if (!dealer) throw new NotFoundException('Dealer not found');
 
     const primaryOfficerId = userIds[0] || null;
@@ -416,11 +428,12 @@ export class SalesService {
     return { dealerId, assignedUserIds: userIds };
   }
 
-  async deleteDealer(id: string, actor: AuthUser, force: boolean = false) {
-    const companyId = actor.companyId;
+  async deleteDealer(id: string, actor: AuthUser, force: boolean = false, companyId?: string) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    const effectiveCompanyId = companyId || actor.companyId;
     const where: any = { id };
-    if (!actor.isSuperAdmin && !actor.roles.includes('ROLE_SUPER_ADMIN')) {
-      where.companyId = companyId;
+    if (!isSuper) {
+      where.companyId = effectiveCompanyId;
     }
     const dealer = await this.prisma.dealer.findFirst({
       where,

@@ -259,6 +259,26 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       : schemes;
   }, [schemes, activeCompanyId]);
 
+  const productOptions = React.useMemo(() => {
+    return companyProducts.map((p) => {
+      const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
+      const codeStr = p.productCode ? `[${p.productCode}] ` : '';
+      return {
+        value: p.id,
+        label: `${codeStr}${p.productName} (${pPack})`,
+        subtext: p.sku || p.category || undefined,
+      };
+    });
+  }, [companyProducts]);
+
+  const schemeOptions = React.useMemo(() => {
+    return companySchemes.map((s) => ({
+      value: s.id,
+      label: `${s.shortCode || s.code || 'SCHEME'} — ${s.name || s.schemeName} (${s.defaultDiscountPct || s.discountPct || 0}%)`,
+      subtext: s.description || undefined,
+    }));
+  }, [companySchemes]);
+
   const handleDealerChange = (dealerId: string) => {
     if (activeCompanyId && dealerId === activeCompanyId) {
       showToast({
@@ -297,13 +317,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const compParam = activeCompanyId ? `?companyId=${activeCompanyId}` : '';
       const [orderRes, dealerRes, whRes, prodRes, schemesRes, rateListsRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/sales-orders').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/dealers').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/warehouses').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/master-data/finished-products').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/pricing/schemes').catch(() => ({ data: [] })),
-        ApiClient.get<any>('/api/v1/pricing/rate-lists').catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/sales-orders${compParam}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/dealers${compParam}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/master-data/warehouses${compParam}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/master-data/finished-products${compParam}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/pricing/schemes${compParam}`).catch(() => ({ data: [] })),
+        ApiClient.get<any>(`/api/v1/pricing/rate-lists${compParam}`).catch(() => ({ data: [] })),
       ]);
 
       const parsedOrders = Array.isArray(orderRes.data)
@@ -336,7 +357,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompanyId]);
 
   useEffect(() => {
     loadData();
@@ -2841,88 +2862,41 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         </td>
 
                         {/* Finished Product Selector */}
-                        <td style={{ padding: '10px 12px' }}>
-                          <select
+                        <td style={{ padding: '10px 12px', minWidth: '220px' }}>
+                          <Select
+                            placeholder="Select Finished Product..."
                             value={item.finishedProductId || ''}
-                            onChange={(e) => updateItem(idx, 'finishedProductId', e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 10px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '13px',
-                              fontWeight: 600,
-                              color: '#0f172a',
-                              backgroundColor: '#fff',
-                            }}
-                          >
-                            <option value="">Select Finished Product...</option>
-                            {companyProducts.map((p) => {
-                              const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
-                              const codeStr = p.productCode ? `[${p.productCode}] ` : '';
-                              return (
-                                <option key={p.id} value={p.id}>
-                                  {codeStr}{p.productName} ({pPack})
-                                </option>
-                              );
-                            })}
-                          </select>
+                            options={productOptions}
+                            onChange={(e: any) => updateItem(idx, 'finishedProductId', e?.target?.value || e)}
+                            isSearchable={true}
+                          />
                         </td>
 
                         {/* Warehouse-Specific Batches */}
-                        <td style={{ padding: '10px 12px' }}>
-                          <select
+                        <td style={{ padding: '10px 12px', minWidth: '180px' }}>
+                          <Select
+                            placeholder={item.finishedProductId ? ((item.availableBatches || []).length > 0 ? "-- Select Batch in WH --" : "No batches in selected WH") : "Select product first"}
                             value={item.batchId || ''}
-                            onChange={(e) => updateItem(idx, 'batchId', e.target.value)}
-                            disabled={!item.finishedProductId}
-                            style={{
-                              width: '100%',
-                              padding: '8px 10px',
-                              borderRadius: '6px',
-                              border: isBatchStockExceeded ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: item.batchId ? '#0f172a' : '#64748b',
-                              backgroundColor: item.finishedProductId ? '#fff' : '#f8fafc',
-                            }}
-                          >
-                            <option value="">-- Select Batch in WH --</option>
-                            {item.availableBatches && item.availableBatches.length > 0 ? (
-                              item.availableBatches.map((b: any) => (
-                                <option key={b.id} value={b.id} disabled={b.isExpired}>
-                                  {b.batchNumber} — {b.availableQuantity} Units{b.isExpired ? ' [EXPIRED]' : ''}
-                                </option>
-                              ))
-                            ) : (
-                              <option value="" disabled>
-                                {item.finishedProductId ? 'No batches in selected WH' : 'Select product first'}
-                              </option>
-                            )}
-                          </select>
+                            disabled={!item.finishedProductId || (item.availableBatches || []).length === 0}
+                            options={(item.availableBatches || []).map((b: any) => ({
+                              value: b.id,
+                              label: `${b.batchNumber} — ${b.availableQuantity} Units${b.isExpired ? ' [EXPIRED]' : ''}`,
+                              disabled: b.isExpired,
+                            }))}
+                            onChange={(e: any) => updateItem(idx, 'batchId', e?.target?.value || e)}
+                            isSearchable={true}
+                          />
                         </td>
 
                         {/* Product-Specific Commercial Scheme */}
-                        <td style={{ padding: '10px 12px' }}>
-                          <select
+                        <td style={{ padding: '10px 12px', minWidth: '180px' }}>
+                          <Select
+                            placeholder="-- Select Scheme --"
                             value={item.schemeId || ''}
-                            onChange={(e) => updateItem(idx, 'schemeId', e.target.value)}
-                            style={{
-                              width: '100%',
-                              padding: '8px 10px',
-                              borderRadius: '6px',
-                              border: '1px solid #cbd5e1',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              backgroundColor: '#fff',
-                            }}
-                          >
-                            <option value="">-- Select Scheme --</option>
-                            {companySchemes.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.shortCode || s.code} — {s.name} ({s.defaultDiscountPct || s.discountPct || 0}%)
-                              </option>
-                            ))}
-                          </select>
+                            options={schemeOptions}
+                            onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value || e)}
+                            isSearchable={true}
+                          />
                         </td>
 
                         {/* Quantity with inline stock validation */}
@@ -2958,7 +2932,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                           {hasDiscount ? (
                             <span style={{ padding: '3px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700, fontSize: '11px', display: 'inline-block' }}>
-                              -PKR ${Number(item.discountAmount).toLocaleString()}${item.discountPercent ? ` (${item.discountPercent}%)` : ''}
+                              -PKR {Number(item.discountAmount).toLocaleString()}{item.discountPercent ? ` (${item.discountPercent}%)` : ''}
                             </span>
                           ) : (
                             <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>
@@ -2972,7 +2946,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
                         {/* Line Total */}
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '14px' }}>
-                          PKR ${Number(item.totalPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          PKR {Number(item.totalPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
 
                         {/* Remove Row */}

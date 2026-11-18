@@ -51,14 +51,21 @@ export class DealersController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('salesOfficerId') salesOfficerId?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
     return this.salesService.findAllDealers(
-      user.companyId,
+      effectiveCompanyId,
       {
         search,
         status,
@@ -71,23 +78,60 @@ export class DealersController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.findOneDealer(id, user.companyId, user);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.findOneDealer(id, effectiveCompanyId, user);
   }
 
   @Get(':id/market-hierarchy')
-  async getMarketHierarchy(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.getDealerMarketHierarchy(id, user.companyId);
+  async getMarketHierarchy(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.getDealerMarketHierarchy(id, effectiveCompanyId);
   }
 
   @Get(':id/history')
-  async getHistory(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.getDealerAssignmentHistory(id, user.companyId, user);
+  async getHistory(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.getDealerAssignmentHistory(id, effectiveCompanyId, user);
   }
 
   @Post()
-  async create(@Body() dto: any, @CurrentUser() user: AuthUser) {
-    return this.salesService.createDealer(dto, user);
+  async create(
+    @Body() dto: any,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      dto.companyId ||
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.createDealer({ ...dto, companyId: effectiveCompanyId }, user);
   }
 
   @Patch(':id')
@@ -95,8 +139,15 @@ export class DealersController {
     @Param('id') id: string,
     @Body() dto: any,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.updateDealer(id, dto, user);
+    const effectiveCompanyId =
+      dto.companyId ||
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.updateDealer(id, dto, user, effectiveCompanyId);
   }
 
   @Delete('purge/all')
@@ -109,8 +160,14 @@ export class DealersController {
     @Param('id') id: string,
     @Query('force') force: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.deleteDealer(id, user, force === 'true' || force === '1');
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.deleteDealer(id, user, force === 'true' || force === '1', effectiveCompanyId);
   }
 
   @Post(':id/assign-officers')
@@ -118,20 +175,33 @@ export class DealersController {
     @Param('id') id: string,
     @Body('userIds') userIds: string[],
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.salesService.assignSalesOfficer(id, userIds, user);
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.assignSalesOfficer(id, userIds, user, effectiveCompanyId);
   }
 
   @Get(':id/ledger')
   async getLedger(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.dealerLedgerService.getDealerLedger(id, user.companyId, {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
+    return this.dealerLedgerService.getDealerLedger(id, effectiveCompanyId, {
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -140,13 +210,31 @@ export class DealersController {
   }
 
   @Get(':id/balance')
-  async getBalance(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.dealerLedgerService.getDealerBalance(id, user.companyId);
+  async getBalance(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.dealerLedgerService.getDealerBalance(id, effectiveCompanyId);
   }
 
   @Post(':id/ledger/regenerate')
-  async regenerateLedger(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.dealerLedgerService.recalculateLedger(id, user.companyId);
+  async regenerateLedger(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.dealerLedgerService.recalculateLedger(id, effectiveCompanyId);
   }
 }
 
@@ -161,6 +249,8 @@ export class SalesOrdersController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('dealerId') dealerId?: string,
     @Query('salesOfficerId') salesOfficerId?: string,
     @Query('status') status?: string,
@@ -168,8 +258,13 @@ export class SalesOrdersController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
     return this.salesService.findAllOrders(
-      user.companyId,
+      effectiveCompanyId,
       {
         dealerId,
         salesOfficerId,
@@ -183,13 +278,32 @@ export class SalesOrdersController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.findOneOrder(id, user.companyId);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.findOneOrder(id, effectiveCompanyId);
   }
 
   @Post()
-  async create(@Body() dto: CreateSalesOrderDto, @CurrentUser() user: AuthUser) {
-    return this.salesService.createOrder(dto, user);
+  async create(
+    @Body() dto: CreateSalesOrderDto,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      dto.companyId ||
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.createOrder({ ...dto, companyId: effectiveCompanyId }, user);
   }
 
   @Patch(':id')
@@ -254,6 +368,8 @@ export class SalesInvoicesController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('dealerId') dealerId?: string,
     @Query('warehouseId') warehouseId?: string,
     @Query('status') status?: string,
@@ -261,8 +377,13 @@ export class SalesInvoicesController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
     return this.salesService.findAllInvoices(
-      user.companyId,
+      effectiveCompanyId,
       {
         dealerId,
         warehouseId,
@@ -276,13 +397,32 @@ export class SalesInvoicesController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.salesService.findOneInvoice(id, user.companyId);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.findOneInvoice(id, effectiveCompanyId);
   }
 
   @Post()
-  async create(@Body() dto: CreateSalesInvoiceDto, @CurrentUser() user: AuthUser) {
-    return this.salesService.createInvoice(dto, user);
+  async create(
+    @Body() dto: CreateSalesInvoiceDto,
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId =
+      dto.companyId ||
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+    return this.salesService.createInvoice({ ...dto, companyId: effectiveCompanyId }, user);
   }
 
   @Post(':id/post')
@@ -307,11 +447,18 @@ export class SalesReturnsController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('dealerId') dealerId?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.salesService.findAllReturns(user.companyId, {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
+    return this.salesService.findAllReturns(effectiveCompanyId, {
       dealerId,
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
@@ -335,12 +482,19 @@ export class DealerPaymentsController {
   @Get()
   async findAll(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx?: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
     @Query('dealerId') dealerId?: string,
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.salesService.findAllDealerPayments(user.companyId, {
+    const effectiveCompanyId =
+      (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
+      (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
+      user.companyId;
+
+    return this.salesService.findAllDealerPayments(effectiveCompanyId, {
       dealerId,
       status,
       limit: limit ? parseInt(limit, 10) : undefined,

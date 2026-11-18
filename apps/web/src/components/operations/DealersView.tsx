@@ -46,12 +46,14 @@ import {
 } from '../icons';
 import { DealerLedgerModal } from './DealerLedgerModal';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportDealerLedgerToPdf, exportDealersListPdf } from '../../lib/pdf-export';
 
 export interface DealerRecord {
   id: string;
   code: string;
+  companyId?: string;
   name: string;
   businessName?: string;
   contactPerson?: string;
@@ -108,6 +110,7 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const isKeyboardNav = useRef(false);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -193,9 +196,13 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || e.key === 'Enter') {
             e.preventDefault();
+            isKeyboardNav.current = true;
             setIsOpen(true);
           } else if (e.key === 'Tab') {
             setIsOpen(false);
+          } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+            setIsOpen(true);
+            setSearch(e.key);
           }
         }}
         style={{
@@ -293,15 +300,22 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'ArrowDown') {
                   e.preventDefault();
+                  isKeyboardNav.current = true;
                   setHighlightedIndex((prev) => (prev + 1 < filteredOptions.length ? prev + 1 : 0));
                 } else if (e.key === 'ArrowUp') {
                   e.preventDefault();
+                  isKeyboardNav.current = true;
                   setHighlightedIndex((prev) => (prev - 1 >= 0 ? prev - 1 : filteredOptions.length - 1));
                 } else if (e.key === 'Enter') {
                   e.preventDefault();
                   if (filteredOptions[highlightedIndex]) {
                     handleSelect(filteredOptions[highlightedIndex].value);
                   }
+                } else if (e.key === 'Tab') {
+                  if (filteredOptions[highlightedIndex]) {
+                    handleSelect(filteredOptions[highlightedIndex].value);
+                  }
+                  setIsOpen(false);
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
                   setIsOpen(false);
@@ -319,7 +333,10 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
           </div>
 
           {/* Options List */}
-          <div style={{ overflowY: 'auto', flex: 1, maxHeight: '200px' }}>
+          <div
+            onMouseMove={() => { isKeyboardNav.current = false; }}
+            style={{ overflowY: 'auto', flex: 1, maxHeight: '200px' }}
+          >
             {filteredOptions.length === 0 ? (
               <div style={{ padding: '12px', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
                 No matching territories found
@@ -331,9 +348,18 @@ const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                 return (
                   <div
                     key={opt.value}
+                    ref={(el) => {
+                      if (isHighlighted && el) {
+                        el.scrollIntoView({ block: 'nearest' });
+                      }
+                    }}
                     title={`${opt.label} ${opt.sublabel ? `(${opt.sublabel})` : ''}`}
                     onClick={() => handleSelect(opt.value)}
-                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    onMouseEnter={() => {
+                      if (!isKeyboardNav.current) {
+                        setHighlightedIndex(idx);
+                      }
+                    }}
                     style={{
                       padding: '8px 12px',
                       cursor: 'pointer',
@@ -438,6 +464,7 @@ export interface DealersViewProps {
 
 export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrder }) => {
   const { showToast } = useToast();
+  const { activeCompanyId } = useCompany();
   const [dealers, setDealers] = useState<DealerRecord[]>([]);
   const [salesOfficers, setSalesOfficers] = useState<any[]>([]);
   const [territories, setTerritories] = useState<any[]>([]);
@@ -565,8 +592,9 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const dealersUrl = activeCompanyId ? `/api/v1/dealers?companyId=${activeCompanyId}` : '/api/v1/dealers';
       const [dealerRes, userRes, terrRes] = await Promise.all([
-        ApiClient.get<any>('/api/v1/dealers').catch(() => ({ data: [] })),
+        ApiClient.get<any>(dealersUrl).catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/users').catch(() => ({ data: [] })),
         ApiClient.get<any>('/api/v1/master-data/territories').catch(() => ({ data: [] })),
       ]);
@@ -579,7 +607,7 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompanyId]);
 
   useEffect(() => {
     loadData();
@@ -603,6 +631,7 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
       // Backend automatically generates sequential code DLR-XXXXXX when code is 'AUTO' or omitted
       const res = await ApiClient.post<any>('/api/v1/dealers', {
         code: 'AUTO',
+        companyId: activeCompanyId || undefined,
         name: formData.name.trim(),
         businessName: formData.businessName.trim() || undefined,
         contactPerson: formData.contactPerson.trim() || undefined,
@@ -854,6 +883,7 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
 
   // Filter Dealers
   const filteredDealers = dealers.filter((d) => {
+    if (activeCompanyId && d.companyId && d.companyId !== activeCompanyId) return false;
     const q = searchQuery.toLowerCase();
     const matchesSearch =
       d.name.toLowerCase().includes(q) ||

@@ -62,6 +62,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
+  const isKeyboardNav = useRef(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -159,6 +160,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      isKeyboardNav.current = true;
       if (!isOpen) {
         setIsOpen(true);
         setHighlightedIndex(0);
@@ -170,6 +172,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
 
     if (e.key === 'ArrowUp') {
       e.preventDefault();
+      isKeyboardNav.current = true;
       if (!isOpen) {
         setIsOpen(true);
         setHighlightedIndex(totalItems > 0 ? totalItems - 1 : 0);
@@ -211,10 +214,13 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
     }
 
     if (e.key === 'Tab') {
-      // If menu is open and an item is selected or highlighted, close gracefully
       if (isOpen) {
-        setIsOpen(false);
-        setQuery(selectedOption ? selectedOption.label : '');
+        if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
+          selectOption(filteredOptions[highlightedIndex]);
+        } else {
+          setIsOpen(false);
+          setQuery(selectedOption ? selectedOption.label : '');
+        }
       }
       // Let tab event propagate to move naturally to next element
     }
@@ -308,6 +314,11 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
           value={query}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
+          onClick={() => {
+            if (!disabled && !isOpen) {
+              setIsOpen(true);
+            }
+          }}
           onKeyDown={handleKeyDown}
           style={{
             width: '100%',
@@ -397,6 +408,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
       {/* Dropdown Results List */}
       {isOpen && (
         <div
+          onMouseMove={() => { isKeyboardNav.current = false; }}
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -452,7 +464,11 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                         selectOption(opt);
                       }
                     }}
-                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    onMouseEnter={() => {
+                      if (!isKeyboardNav.current) {
+                        setHighlightedIndex(idx);
+                      }
+                    }}
                     style={{
                       padding: '8px 12px',
                       display: 'flex',
