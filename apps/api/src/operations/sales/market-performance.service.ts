@@ -1050,7 +1050,7 @@ export class MarketPerformanceService {
     }
 
     const dealers = Array.from(dealerMetricsMap.values()).map((d) => {
-      const ach = d.target > 0 ? (d.actualSales / d.target) * 100 : 0;
+      const ach = d.target > 0 ? (d.actualSales / d.target) * 100 : (d.actualSales > 0 ? 100 : 0);
       return {
         ...d,
         achievementPercent: Number(ach.toFixed(2)),
@@ -1339,11 +1339,33 @@ export class MarketPerformanceService {
     const periodActual = periodInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
     const ytdActual = ytdInvoices.reduce((sum, inv) => sum + Number(inv.netAmount || 0), 0);
 
-    const annualTarget = Number(dealer.annualAgreementTarget || 0);
-    const monthlyTarget = Number(dealer.monthlySalesTarget || Math.round(annualTarget / 12));
+    // Check for explicit dealer-level target in SalesTarget table
+    const dealerTargetRecord = await this.prisma.salesTarget.findFirst({
+      where: {
+        level: 'DEALER',
+        entityId: dealer.id,
+        periodYear: year,
+        periodMonth: month,
+        status: 'ACTIVE',
+      },
+    });
+
+    let annualTarget = Number(dealer.annualAgreementTarget || 0);
+    let monthlyTarget = Number(dealer.monthlySalesTarget || (dealerTargetRecord ? Number(dealerTargetRecord.targetAmount) : 0));
+    if (!monthlyTarget && annualTarget > 0) {
+      monthlyTarget = Math.round(annualTarget / 12);
+    }
+    if (!annualTarget && monthlyTarget > 0) {
+      annualTarget = monthlyTarget * 12;
+    }
+
     const remainingAnnualTarget = Math.max(0, annualTarget - ytdActual);
-    const monthlyAchievement = monthlyTarget > 0 ? (periodActual / monthlyTarget) * 100 : 0;
-    const ytdAchievement = annualTarget > 0 ? (ytdActual / annualTarget) * 100 : 0;
+    const monthlyAchievement = monthlyTarget > 0
+      ? (periodActual / monthlyTarget) * 100
+      : (periodActual > 0 ? 100 : 0);
+    const ytdAchievement = annualTarget > 0
+      ? (ytdActual / annualTarget) * 100
+      : (ytdActual > 0 ? 100 : 0);
     const targetVariance = periodActual - monthlyTarget;
 
     // Credit controls
@@ -1418,6 +1440,16 @@ export class MarketPerformanceService {
           : 'Direct / Unassigned',
       },
       period: { year, month, start, end, periodLabel },
+      metrics: {
+        totalRevenue: periodActual,
+        totalQuantity: productBreakdown.reduce((sum, p) => sum + p.quantitySold, 0),
+        totalOrders: periodInvoices.length,
+        activeDealers: periodActual > 0 ? 1 : 0,
+        averageDealerSales: periodActual,
+        target: monthlyTarget || annualTarget,
+        creditLimit,
+        achievementPercent: monthlyTarget > 0 ? Number(monthlyAchievement.toFixed(2)) : (periodActual > 0 ? 100 : 0),
+      },
       targets: {
         annualAgreementTarget: annualTarget,
         monthlyTarget,
@@ -1427,6 +1459,8 @@ export class MarketPerformanceService {
         monthlyAchievementPercent: Number(monthlyAchievement.toFixed(2)),
         ytdAchievementPercent: Number(ytdAchievement.toFixed(2)),
         targetVariance,
+        hasMonthlyTarget: monthlyTarget > 0,
+        hasAnnualTarget: annualTarget > 0,
       },
       creditControl: {
         creditLimit,

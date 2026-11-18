@@ -63,6 +63,8 @@ export interface DealerRecord {
   address?: string;
   creditLimit: number;
   currentBalance: number;
+  annualAgreementTarget?: number;
+  monthlySalesTarget?: number;
   status: string;
   territoryId?: string;
   territory?: any;
@@ -542,6 +544,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
     city: '',
     address: '',
     creditLimit: 0,
+    annualAgreementTarget: 0,
+    monthlySalesTarget: 0,
     territoryId: '',
     salesOfficerId: '',
     status: 'ACTIVE',
@@ -560,6 +564,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
     city: '',
     address: '',
     creditLimit: 0,
+    annualAgreementTarget: 0,
+    monthlySalesTarget: 0,
     territoryId: '',
     salesOfficerId: '',
     notes: '',
@@ -640,6 +646,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
         city: formData.city.trim() || undefined,
         address: formData.address.trim() || undefined,
         creditLimit: Number(formData.creditLimit) || 0,
+        annualAgreementTarget: Number(formData.annualAgreementTarget) || 0,
+        monthlySalesTarget: Number(formData.monthlySalesTarget) || 0,
         territoryId: formData.territoryId || undefined,
         salesOfficerId: formData.salesOfficerId || undefined,
         notes: formData.notes.trim() || undefined,
@@ -671,6 +679,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
         city: '',
         address: '',
         creditLimit: 0,
+        annualAgreementTarget: 0,
+        monthlySalesTarget: 0,
         territoryId: '',
         salesOfficerId: '',
         notes: '',
@@ -695,6 +705,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
       city: dealer.city || '',
       address: dealer.address || '',
       creditLimit: Number(dealer.creditLimit || 0),
+      annualAgreementTarget: Number((dealer as any).annualAgreementTarget || 0),
+      monthlySalesTarget: Number((dealer as any).monthlySalesTarget || 0),
       territoryId: dealer.territoryId || '',
       salesOfficerId: dealer.assignedFieldOfficerId || '',
       status: dealer.status || 'ACTIVE',
@@ -716,6 +728,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
         city: editFormData.city.trim() || null,
         address: editFormData.address.trim() || null,
         creditLimit: Number(editFormData.creditLimit) || 0,
+        annualAgreementTarget: Number(editFormData.annualAgreementTarget) || 0,
+        monthlySalesTarget: Number(editFormData.monthlySalesTarget) || 0,
         territoryId: editFormData.territoryId || null,
         salesOfficerId: editFormData.salesOfficerId || null,
         status: editFormData.status,
@@ -1569,6 +1583,28 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
               />
             </div>
 
+            <div style={{ minWidth: 0 }}>
+              <Input
+                label="Monthly Sales Target (PKR)"
+                type="number"
+                min="0"
+                placeholder="e.g. 100000"
+                value={formData.monthlySalesTarget || ''}
+                onChange={(e) => setFormData({ ...formData, monthlySalesTarget: Number(e.target.value) })}
+              />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <Input
+                label="Annual Agreement Quota (PKR)"
+                type="number"
+                min="0"
+                placeholder="e.g. 1200000"
+                value={formData.annualAgreementTarget || ''}
+                onChange={(e) => setFormData({ ...formData, annualAgreementTarget: Number(e.target.value) })}
+              />
+            </div>
+
             <div style={{ gridColumn: 'span 2', minWidth: 0 }}>
               <Textarea
                 ref={inputRefs.address}
@@ -1697,6 +1733,28 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
                 min="0"
                 value={editFormData.creditLimit}
                 onChange={(e) => setEditFormData({ ...editFormData, creditLimit: Number(e.target.value) })}
+              />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <Input
+                label="Monthly Sales Target (PKR)"
+                type="number"
+                min="0"
+                placeholder="e.g. 100000"
+                value={editFormData.monthlySalesTarget || ''}
+                onChange={(e) => setEditFormData({ ...editFormData, monthlySalesTarget: Number(e.target.value) })}
+              />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <Input
+                label="Annual Agreement Quota (PKR)"
+                type="number"
+                min="0"
+                placeholder="e.g. 1200000"
+                value={editFormData.annualAgreementTarget || ''}
+                onChange={(e) => setEditFormData({ ...editFormData, annualAgreementTarget: Number(e.target.value) })}
               />
             </div>
 

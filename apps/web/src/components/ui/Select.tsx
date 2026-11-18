@@ -7,9 +7,20 @@ import { IconChevronDown, IconCheck, IconClose, IconSearch } from '../icons';
 export interface SelectOption {
   label: string;
   value: string;
-  subtext?: string;
+  subtext?: string | any;
   badge?: string;
   disabled?: boolean;
+  searchTerms?: string;
+}
+
+function safeFormatSubtext(sub: any): string {
+  if (!sub) return '';
+  if (typeof sub === 'string') return sub;
+  if (typeof sub === 'number' || typeof sub === 'boolean') return String(sub);
+  if (typeof sub === 'object') {
+    return sub.name || sub.label || sub.title || sub.code || '';
+  }
+  return '';
 }
 
 export interface SelectProps {
@@ -163,11 +174,14 @@ export const Select: React.FC<SelectProps> = ({
     if (!searchStr) return true;
     const labelStr = String(opt.label ?? '').toLowerCase();
     const valStr = String(opt.value ?? '').toLowerCase();
-    const subtextStr = String(opt.subtext ?? '').toLowerCase();
+    const subtextRaw = safeFormatSubtext(opt.subtext);
+    const subtextStr = subtextRaw.toLowerCase();
+    const searchTermsStr = String((opt as any).searchTerms ?? '').toLowerCase();
     return (
       labelStr.includes(searchStr) ||
       valStr.includes(searchStr) ||
-      (Boolean(opt.subtext) && subtextStr.includes(searchStr))
+      (Boolean(subtextRaw) && subtextStr.includes(searchStr)) ||
+      (Boolean((opt as any).searchTerms) && searchTermsStr.includes(searchStr))
     );
   });
 
@@ -600,9 +614,9 @@ export const Select: React.FC<SelectProps> = ({
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {opt.label}
                       </div>
-                      {opt.subtext && (
+                      {Boolean(opt.subtext) && safeFormatSubtext(opt.subtext) && (
                         <div style={{ fontSize: '11px', color: '#64748B', marginTop: '1px', fontWeight: 400 }}>
-                          {opt.subtext}
+                          {safeFormatSubtext(opt.subtext)}
                         </div>
                       )}
                     </div>

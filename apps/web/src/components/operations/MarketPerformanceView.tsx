@@ -259,7 +259,29 @@ export const MarketPerformanceView: React.FC = () => {
     }
   };
 
-  const metrics = performanceData?.metrics || {};
+  const metrics = useMemo(() => {
+    if (performanceData?.metrics) return performanceData.metrics;
+    if (currentLevel === 'DEALER' && performanceData?.targets) {
+      const t = performanceData.targets;
+      const c = performanceData.creditControl;
+      const totalQty = (performanceData.products || []).reduce((sum: number, p: any) => sum + Number(p.quantitySold || 0), 0);
+      const ordersCount = (performanceData.invoices || []).length;
+      const mTarget = Number(t.monthlyTarget || 0);
+      const rev = Number(t.monthlyActualSales || 0);
+      return {
+        totalRevenue: rev,
+        totalQuantity: totalQty,
+        totalOrders: ordersCount,
+        activeDealers: rev > 0 ? 1 : 0,
+        averageDealerSales: rev,
+        target: mTarget || Number(t.annualAgreementTarget || 0),
+        creditLimit: Number(c?.creditLimit || 0),
+        achievementPercent: mTarget > 0 ? Number(t.monthlyAchievementPercent || 0) : (rev > 0 ? 100 : 0),
+      };
+    }
+    return {};
+  }, [performanceData, currentLevel]);
+
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
@@ -271,8 +293,56 @@ export const MarketPerformanceView: React.FC = () => {
     return `PKR ${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   };
 
-  // Helper: Achievement Badge
-  const renderAchievementBadge = (pct: number) => {
+  // Helper: Achievement Badge (Handles both quota-assigned and open/unassigned targets)
+  const renderAchievementBadge = (pct: number, target?: number, actual?: number) => {
+    const hasTarget = target !== undefined && target !== null && Number(target) > 0;
+    const hasActual = actual !== undefined && actual !== null && Number(actual) > 0;
+
+    // Case 1: When target is not assigned or zero
+    if (!hasTarget) {
+      if (hasActual) {
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '3px 10px',
+              borderRadius: '9999px',
+              fontSize: '11px',
+              fontWeight: 700,
+              background: '#f0fdf4',
+              color: '#16a34a',
+              border: '1px solid #bbf7d0',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>Active Sales (No Quota)</span>
+          </span>
+        );
+      }
+      return (
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '3px 10px',
+            borderRadius: '9999px',
+            fontSize: '11px',
+            fontWeight: 600,
+            background: '#f8fafc',
+            color: '#64748b',
+            border: '1px solid #e2e8f0',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>No Target Set</span>
+        </span>
+      );
+    }
+
+    // Case 2: When target is assigned (> 0)
     let bg = '#fef2f2';
     let color = '#dc2626';
     let border = '#fecaca';
@@ -426,11 +496,11 @@ export const MarketPerformanceView: React.FC = () => {
           { text: fmtPKR(r.creditLimit), align: 'right' },
           { text: fmtPKR(r.actualSales), align: 'right', bold: true },
           {
-            text: `${r.achievementPercent}%`,
+            text: Number(r.target) > 0 ? `${r.achievementPercent}%` : (Number(r.actualSales) > 0 ? 'Active (No Quota)' : 'No Target'),
             align: 'center',
             isBadge: true,
-            badgeBg: r.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: r.achievementPercent >= 100 ? '#166534' : '#0369a1',
+            badgeBg: Number(r.target) > 0 ? (r.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe') : (Number(r.actualSales) > 0 ? '#dcfce7' : '#f1f5f9'),
+            badgeColor: Number(r.target) > 0 ? (r.achievementPercent >= 100 ? '#166534' : '#0369a1') : (Number(r.actualSales) > 0 ? '#166534' : '#64748b'),
           },
           { text: r.activeDealers, align: 'center' },
           { text: fmtPKR(r.averageDealerSales), align: 'right' },
@@ -474,11 +544,11 @@ export const MarketPerformanceView: React.FC = () => {
           { text: fmtPKR(z.creditLimit), align: 'right' },
           { text: fmtPKR(z.actualSales), align: 'right', bold: true },
           {
-            text: `${z.achievementPercent}%`,
+            text: Number(z.target) > 0 ? `${z.achievementPercent}%` : (Number(z.actualSales) > 0 ? 'Active (No Quota)' : 'No Target'),
             align: 'center',
             isBadge: true,
-            badgeBg: z.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: z.achievementPercent >= 100 ? '#166534' : '#0369a1',
+            badgeBg: Number(z.target) > 0 ? (z.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe') : (Number(z.actualSales) > 0 ? '#dcfce7' : '#f1f5f9'),
+            badgeColor: Number(z.target) > 0 ? (z.achievementPercent >= 100 ? '#166534' : '#0369a1') : (Number(z.actualSales) > 0 ? '#166534' : '#64748b'),
           },
           { text: z.activeDealers, align: 'center' },
         ]),
@@ -518,11 +588,11 @@ export const MarketPerformanceView: React.FC = () => {
           { text: fmtPKR(t.creditLimit), align: 'right' },
           { text: fmtPKR(t.actualSales), align: 'right', bold: true },
           {
-            text: `${t.achievementPercent}%`,
+            text: Number(t.target) > 0 ? `${t.achievementPercent}%` : (Number(t.actualSales) > 0 ? 'Active (No Quota)' : 'No Target'),
             align: 'center',
             isBadge: true,
-            badgeBg: t.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: t.achievementPercent >= 100 ? '#166534' : '#0369a1',
+            badgeBg: Number(t.target) > 0 ? (t.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe') : (Number(t.actualSales) > 0 ? '#dcfce7' : '#f1f5f9'),
+            badgeColor: Number(t.target) > 0 ? (t.achievementPercent >= 100 ? '#166534' : '#0369a1') : (Number(t.actualSales) > 0 ? '#166534' : '#64748b'),
           },
           { text: `${t.activeDealers ?? 0} / ${t.assignedDealers ?? 0}`, align: 'center' },
         ]),
@@ -561,11 +631,11 @@ export const MarketPerformanceView: React.FC = () => {
           { text: fmtPKR(d.creditLimit), align: 'right' },
           { text: fmtPKR(d.actualSales), align: 'right', bold: true },
           {
-            text: `${d.achievementPercent}%`,
+            text: Number(d.target || d.monthlyTarget) > 0 ? `${d.achievementPercent}%` : (Number(d.actualSales) > 0 ? 'Active (No Quota)' : 'No Target'),
             align: 'center',
             isBadge: true,
-            badgeBg: d.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe',
-            badgeColor: d.achievementPercent >= 100 ? '#166534' : '#0369a1',
+            badgeBg: Number(d.target || d.monthlyTarget) > 0 ? (d.achievementPercent >= 100 ? '#dcfce7' : '#e0f2fe') : (Number(d.actualSales) > 0 ? '#dcfce7' : '#f1f5f9'),
+            badgeColor: Number(d.target || d.monthlyTarget) > 0 ? (d.achievementPercent >= 100 ? '#166534' : '#0369a1') : (Number(d.actualSales) > 0 ? '#166534' : '#64748b'),
           },
         ]),
       };
@@ -587,11 +657,20 @@ export const MarketPerformanceView: React.FC = () => {
         ],
         kpis: [
           { label: 'Period Actual Sales', value: fmtPKR(tg.monthlyActualSales), color: 'var(--brand-primary)' },
-          { label: 'Period Target', value: fmtPKR(tg.monthlyTarget) },
-          { label: 'Period Achievement', value: `${tg.monthlyAchievementPercent || 0}%`, color: Number(tg.monthlyAchievementPercent) >= 100 ? '#10b981' : '#0284c7' },
-          { label: 'Annual Agreement Target', value: fmtPKR(tg.annualAgreementTarget) },
-          { label: 'YTD Actual Sales', value: fmtPKR(tg.ytdActualSales), sub: `${tg.ytdAchievementPercent || 0}% Annual Achieved`, color: '#0284c7' },
-          { label: 'FO Salary Return', value: `${performanceData.salaryJustification?.returnMultiple || 'N/A'} Return`, color: '#10b981' },
+          { label: 'Period Target', value: Number(tg.monthlyTarget || 0) > 0 ? fmtPKR(tg.monthlyTarget) : 'Not Assigned' },
+          {
+            label: 'Period Achievement',
+            value: Number(tg.monthlyTarget || 0) > 0 ? `${tg.monthlyAchievementPercent || 0}%` : (Number(tg.monthlyActualSales || 0) > 0 ? 'Active Sales (No Quota)' : 'No Target Set'),
+            color: Number(tg.monthlyAchievementPercent) >= 100 || (!tg.monthlyTarget && Number(tg.monthlyActualSales || 0) > 0) ? '#10b981' : '#0284c7',
+          },
+          { label: 'Annual Agreement Target', value: Number(tg.annualAgreementTarget || 0) > 0 ? fmtPKR(tg.annualAgreementTarget) : 'No Annual Quota' },
+          {
+            label: 'YTD Actual Sales',
+            value: fmtPKR(tg.ytdActualSales),
+            sub: Number(tg.annualAgreementTarget || 0) > 0 ? `${tg.ytdAchievementPercent || 0}% Annual Achieved` : 'Fiscal YTD Posted',
+            color: '#0284c7',
+          },
+          { label: 'FO Commercial Return', value: `${performanceData.salaryJustification?.returnMultiple || 'N/A'} Return`, color: '#10b981' },
         ],
         tableTitle: 'Product-Level Sales Breakdown',
         tableSubtitle: 'Commercial volume and revenue per agricultural chemical formulation',
@@ -1021,19 +1100,19 @@ export const MarketPerformanceView: React.FC = () => {
             </div>
           </div>
           <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', letterSpacing: '-0.02em', marginTop: '2px' }}>
-            {fmtPKR(metrics.target)}
+            {Number(metrics.target || 0) > 0 ? fmtPKR(metrics.target) : (currentLevel === 'DEALER' ? 'Not Assigned' : fmtPKR(0))}
           </div>
           <div style={{ marginTop: '2px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
               <span style={{ fontSize: '11.5px', color: '#64748b' }}>Achievement</span>
-              {renderAchievementBadge(metrics.achievementPercent || 0)}
+              {renderAchievementBadge(metrics.achievementPercent || 0, metrics.target, metrics.totalRevenue)}
             </div>
             <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
               <div
                 style={{
-                  width: `${Math.min(metrics.achievementPercent || 0, 100)}%`,
+                  width: `${Math.min(Number(metrics.target) > 0 ? (metrics.achievementPercent || 0) : (Number(metrics.totalRevenue) > 0 ? 100 : 0), 100)}%`,
                   height: '100%',
-                  background: (metrics.achievementPercent || 0) >= 100 ? '#10b981' : (metrics.achievementPercent || 0) >= 75 ? '#0284c7' : '#ea580c',
+                  background: (metrics.achievementPercent || 0) >= 100 || (!metrics.target && Number(metrics.totalRevenue) > 0) ? '#10b981' : (metrics.achievementPercent || 0) >= 75 ? '#0284c7' : '#ea580c',
                   transition: 'width 0.4s ease',
                 }}
               />
@@ -1251,7 +1330,7 @@ export const MarketPerformanceView: React.FC = () => {
                               {fmtPKR(r.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {renderAchievementBadge(r.achievementPercent)}
+                              {renderAchievementBadge(r.achievementPercent, r.target, r.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
                               {r.activeDealers}
@@ -1383,7 +1462,7 @@ export const MarketPerformanceView: React.FC = () => {
                               {fmtPKR(z.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {renderAchievementBadge(z.achievementPercent)}
+                              {renderAchievementBadge(z.achievementPercent, z.target, z.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
                               {z.activeDealers}
@@ -1526,7 +1605,7 @@ export const MarketPerformanceView: React.FC = () => {
                               {fmtPKR(t.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {renderAchievementBadge(t.achievementPercent)}
+                              {renderAchievementBadge(t.achievementPercent, t.target, t.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
                               {t.activeDealers} / {t.assignedDealers}
@@ -1663,7 +1742,7 @@ export const MarketPerformanceView: React.FC = () => {
                               {fmtPKR(d.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {renderAchievementBadge(d.achievementPercent)}
+                              {renderAchievementBadge(d.achievementPercent, d.target, d.actualSales)}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
                               {Number(d.totalQuantity || 0).toLocaleString()}
@@ -1788,18 +1867,24 @@ export const MarketPerformanceView: React.FC = () => {
                     {fmtPKR(performanceData.targets?.monthlyActualSales)}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                    <span style={{ fontSize: '12px', color: '#64748b' }}>Target: {fmtPKR(performanceData.targets?.monthlyTarget)}</span>
-                    {renderAchievementBadge(performanceData.targets?.monthlyAchievementPercent || 0)}
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>
+                      Target: {Number(performanceData.targets?.monthlyTarget || 0) > 0 ? fmtPKR(performanceData.targets?.monthlyTarget) : 'Not Assigned'}
+                    </span>
+                    {renderAchievementBadge(
+                      performanceData.targets?.monthlyAchievementPercent || 0,
+                      performanceData.targets?.monthlyTarget,
+                      performanceData.targets?.monthlyActualSales
+                    )}
                   </div>
                 </Card>
 
                 <Card style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                   <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>Annual Agreement Target</div>
                   <div style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', marginTop: '4px' }}>
-                    {fmtPKR(performanceData.targets?.annualAgreementTarget)}
+                    {Number(performanceData.targets?.annualAgreementTarget || 0) > 0 ? fmtPKR(performanceData.targets?.annualAgreementTarget) : 'No Annual Quota'}
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
-                    Approved annual distributor agreement quota
+                    {Number(performanceData.targets?.annualAgreementTarget || 0) > 0 ? 'Approved annual distributor agreement quota' : 'Individual distributor annual quota not set'}
                   </div>
                 </Card>
 
@@ -1809,7 +1894,13 @@ export const MarketPerformanceView: React.FC = () => {
                     {fmtPKR(performanceData.targets?.ytdActualSales)}
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b', marginTop: '8px' }}>
-                    <strong style={{ color: '#0284c7' }}>{performanceData.targets?.ytdAchievementPercent || 0}%</strong> of Annual Agreement
+                    {Number(performanceData.targets?.annualAgreementTarget || 0) > 0 ? (
+                      <>
+                        <strong style={{ color: '#0284c7' }}>{performanceData.targets?.ytdAchievementPercent || 0}%</strong> of Annual Agreement
+                      </>
+                    ) : (
+                      <span style={{ color: '#16a34a', fontWeight: 600 }}>Active Fiscal Year Performance</span>
+                    )}
                   </div>
                 </Card>
 

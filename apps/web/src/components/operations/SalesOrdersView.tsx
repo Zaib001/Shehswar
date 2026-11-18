@@ -269,10 +269,21 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     return companyProducts.map((p) => {
       const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
       const codeStr = p.productCode ? `[${p.productCode}] ` : '';
+      const categoryName =
+        typeof p.category === 'object' && p.category !== null
+          ? (p.category.name || '')
+          : typeof p.category === 'string'
+          ? p.category
+          : '';
+      const subparts = [
+        p.sku ? `SKU: ${p.sku}` : '',
+        categoryName ? `Category: ${categoryName}` : '',
+      ].filter(Boolean);
       return {
         value: p.id,
         label: `${codeStr}${p.productName} (${pPack})`,
-        subtext: p.sku || p.category || undefined,
+        subtext: subparts.join(' • ') || undefined,
+        searchTerms: `${p.productCode || ''} ${p.productName || ''} ${p.sku || ''} ${categoryName || ''} ${pPack || ''}`,
       };
     });
   }, [companyProducts]);
