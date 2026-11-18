@@ -260,10 +260,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   }, [products, activeCompanyId]);
 
   const companySchemes = React.useMemo(() => {
-    return activeCompanyId
-      ? schemes.filter((s) => !s.companyId || s.companyId === activeCompanyId)
-      : schemes;
-  }, [schemes, activeCompanyId]);
+    return schemes;
+  }, [schemes]);
 
   const productOptions = React.useMemo(() => {
     return companyProducts.map((p) => {
@@ -289,12 +287,29 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   }, [companyProducts]);
 
   const schemeOptions = React.useMemo(() => {
-    return companySchemes.map((s) => ({
-      value: s.id,
-      label: `${s.shortCode || s.code || 'SCHEME'} — ${s.name || s.schemeName} (${s.defaultDiscountPct || s.discountPct || 0}%)`,
-      subtext: s.description || undefined,
-    }));
-  }, [companySchemes]);
+    return companySchemes.map((s) => {
+      const isParent = activeCompanyId && s.companyId && s.companyId !== activeCompanyId;
+      return {
+        value: s.id,
+        label: `${s.shortCode || s.code || 'SCHEME'} — ${s.name || s.schemeName} (${s.defaultDiscountPct || s.discountPct || 0}%)${isParent ? ' [Parent Group]' : ''}`,
+        subtext: s.description || undefined,
+      };
+    });
+  }, [companySchemes, activeCompanyId]);
+
+  const rateListOptions = React.useMemo(() => {
+    return [
+      { label: 'Master Catalogue Rates (Standard)', value: '' },
+      ...rateLists.map((rl) => {
+        const isParent = activeCompanyId && rl.companyId && rl.companyId !== activeCompanyId;
+        return {
+          value: rl.id,
+          label: `${rl.code} — ${rl.name}${isParent ? ' [Parent Group]' : ''}`,
+          subtext: rl.description || (rl.scheme ? `Linked Scheme: ${rl.scheme.name || rl.scheme.code}` : undefined),
+        };
+      }),
+    ];
+  }, [rateLists, activeCompanyId]);
 
   const handleDealerChange = (dealerId: string) => {
     if (activeCompanyId && dealerId === activeCompanyId) {
@@ -461,15 +476,20 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     prodId: string,
     qty: number,
     schemeId?: string,
+    overrideRateListId?: string,
   ) => {
     if (!prodId) return;
     try {
+      const targetRateListId = overrideRateListId !== undefined ? overrideRateListId : (formData.rateListId || undefined);
       const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+        companyId: activeCompanyId || undefined,
         dealerId: formData.dealerId || undefined,
         finishedProductId: prodId,
         quantity: qty,
-        paymentTerm: 'CASH',
+        paymentTerm: formData.paymentTerm || 'CASH',
         requestedSchemeId: schemeId || undefined,
+        requestedRateListId: targetRateListId || undefined,
+        rateListId: targetRateListId || undefined,
         orderDate: formData.orderDate || undefined,
       });
 
@@ -487,6 +507,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               freeQuantity: Number(r.freeQuantity || 0),
               totalPrice: Number(r.finalAmount || (Number(r.finalUnitRate || 0) * qty)),
               commercialCondition: r.commercialCondition || undefined,
+              rateListId: targetRateListId || '',
             };
           }
           return next;
@@ -495,6 +516,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     } catch {
       // Keep manual price on error
     }
+  };
+
+  const handleHeaderRateListChange = (newRateListId: string) => {
+    setFormData((prev) => ({ ...prev, rateListId: newRateListId }));
+    formItems.forEach((it, idx) => {
+      if (it.finishedProductId) {
+        resolveLinePrice(idx, it.finishedProductId, Number(it.quantity) || 1, it.schemeId, newRateListId);
+      }
+    });
   };
 
   // Form item updates
@@ -666,7 +696,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         warehouseId: warehouseIdToUse,
         orderDate: formData.orderDate,
         notes: formData.notes || undefined,
-        paymentTerm: 'CASH',
+        paymentTerm: formData.paymentTerm || 'CASH',
+        rateListId: formData.rateListId || undefined,
+        schemeId: formData.schemeId || undefined,
         companyId: activeCompanyId || undefined,
         items: formItems.map((it) => ({
           finishedProductId: it.finishedProductId,
@@ -675,6 +707,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           batchId: it.batchId || undefined,
           batchNumber: it.batchNumber || undefined,
           schemeId: it.schemeId || undefined,
+          rateListId: it.rateListId || formData.rateListId || undefined,
           quantity: Number(it.quantity) || 1,
           baseRate: Number(it.baseRate) || Number(it.unitPrice) || 0,
           unitPrice: Number(it.unitPrice) || 0,
@@ -901,11 +934,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           if (!it.finishedProductId) return it;
           try {
             const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+              companyId: activeCompanyId || undefined,
               dealerId: orderToCustomize.dealerId,
               finishedProductId: it.finishedProductId,
               quantity: Number(it.quantity) || 1,
               paymentTerm: paymentTermToUse,
               requestedSchemeId: schemeIdToUse || undefined,
+              requestedRateListId: rateListIdToUse || undefined,
               rateListId: rateListIdToUse || undefined,
             });
             const r = res.data?.data || res.data;
@@ -980,11 +1015,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       if (prodId && orderToCustomize) {
         try {
           const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+            companyId: activeCompanyId || undefined,
             dealerId: orderToCustomize.dealerId,
             finishedProductId: prodId,
             quantity: qty,
             paymentTerm: customizePaymentTerm,
             requestedSchemeId: customizeSchemeId || undefined,
+            requestedRateListId: customizeRateListId || undefined,
             rateListId: customizeRateListId || undefined,
           });
           const r = res.data?.data || res.data;
@@ -1122,11 +1159,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           if (!it.finishedProductId) return it;
           try {
             const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+              companyId: activeCompanyId || undefined,
               dealerId: targetDealerId,
               finishedProductId: it.finishedProductId,
               quantity: Number(it.quantity) || 1,
               paymentTerm: paymentTermToUse,
               requestedSchemeId: schemeIdToUse || undefined,
+              requestedRateListId: rateListIdToUse || undefined,
               rateListId: rateListIdToUse || undefined,
             });
             const r = res.data?.data || res.data;
@@ -1939,23 +1978,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               onChange={(e) => handleCustomizeSchemeChange(e.target.value)}
               options={[
                 { label: 'Standard Catalogue (No Scheme)', value: '' },
-                ...schemes.map((s) => ({
-                  label: s.shortCode ? `${s.shortCode} - ${s.name} (${s.schemeTypeCode || s.code})` : `${s.code} - ${s.name}`,
-                  value: s.id,
-                })),
+                ...schemeOptions,
               ]}
             />
             <Select
               label="Commercial Rate List *"
               value={customizeRateListId}
               onChange={(e) => handleCustomizeRateListChange(e.target.value)}
-              options={[
-                { label: 'Master Catalogue Rates', value: '' },
-                ...rateLists.map((rl) => ({
-                  label: `${rl.code} - ${rl.name}`,
-                  value: rl.id,
-                })),
-              ]}
+              options={rateListOptions}
             />
             <Select
               label="Payment Term *"
@@ -2277,23 +2307,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               onChange={(e) => handleConvertSchemeChange(e.target.value)}
               options={[
                 { label: 'Standard Catalogue (No Scheme)', value: '' },
-                ...schemes.map((s) => ({
-                  label: s.shortCode ? `${s.shortCode} - ${s.name} (${s.schemeTypeCode || s.code})` : `${s.code} - ${s.name}`,
-                  value: s.id,
-                })),
+                ...schemeOptions,
               ]}
             />
             <Select
               label="Commercial Rate List *"
               value={convertRateListId}
               onChange={(e) => handleConvertRateListChange(e.target.value)}
-              options={[
-                { label: 'Master Catalogue Rates', value: '' },
-                ...rateLists.map((rl) => ({
-                  label: `${rl.code} - ${rl.name}`,
-                  value: rl.id,
-                })),
-              ]}
+              options={rateListOptions}
             />
             <Select
               label="Payment Term *"
@@ -2644,7 +2665,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           </CardHeader>
           <CardContent>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
-              <div style={{ gridColumn: 'span 5' }}>
+              <div style={{ gridColumn: 'span 4' }}>
                 <SearchableCombobox
                   id="field-so-dealer"
                   label="Dealer (Customer / Party) *"
@@ -2656,7 +2677,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   nextFocusId="field-so-warehouse"
                 />
               </div>
-              <div style={{ gridColumn: 'span 4' }}>
+              <div style={{ gridColumn: 'span 3' }}>
                 <SearchableCombobox
                   id="field-so-warehouse"
                   label="Dispatch Warehouse *"
@@ -2670,11 +2691,21 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                     subtext: w.code ? `Code: ${w.code}${w.type ? ` • ${w.type}` : ''}` : w.type,
                     searchTerms: `${w.name} ${w.code || ''} ${w.type || ''}`,
                   }))}
-                  nextFocusId="field-so-order-date"
+                  nextFocusId="field-so-rate-list"
                 />
               </div>
 
               <div style={{ gridColumn: 'span 3' }}>
+                <Select
+                  id="field-so-rate-list"
+                  label="Commercial Rate List"
+                  value={formData.rateListId || ''}
+                  onChange={(e) => handleHeaderRateListChange(e.target.value)}
+                  options={rateListOptions}
+                />
+              </div>
+
+              <div style={{ gridColumn: 'span 2' }}>
                 <Input
                   id="field-so-order-date"
                   label="Order Date *"

@@ -42,6 +42,32 @@ export class PricingService {
 
   constructor(private readonly prisma: PrismaService) { }
 
+  /**
+   * Helper to resolve all valid company IDs for the current company context
+   * (e.g. parent company sees parent + child companies; child company sees child + parent company)
+   */
+  private async resolveAllowedCompanyIds(companyId?: string): Promise<string[]> {
+    if (!companyId || companyId === 'ALL') return [];
+    try {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      if (!comp) return [companyId];
+
+      const ids = [comp.id];
+      if (comp.isParent && comp.childCompanies && comp.childCompanies.length > 0) {
+        ids.push(...comp.childCompanies.map((c) => c.id));
+      }
+      if (comp.parentCompanyId) {
+        ids.push(comp.parentCompanyId);
+      }
+      return Array.from(new Set(ids));
+    } catch {
+      return [companyId];
+    }
+  }
+
   // ============================================================
   // 1. PRICING AUTHORITY LIMITS (ROLE-BASED GOVERNANCE)
   // ============================================================
@@ -302,8 +328,13 @@ export class PricingService {
    * STRICT: ONLY Finished Products; NO raw materials, packing materials, bottles, cartons, wastage.
    */
   async getActiveFinishedProductsForRateList(companyId: string) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
     const products = await this.prisma.finishedProduct.findMany({
-      where: { companyId, status: 'ACTIVE', deletedAt: null },
+      where: {
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
       select: {
         id: true,
         productCode: true,
@@ -418,7 +449,10 @@ export class PricingService {
     companyId: string,
     filter?: { category?: string; status?: string; isMobileVisible?: boolean; schemeId?: string },
   ) {
-    const where: any = { companyId };
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    const where: any = {
+      ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+    };
     if (filter?.category) where.category = filter.category;
     if (filter?.status) {
       where.status = filter.status;
@@ -508,8 +542,12 @@ export class PricingService {
    * Retrieve single Rate List with full version and item details
    */
   async getRateListById(id: string, companyId?: string) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
     let rateList = await this.prisma.rateList.findFirst({
-      where: { id, companyId },
+      where: {
+        id,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : companyId ? { companyId } : {}),
+      },
       include: {
         scheme: {
           include: { schemeTypeRef: true },
@@ -1432,7 +1470,10 @@ export class PricingService {
     companyId: string,
     filter?: { schemeType?: string; status?: string; isMobileVisible?: boolean; paymentTerm?: string },
   ) {
-    const where: any = { companyId };
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    const where: any = {
+      ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+    };
     if (filter?.status) {
       where.status = filter.status;
     } else {
@@ -1529,9 +1570,13 @@ export class PricingService {
   /**
    * Retrieve single Pricing Scheme by ID
    */
-  async getPricingSchemeById(id: string, companyId: string) {
+  async getPricingSchemeById(id: string, companyId?: string) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
     const scheme = await this.prisma.pricingScheme.findFirst({
-      where: { id, companyId },
+      where: {
+        id,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : companyId ? { companyId } : {}),
+      },
       include: {
         schemeTypeRef: true,
         baseRateList: { select: { id: true, code: true, name: true, category: true } },
@@ -1563,9 +1608,13 @@ export class PricingService {
    * When user selects a scheme in Rate List creation: MCCM - Mega Carnival Open Mela
    * system automatically retrieves active finished products and calculates scheme-wise rates!
    */
-  async getRateListProductsForScheme(schemeId: string, companyId: string) {
+  async getRateListProductsForScheme(schemeId: string, companyId?: string) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
     const scheme = await this.prisma.pricingScheme.findFirst({
-      where: { id: schemeId, companyId },
+      where: {
+        id: schemeId,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : companyId ? { companyId } : {}),
+      },
       include: { schemeTypeRef: true },
     });
     if (!scheme) throw new NotFoundException('Scheme not found');
@@ -1574,7 +1623,11 @@ export class PricingService {
 
     // Check if an existing RateList already exists for this Scheme
     const existingRateList = await this.prisma.rateList.findFirst({
-      where: { schemeId, companyId, status: 'ACTIVE' },
+      where: {
+        schemeId,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : companyId ? { companyId } : {}),
+        status: 'ACTIVE',
+      },
       include: {
         versions: {
           where: { status: 'ACTIVE' },
@@ -1600,7 +1653,8 @@ export class PricingService {
     }
 
     // Retrieve all active Finished Products from master
-    const allProducts = await this.getActiveFinishedProductsForRateList(companyId);
+    const effectiveCompanyId = companyId || scheme.companyId;
+    const allProducts = await this.getActiveFinishedProductsForRateList(effectiveCompanyId);
 
     // Single Discount % field (Requirements 12, 13, 14, 20)
     const schemeDiscountPct =
@@ -1951,13 +2005,21 @@ export class PricingService {
     const companyId = dto.companyId || actor?.companyId;
     if (!companyId) throw new BadRequestException('Company ID is required for price resolution');
 
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+
     const quantity = Number(dto.quantity || 1);
     const orderDate = dto.orderDate ? new Date(dto.orderDate) : new Date();
     const paymentTerm = (dto.paymentTerm || 'CASH').toUpperCase();
 
     // 1. Validate Finished Product
     const product = await this.prisma.finishedProduct.findFirst({
-      where: { id: dto.finishedProductId, companyId },
+      where: {
+        id: dto.finishedProductId,
+        OR: [
+          { companyId: { in: allowedCompanyIds } },
+          { id: dto.finishedProductId },
+        ],
+      },
       include: {
         category: true,
         packSize: true,
@@ -1970,7 +2032,10 @@ export class PricingService {
     // 2. Validate Dealer if provided (for tier/balance)
     if (dto.dealerId) {
       const dealer = await this.prisma.dealer.findFirst({
-        where: { id: dto.dealerId, companyId },
+        where: {
+          id: dto.dealerId,
+          ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+        },
         select: { id: true, code: true, name: true, creditLimit: true, currentBalance: true },
       });
       if (dealer) {
@@ -1984,13 +2049,14 @@ export class PricingService {
     let resolvedVersion: any = null;
     let resolvedItem: any = null;
     let resolvedScheme: any = null;
+    const targetRateListId = dto.requestedRateListId || (dto as any).rateListId;
 
     // Check if requestedSchemeId provided
     if (dto.requestedSchemeId) {
       const schemeRecord = await this.prisma.pricingScheme.findFirst({
         where: {
           id: dto.requestedSchemeId,
-          companyId,
+          ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
           status: { notIn: ['INACTIVE', 'DRAFT'] },
         },
         include: { schemeTypeRef: true },
@@ -2024,18 +2090,30 @@ export class PricingService {
 
         resolvedScheme = schemeRecord;
       }
-      // Find Rate List specifically linked to this scheme
-      const rlConditions: any[] = [{ schemeId: dto.requestedSchemeId }];
-      if (schemeRecord?.baseRateListId) {
-        rlConditions.push({ id: schemeRecord.baseRateListId });
+    }
+
+    // Resolve Rate List: prioritize explicitly requested rate list (from child or parent company),
+    // then scheme-linked rate list, then fallback active rate lists.
+    const rlConditions: any[] = [];
+    if (targetRateListId) {
+      rlConditions.push({ id: targetRateListId });
+    }
+    if (resolvedScheme) {
+      if (resolvedScheme.baseRateListId) {
+        rlConditions.push({ id: resolvedScheme.baseRateListId });
       }
+      rlConditions.push({ schemeId: resolvedScheme.id });
+    }
+
+    if (rlConditions.length > 0) {
       resolvedRateList = await this.prisma.rateList.findFirst({
         where: {
           OR: rlConditions,
-          companyId,
+          ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
           status: 'ACTIVE',
         },
         include: {
+          scheme: { include: { schemeTypeRef: true } },
           versions: {
             where: {
               status: 'ACTIVE',
@@ -2059,14 +2137,15 @@ export class PricingService {
       });
 
       if (!resolvedRateList?.versions?.[0]?.items?.[0]) {
-        // Fallback: check any active version on this rate list
+        // Fallback: check any active version on these candidate rate lists
         const fallbackRL = await this.prisma.rateList.findFirst({
           where: {
             OR: rlConditions,
-            companyId,
+            ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
             status: 'ACTIVE',
           },
           include: {
+            scheme: { include: { schemeTypeRef: true } },
             versions: {
               where: { status: 'ACTIVE' },
               orderBy: { versionNumber: 'desc' },
@@ -2088,36 +2167,6 @@ export class PricingService {
         resolvedVersion = resolvedRateList.versions[0];
         resolvedItem = resolvedVersion.items[0];
         resolvedBaseRate = Number(resolvedItem.baseRate || product.defaultSellingPrice || 1200);
-      }
-    }
-
-    // If explicit rate list was requested without scheme
-    if (!resolvedRateList && dto.requestedRateListId) {
-      resolvedRateList = await this.prisma.rateList.findFirst({
-        where: { id: dto.requestedRateListId, companyId, status: 'ACTIVE' },
-        include: {
-          scheme: { include: { schemeTypeRef: true } },
-          versions: {
-            where: {
-              status: 'ACTIVE',
-              effectiveFrom: { lte: orderDate },
-              OR: [{ effectiveTo: null }, { effectiveTo: { gte: orderDate } }],
-            },
-            orderBy: { versionNumber: 'desc' },
-            take: 1,
-            include: {
-              items: {
-                where: { finishedProductId: product.id, isActive: true },
-              },
-            },
-          },
-        },
-      });
-
-      if (resolvedRateList?.versions?.[0]?.items?.[0]) {
-        resolvedVersion = resolvedRateList.versions[0];
-        resolvedItem = resolvedVersion.items[0];
-        resolvedBaseRate = Number(resolvedItem.baseRate || product.defaultSellingPrice || 1200);
         if (!resolvedScheme && resolvedRateList.scheme) {
           resolvedScheme = resolvedRateList.scheme;
         }
@@ -2128,7 +2177,7 @@ export class PricingService {
     if (!resolvedRateList || !resolvedVersion) {
       const candidateRateLists = await this.prisma.rateList.findMany({
         where: {
-          companyId,
+          ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
           status: 'ACTIVE',
         },
         orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],

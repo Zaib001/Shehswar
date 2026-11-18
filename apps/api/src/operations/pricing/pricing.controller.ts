@@ -58,14 +58,16 @@ export class PricingController {
     @Query('category') category?: string,
     @Query('status') status?: string,
     @Query('isMobileVisible') isMobileVisible?: string,
+    @Query('companyId') queryCompanyId?: string,
     // legacy query support
     @Query('finishedProductId') finishedProductId?: string,
     @Query('phase') phase?: string,
   ) {
+    const effectiveCompanyId = queryCompanyId || user.companyId;
     if (finishedProductId || phase) {
-      return this.pricingService.getLegacyRateLists(user.companyId, { finishedProductId, phase });
+      return this.pricingService.getLegacyRateLists(effectiveCompanyId, { finishedProductId, phase });
     }
-    return this.pricingService.getRateLists(user.companyId, {
+    return this.pricingService.getRateLists(effectiveCompanyId, {
       category,
       status,
       isMobileVisible: isMobileVisible !== undefined ? isMobileVisible === 'true' : undefined,
@@ -76,8 +78,10 @@ export class PricingController {
   async getRateListById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.getRateListById(id, user.companyId);
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getRateListById(id, effectiveCompanyId);
   }
 
   @Post('rate-lists')
@@ -199,8 +203,10 @@ export class PricingController {
     @Query('status') status?: string,
     @Query('isMobileVisible') isMobileVisible?: string,
     @Query('paymentTerm') paymentTerm?: string,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.getPricingSchemes(user.companyId, {
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getPricingSchemes(effectiveCompanyId, {
       schemeType,
       status,
       isMobileVisible: isMobileVisible !== undefined ? isMobileVisible === 'true' : undefined,
@@ -209,24 +215,32 @@ export class PricingController {
   }
 
   @Get('schemes/active')
-  async getActiveSchemes(@CurrentUser() user: AuthUser) {
-    return this.pricingService.getActiveSchemes(user.companyId);
+  async getActiveSchemes(
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getActiveSchemes(effectiveCompanyId);
   }
 
   @Get('schemes/:id/products')
   async getSchemeRateListProducts(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.getRateListProductsForScheme(id, user.companyId);
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getRateListProductsForScheme(id, effectiveCompanyId);
   }
 
   @Get('schemes/:id')
   async getPricingSchemeById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.getPricingSchemeById(id, user.companyId);
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getPricingSchemeById(id, effectiveCompanyId);
   }
 
   @Post('schemes')

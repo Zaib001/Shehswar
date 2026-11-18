@@ -39,7 +39,7 @@ export interface UpdateBatchDto {
 
 @Injectable()
 export class BatchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Helper to resolve all valid company IDs for the current company context
@@ -78,11 +78,11 @@ export class BatchesService {
         id: finishedProductId,
         ...(allowedCompanyIds.length > 0
           ? {
-              OR: [
-                { companyId: { in: allowedCompanyIds } },
-                { id: finishedProductId },
-              ],
-            }
+            OR: [
+              { companyId: { in: allowedCompanyIds } },
+              { id: finishedProductId },
+            ],
+          }
           : {}),
       },
       select: {
