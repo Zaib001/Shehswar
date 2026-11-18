@@ -661,6 +661,7 @@ export class SalesService {
         id: dealer.id,
         code: dealer.code,
         name: dealer.name,
+        businessName: dealer.businessName,
         city: dealer.city,
         address: dealer.address,
         creditLimit: Number(dealer.creditLimit || 0),

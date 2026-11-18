@@ -238,11 +238,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         prov = 'Islamabad';
       }
       const hierarchyPath = [prov, reg, zone, terr].filter(Boolean).join(' → ');
+
+      // Prioritize Shop/Business Name & Address over individual dealer name
+      const shopName = (d.businessName || '').trim() || d.name;
+      const addressParts = [d.address?.trim(), d.city?.trim()].filter(Boolean).join(', ');
+      const displayLabel = addressParts ? `${shopName} — ${addressParts}` : shopName;
+
       return {
         value: d.id,
-        label: d.name,
-        subtext: `Dealer Code: ${d.code}${hierarchyPath ? ` • ${hierarchyPath}` : ''}${d.city ? ` (${d.city})` : ''}`,
-        searchTerms: `${d.name} ${d.code} ${d.phone || ''} ${d.city || ''} ${d.address || ''} ${prov} ${reg} ${zone} ${terr}`,
+        label: displayLabel,
+        subtext: `Address: ${addressParts || 'No address'}${d.code ? ` • Code: ${d.code}` : ''}${hierarchyPath ? ` • ${hierarchyPath}` : ''}`,
+        searchTerms: `${shopName} ${d.businessName || ''} ${d.address || ''} ${d.city || ''} ${d.name || ''} ${d.code || ''} ${d.phone || ''} ${prov} ${reg} ${zone} ${terr}`,
       };
     });
   }, [companyDealers]);
@@ -2631,7 +2637,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 <SearchableCombobox
                   id="field-so-dealer"
                   label="Dealer (Customer / Party) *"
-                  placeholder="Type to search dealer by name, code, territory, city..."
+                  placeholder="Type to search dealer by shop name, address, code, city..."
                   required
                   value={formData.dealerId}
                   onChange={(val) => handleDealerChange(val)}
@@ -2703,8 +2709,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                       SYSTEM-RESOLVED MARKET ATTRIBUTION
                     </span>
                     <strong style={{ fontSize: '14px', color: '#0f172a' }}>
-                      {dealerHierarchy.dealer?.name || dealerHierarchy.dealerName} ({dealerHierarchy.dealer?.code || dealerHierarchy.dealerCode})
+                      {dealerHierarchy.dealer?.businessName || dealerHierarchy.dealer?.name || dealerHierarchy.dealerName} ({dealerHierarchy.dealer?.code || dealerHierarchy.dealerCode})
                     </strong>
+                    {dealerHierarchy.dealer?.address && (
+                      <span style={{ fontSize: '12.5px', color: '#64748b' }}>
+                        • {dealerHierarchy.dealer.address}{dealerHierarchy.dealer.city ? `, ${dealerHierarchy.dealer.city}` : ''}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '12px', color: '#64748b' }}>
                     Operating Scope: <strong style={{ color: '#0f172a' }}>{activeCompanyName || 'Holding Company'}</strong>
