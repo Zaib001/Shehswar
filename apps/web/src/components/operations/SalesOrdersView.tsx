@@ -83,7 +83,7 @@ export interface SalesOrderRecord {
   discountAmount?: number;
   freeQuantityTotal?: number;
   dealer?: { id: string; name: string; code: string; currentBalance?: number; creditLimit?: number };
-  salesOfficer?: { id: string; firstName: string; lastName: string };
+  salesOfficer?: { id: string; firstName?: string; lastName?: string; name?: string };
   warehouseId?: string;
   totalAmount: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONVERTED_TO_SALE';
@@ -1329,7 +1329,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     const matchesSearch =
       o.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       o.dealer?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (o.salesOfficer && `${o.salesOfficer.firstName} ${o.salesOfficer.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()));
+      (o.salesOfficer && (o.salesOfficer.name || `${o.salesOfficer.firstName || ''} ${o.salesOfficer.lastName || ''}`.trim()).toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesStatus = statusFilter === 'ALL' || o.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -1392,7 +1392,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       key: 'salesOfficer',
       header: 'Booked By',
       render: (o) =>
-        o.salesOfficer ? `${o.salesOfficer.firstName} ${o.salesOfficer.lastName}` : 'ERP Direct',
+        o.salesOfficer ? (o.salesOfficer.name || `${o.salesOfficer.firstName || ''} ${o.salesOfficer.lastName || ''}`.trim() || 'ERP Direct') : 'ERP Direct',
     },
     {
       key: 'totalAmount',
@@ -1903,7 +1903,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 </div>
                 {orderToCustomize.salesOfficer && (
                   <span style={{ fontSize: '12px', color: '#b45309', fontWeight: 600 }}>
-                    Booked by: <strong>{orderToCustomize.salesOfficer.firstName} {orderToCustomize.salesOfficer.lastName}</strong>
+                    Booked by: <strong>{orderToCustomize.salesOfficer.name || `${orderToCustomize.salesOfficer.firstName || ''} ${orderToCustomize.salesOfficer.lastName || ''}`.trim()}</strong>
                   </span>
                 )}
               </div>
@@ -2221,7 +2221,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               </span>
             </div>
             <div style={{ fontSize: '12px', color: '#64748b' }}>
-              Booked by: <strong style={{ color: '#0f172a' }}>{orderToConvert.salesOfficer ? `${orderToConvert.salesOfficer.firstName} ${orderToConvert.salesOfficer.lastName}` : 'Mobile Officer'}</strong>
+              Booked by: <strong style={{ color: '#0f172a' }}>{orderToConvert.salesOfficer ? (orderToConvert.salesOfficer.name || `${orderToConvert.salesOfficer.firstName || ''} ${orderToConvert.salesOfficer.lastName || ''}`.trim()) : 'Mobile Officer'}</strong>
               {orderToConvert.orderDate && (
                 <span style={{ marginLeft: '10px' }}>&bull; {new Date(orderToConvert.orderDate).toLocaleDateString()}</span>
               )}
@@ -2245,7 +2245,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 </span>
                 {orderToConvert.salesOfficer && (
                   <span style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>
-                    Booked by: <strong>{orderToConvert.salesOfficer.firstName} {orderToConvert.salesOfficer.lastName}</strong>
+                    Booked by: <strong>{orderToConvert.salesOfficer.name || `${orderToConvert.salesOfficer.firstName || ''} ${orderToConvert.salesOfficer.lastName || ''}`.trim()}</strong>
                   </span>
                 )}
               </div>
@@ -2740,7 +2740,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                       {dealerHierarchy.hierarchy?.region || dealerHierarchy.region?.name || 'Region'}
                     </div>
                     <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
-                      BM: <strong>{dealerHierarchy.businessManager ? `${dealerHierarchy.businessManager.firstName} ${dealerHierarchy.businessManager.lastName}` : 'Unassigned'}</strong>
+                      BM: <strong>{
+                        (dealerHierarchy.businessManager?.name && dealerHierarchy.businessManager.name !== 'Unassigned')
+                          ? dealerHierarchy.businessManager.name
+                          : (typeof dealerHierarchy.region?.businessManager === 'string' && dealerHierarchy.region.businessManager !== 'Unassigned'
+                            ? dealerHierarchy.region.businessManager
+                            : (dealerHierarchy.businessManager?.firstName && dealerHierarchy.businessManager.firstName !== 'Unassigned'
+                              ? `${dealerHierarchy.businessManager.firstName} ${dealerHierarchy.businessManager.lastName || ''}`.trim()
+                              : (dealerHierarchy.hierarchy?.businessManager || 'Unassigned')))
+                      }</strong>
                     </div>
                   </div>
 
@@ -2750,7 +2758,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                       {dealerHierarchy.hierarchy?.zone || dealerHierarchy.zone?.name || 'Zone'}
                     </div>
                     <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
-                      AM: <strong>{dealerHierarchy.areaManager ? `${dealerHierarchy.areaManager.firstName} ${dealerHierarchy.areaManager.lastName}` : 'Unassigned'}</strong>
+                      AM: <strong>{
+                        (dealerHierarchy.areaManager?.name && dealerHierarchy.areaManager.name !== 'Unassigned')
+                          ? dealerHierarchy.areaManager.name
+                          : (typeof dealerHierarchy.zone?.areaManager === 'string' && dealerHierarchy.zone.areaManager !== 'Unassigned'
+                            ? dealerHierarchy.zone.areaManager
+                            : (dealerHierarchy.areaManager?.firstName && dealerHierarchy.areaManager.firstName !== 'Unassigned'
+                              ? `${dealerHierarchy.areaManager.firstName} ${dealerHierarchy.areaManager.lastName || ''}`.trim()
+                              : (dealerHierarchy.hierarchy?.areaManager || 'Unassigned')))
+                      }</strong>
                     </div>
                   </div>
 
@@ -2760,7 +2776,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                       {dealerHierarchy.hierarchy?.territory || dealerHierarchy.territory?.name || 'Territory'}
                     </div>
                     <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
-                      Responsible SO: <strong style={{ color: '#2563eb' }}>{dealerHierarchy.salesOfficer ? `${dealerHierarchy.salesOfficer.firstName} ${dealerHierarchy.salesOfficer.lastName}` : 'ERP Direct'}</strong>
+                      Responsible SO: <strong style={{ color: '#2563eb' }}>{
+                        (dealerHierarchy.salesOfficer?.name && dealerHierarchy.salesOfficer.name !== 'ERP Direct' && dealerHierarchy.salesOfficer.name !== 'Unassigned')
+                          ? dealerHierarchy.salesOfficer.name
+                          : (typeof dealerHierarchy.territory?.salesOfficer === 'string' && dealerHierarchy.territory.salesOfficer !== 'ERP Direct' && dealerHierarchy.territory.salesOfficer !== 'Unassigned'
+                            ? dealerHierarchy.territory.salesOfficer
+                            : (dealerHierarchy.salesOfficer?.firstName && dealerHierarchy.salesOfficer.firstName !== 'ERP Direct' && dealerHierarchy.salesOfficer.firstName !== 'undefined'
+                              ? `${dealerHierarchy.salesOfficer.firstName} ${dealerHierarchy.salesOfficer.lastName || ''}`.trim()
+                              : (dealerHierarchy.hierarchy?.salesOfficer || 'ERP Direct')))
+                      }</strong>
                     </div>
                   </div>
                 </div>
@@ -3036,7 +3060,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       <DetailPageTemplate
         title={`Sales Order ${selectedOrder.orderNumber}`}
         subtitle={`Dealer: ${selectedOrder.dealer?.name} | Booked by: ${
-          selectedOrder.salesOfficer ? `${selectedOrder.salesOfficer.firstName} ${selectedOrder.salesOfficer.lastName}` : 'Direct'
+          selectedOrder.salesOfficer ? (selectedOrder.salesOfficer.name || `${selectedOrder.salesOfficer.firstName || ''} ${selectedOrder.salesOfficer.lastName || ''}`.trim() || 'Direct') : 'Direct'
         }`}
         breadcrumbs={[{ label: 'Sales Orders', onClick: () => setMode('list') }, { label: selectedOrder.orderNumber }]}
         actions={
@@ -3135,7 +3159,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               </div>
               {selectedOrder.salesOfficer && (
                 <span style={{ fontSize: '12px', color: '#b45309', fontWeight: 600 }}>
-                  Booked by {selectedOrder.salesOfficer.firstName} {selectedOrder.salesOfficer.lastName}
+                  Booked by {selectedOrder.salesOfficer.name || `${selectedOrder.salesOfficer.firstName || ''} ${selectedOrder.salesOfficer.lastName || ''}`.trim()}
                 </span>
               )}
             </div>

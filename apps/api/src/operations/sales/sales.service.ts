@@ -610,34 +610,139 @@ export class SalesService {
     };
   }
 
-  async getDealerMarketHierarchy(dealerId: string, companyId: string) {
-    const dealer = await this.prisma.dealer.findFirst({
-      where: { id: dealerId, companyId },
-      include: {
-        territory: {
-          include: {
-            zone: {
-              include: {
-                region: {
-                  include: {
-                    businessManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
+  async getDealerMarketHierarchy(dealerId: string, companyId?: string) {
+    const includeQuery = {
+      territory: {
+        include: {
+          zone: {
+            include: {
+              region: {
+                include: {
+                  businessManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
+                  userMarketAssignments: {
+                    where: { status: 'ACTIVE' },
+                    include: {
+                      user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+                    },
                   },
                 },
-                areaManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
+              },
+              areaManager: { select: { id: true, firstName: true, lastName: true, phone: true } },
+              userMarketAssignments: {
+                where: { status: 'ACTIVE' },
+                include: {
+                  user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+                },
               },
             },
-            salesOfficer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          },
+          salesOfficer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          userMarketAssignments: {
+            where: { status: 'ACTIVE' },
+            include: {
+              user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+            },
           },
         },
-        assignedOfficer: { select: { id: true, firstName: true, lastName: true, phone: true } },
       },
+      assignedOfficer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      officerAssignments: {
+        include: {
+          user: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        },
+      },
+    };
+
+    let dealer = await this.prisma.dealer.findFirst({
+      where: companyId && companyId !== 'ALL' ? { id: dealerId, companyId } : { id: dealerId },
+      include: includeQuery,
     });
+
+    if (!dealer && companyId && companyId !== 'ALL') {
+      dealer = await this.prisma.dealer.findFirst({
+        where: { id: dealerId },
+        include: includeQuery,
+      });
+    }
+
     if (!dealer) throw new NotFoundException('Dealer not found');
 
     const region = dealer.territory?.zone?.region;
     const zone = dealer.territory?.zone;
     const territory = dealer.territory;
-    const so = dealer.assignedOfficer || territory?.salesOfficer;
+
+    // Resolve Business Manager (BM)
+    let bm: any =
+      region?.businessManager ||
+      region?.userMarketAssignments?.find((u: any) => u.roleScope === 'BUSINESS_MANAGER')?.user ||
+      region?.userMarketAssignments?.[0]?.user ||
+      null;
+
+    if (!bm && region?.id) {
+      const uma = await this.prisma.userMarketAssignment.findFirst({
+        where: { regionId: region.id, status: 'ACTIVE' },
+        include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } } },
+      });
+      if (uma?.user) bm = uma.user;
+    }
+
+    // Resolve Area Manager (AM)
+    let am: any =
+      zone?.areaManager ||
+      zone?.userMarketAssignments?.find((u: any) => u.roleScope === 'AREA_MANAGER')?.user ||
+      zone?.userMarketAssignments?.[0]?.user ||
+      null;
+
+    if (!am && zone?.id) {
+      const uma = await this.prisma.userMarketAssignment.findFirst({
+        where: { zoneId: zone.id, status: 'ACTIVE' },
+        include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } } },
+      });
+      if (uma?.user) am = uma.user;
+    }
+
+    // Resolve Sales Officer (SO)
+    let so: any =
+      dealer.assignedOfficer ||
+      dealer.officerAssignments?.[0]?.user ||
+      territory?.salesOfficer ||
+      territory?.userMarketAssignments?.find((u: any) => u.roleScope === 'SALES_OFFICER')?.user ||
+      territory?.userMarketAssignments?.[0]?.user ||
+      null;
+
+    if (!so && territory?.id) {
+      const uma = await this.prisma.userMarketAssignment.findFirst({
+        where: { territoryId: territory.id, status: 'ACTIVE' },
+        include: { user: { select: { id: true, firstName: true, lastName: true, phone: true } } },
+      });
+      if (uma?.user) so = uma.user;
+    }
+
+    const formatPerson = (u: any, fallbackName: string) => {
+      if (!u) {
+        return {
+          id: null,
+          name: fallbackName,
+          firstName: fallbackName,
+          lastName: '',
+          phone: null,
+        };
+      }
+      const fName = (u.firstName || '').trim();
+      const lName = (u.lastName || '').trim();
+      const fullName = [fName, lName].filter(Boolean).join(' ').trim() || fallbackName;
+      return {
+        id: u.id || null,
+        name: fullName,
+        firstName: fName || fullName,
+        lastName: lName,
+        phone: u.phone || null,
+      };
+    };
+
+    const bmObj = formatPerson(bm, 'Unassigned');
+    const amObj = formatPerson(am, 'Unassigned');
+    const soObj = formatPerson(so, 'ERP Direct');
 
     const regionName = (region?.name || '').toLowerCase();
     const cityName = (dealer.city || '').toLowerCase();
@@ -672,49 +777,48 @@ export class SalesService {
         province,
         region: region?.name || '—',
         regionCode: region?.code || '',
+        businessManager: bmObj.name,
         zone: zone?.name || '—',
         zoneCode: zone?.code || '',
+        areaManager: amObj.name,
         territory: territory?.name || '—',
         territoryCode: territory?.code || '',
+        salesOfficer: soObj.name,
         dealer: dealer.name,
         dealerCode: dealer.code,
       },
       creditLimit: Number(dealer.creditLimit || 0),
       currentBalance: Number(dealer.currentBalance || 0),
       availableCredit: Math.max(0, Number(dealer.creditLimit || 0) - Number(dealer.currentBalance || 0)),
+      businessManager: bmObj,
+      areaManager: amObj,
+      salesOfficer: soObj,
       region: region
         ? {
-          id: region.id,
-          code: region.code,
-          name: region.name,
-          businessManager: region.businessManager
-            ? `${region.businessManager.firstName} ${region.businessManager.lastName}`.trim()
-            : 'Unassigned',
-        }
+            id: region.id,
+            code: region.code,
+            name: region.name,
+            businessManager: bmObj.name,
+            manager: bmObj,
+          }
         : null,
       zone: zone
         ? {
-          id: zone.id,
-          code: zone.code,
-          name: zone.name,
-          areaManager: zone.areaManager
-            ? `${zone.areaManager.firstName} ${zone.areaManager.lastName}`.trim()
-            : 'Unassigned',
-        }
+            id: zone.id,
+            code: zone.code,
+            name: zone.name,
+            areaManager: amObj.name,
+            manager: amObj,
+          }
         : null,
       territory: territory
         ? {
-          id: territory.id,
-          code: territory.code,
-          name: territory.name,
-        }
-        : null,
-      salesOfficer: so
-        ? {
-          id: so.id,
-          name: `${so.firstName} ${so.lastName}`.trim(),
-          phone: so.phone,
-        }
+            id: territory.id,
+            code: territory.code,
+            name: territory.name,
+            salesOfficer: soObj.name,
+            officer: soObj,
+          }
         : null,
     };
   }
