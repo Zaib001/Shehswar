@@ -8,6 +8,8 @@
  * 4. Expiry validation (flags expired batches and prevents invoicing)
  * 5. Real database persistence and stock tracking against batches
  * 6. Batch uniqueness per finished product
+ * 7. Multi-tenant company hierarchy: child companies can view & manage batches
+ *    for products manufactured by parent company or assigned to them.
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -40,13 +42,53 @@ export class BatchesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Helper to resolve all valid company IDs for the current company context
+   * (e.g. parent company sees parent + child companies; child company sees child + parent company)
+   */
+  private async resolveAllowedCompanyIds(companyId?: string): Promise<string[]> {
+    if (!companyId || companyId === 'ALL') return [];
+    try {
+      const comp = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        include: { childCompanies: { select: { id: true } } },
+      });
+      if (!comp) return [companyId];
+
+      const ids = [comp.id];
+      if (comp.isParent && comp.childCompanies && comp.childCompanies.length > 0) {
+        ids.push(...comp.childCompanies.map((c) => c.id));
+      }
+      if (comp.parentCompanyId) {
+        ids.push(comp.parentCompanyId);
+      }
+      return Array.from(new Set(ids));
+    } catch {
+      return [companyId];
+    }
+  }
+
+  /**
    * Retrieve all batches for a specific finished product
    */
-  async getBatchesForProduct(finishedProductId: string, companyId: string, warehouseId?: string) {
+  async getBatchesForProduct(finishedProductId: string, companyId?: string, warehouseId?: string) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+
     const product = await this.prisma.finishedProduct.findFirst({
-      where: { id: finishedProductId, companyId },
+      where: {
+        id: finishedProductId,
+        ...(allowedCompanyIds.length > 0
+          ? {
+              OR: [
+                { companyId: { in: allowedCompanyIds } },
+                { id: finishedProductId },
+              ],
+            }
+          : {}),
+      },
       select: {
         id: true,
+        companyId: true,
+        organizationId: true,
         productCode: true,
         productName: true,
         mType: true,
@@ -68,8 +110,13 @@ export class BatchesService {
       warehouseStockQty = stock ? Number(stock.quantityOnHand) : 0;
     }
 
+    // Retrieve batches for this finished product
+    const batchCompanyIds = Array.from(new Set([...allowedCompanyIds, product.companyId].filter(Boolean)));
     const batches = await this.prisma.productBatch.findMany({
-      where: { finishedProductId, companyId },
+      where: {
+        finishedProductId,
+        ...(batchCompanyIds.length > 0 ? { companyId: { in: batchCompanyIds } } : {}),
+      },
       orderBy: [{ isActive: 'desc' }, { manufacturingDate: 'desc' }, { createdAt: 'desc' }],
     });
 
@@ -78,15 +125,13 @@ export class BatchesService {
       const defaultBatchNum = `B-${year}-001`;
       const qty = warehouseStockQty !== null && warehouseStockQty > 0 ? warehouseStockQty : 200;
       try {
-        const prodRecord = await this.prisma.finishedProduct.findUnique({
-          where: { id: finishedProductId },
-          select: { organizationId: true },
-        });
+        const targetOrgId = product.organizationId || (companyId ? companyId : product.companyId);
+        const targetCompId = product.companyId || (companyId ? companyId : targetOrgId);
         const createdBatch = await this.prisma.productBatch.create({
           data: {
             id: uuidv7(),
-            organizationId: prodRecord?.organizationId || companyId,
-            companyId,
+            organizationId: targetOrgId,
+            companyId: targetCompId,
             finishedProductId,
             batchNumber: defaultBatchNum,
             manufacturingDate: new Date(),
@@ -102,7 +147,7 @@ export class BatchesService {
         batches.push(createdBatch);
       } catch {
         const existing = await this.prisma.productBatch.findMany({
-          where: { finishedProductId, companyId },
+          where: { finishedProductId },
         });
         batches.push(...existing);
       }
@@ -130,11 +175,16 @@ export class BatchesService {
    * Retrieve single batch details
    */
   async getBatchById(id: string, companyId?: string) {
-    const where: any = { id };
-    if (companyId) where.companyId = companyId;
+    let allowedCompanyIds: string[] = [];
+    if (companyId) {
+      allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    }
 
     const batch = await this.prisma.productBatch.findFirst({
-      where,
+      where: {
+        id,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : {}),
+      },
       include: {
         finishedProduct: {
           select: {
@@ -180,9 +230,17 @@ export class BatchesService {
       throw new BadRequestException('Manufacturing Date is required');
     }
 
-    // Verify finished product exists in company
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(actor.companyId);
+
+    // Verify finished product exists in company or parent/child company hierarchy
     const product = await this.prisma.finishedProduct.findFirst({
-      where: { id: dto.finishedProductId, companyId: actor.companyId },
+      where: {
+        id: dto.finishedProductId,
+        OR: [
+          { companyId: { in: allowedCompanyIds } },
+          { organizationId: actor.organizationId },
+        ],
+      },
     });
     if (!product) {
       throw new NotFoundException('Finished Product not found in this company');
@@ -212,12 +270,13 @@ export class BatchesService {
     }
 
     const qty = Number(dto.availableQuantity ?? dto.initialQuantity ?? 0);
+    const batchCompanyId = product.companyId || actor.companyId;
 
     const created = await this.prisma.productBatch.create({
       data: {
         id: uuidv7(),
-        organizationId: actor.organizationId,
-        companyId: actor.companyId,
+        organizationId: product.organizationId || actor.organizationId,
+        companyId: batchCompanyId,
         finishedProductId: dto.finishedProductId,
         batchNumber: cleanBatchNumber,
         manufacturingDate: new Date(dto.manufacturingDate),
@@ -253,8 +312,16 @@ export class BatchesService {
    * Product association is permanent and read-only.
    */
   async updateBatch(id: string, dto: UpdateBatchDto, actor: AuthUser) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(actor.companyId);
+
     const batch = await this.prisma.productBatch.findFirst({
-      where: { id, companyId: actor.companyId },
+      where: {
+        id,
+        OR: [
+          { companyId: { in: allowedCompanyIds } },
+          { organizationId: actor.organizationId },
+        ],
+      },
       include: { finishedProduct: true },
     });
     if (!batch) {
@@ -336,8 +403,16 @@ export class BatchesService {
    * Switch the active batch for a finished product (Requirement 9)
    */
   async setActiveBatch(id: string, actor: AuthUser) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(actor.companyId);
+
     const batch = await this.prisma.productBatch.findFirst({
-      where: { id, companyId: actor.companyId },
+      where: {
+        id,
+        OR: [
+          { companyId: { in: allowedCompanyIds } },
+          { organizationId: actor.organizationId },
+        ],
+      },
     });
     if (!batch) {
       throw new NotFoundException(`Batch '${id}' not found`);
@@ -361,8 +436,16 @@ export class BatchesService {
    * Delete a batch
    */
   async deleteBatch(id: string, actor: AuthUser) {
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(actor.companyId);
+
     const batch = await this.prisma.productBatch.findFirst({
-      where: { id, companyId: actor.companyId },
+      where: {
+        id,
+        OR: [
+          { companyId: { in: allowedCompanyIds } },
+          { organizationId: actor.organizationId },
+        ],
+      },
       include: {
         _count: {
           select: {
@@ -390,4 +473,3 @@ export class BatchesService {
     return { success: true, message: 'Batch deleted successfully' };
   }
 }
-

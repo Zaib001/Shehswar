@@ -27,16 +27,20 @@ export class BatchesController {
     @Param('productId') productId: string,
     @CurrentUser() user: AuthUser,
     @Query('warehouseId') warehouseId?: string,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.batchesService.getBatchesForProduct(productId, user.companyId, warehouseId);
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.batchesService.getBatchesForProduct(productId, effectiveCompanyId, warehouseId);
   }
 
   @Get(':id')
   async getBatchById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.batchesService.getBatchById(id, user.companyId);
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.batchesService.getBatchById(id, effectiveCompanyId);
   }
 
   @Post()
