@@ -39,12 +39,18 @@ import {
   IconClose,
   IconFileText,
   IconAlertTriangle,
+  IconPrinter,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
-import { SalesInvoiceExportData } from '../../lib/pdf-export';
+import {
+  SalesInvoiceExportData,
+  exportMultiFormatSalesInvoicesToPdf,
+  exportPendingOrdersReportToPdf,
+} from '../../lib/pdf-export';
+import { DealerLedgerModal } from './DealerLedgerModal';
 import { cleanPackSize } from './PurchaseOrdersView';
 
 export interface SalesOrderItemRow {
@@ -83,11 +89,37 @@ export interface SalesOrderRecord {
   appliedSchemeName?: string;
   discountAmount?: number;
   freeQuantityTotal?: number;
-  dealer?: { id: string; name: string; code: string; currentBalance?: number; creditLimit?: number };
-  salesOfficer?: { id: string; firstName?: string; lastName?: string; name?: string };
+  dealer?: {
+    id: string;
+    name: string;
+    code: string;
+    businessName?: string;
+    address?: string;
+    city?: string;
+    currentBalance?: number;
+    creditLimit?: number;
+    territory?: {
+      id?: string;
+      name?: string;
+      code?: string;
+      zone?: {
+        id?: string;
+        name?: string;
+        code?: string;
+        region?: {
+          id?: string;
+          name?: string;
+          code?: string;
+        };
+      };
+    };
+  };
+  salesOfficer?: { id: string; firstName?: string; lastName?: string; name?: string; email?: string };
   warehouseId?: string;
   totalAmount: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CONVERTED_TO_SALE';
+  isAcknowledged?: boolean;
+  acknowledgedAt?: string;
   rejectionReason?: string;
   notes?: string;
   items?: SalesOrderItemRow[];
@@ -140,6 +172,32 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   // Sales Invoice Preview & PDF Modal State
   const [activeInvoice, setActiveInvoice] = useState<SalesInvoiceExportData | null>(null);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+
+  // View Switcher: All Orders vs Pending Orders Report
+  const [activeViewTab, setActiveViewTab] = useState<'ALL_ORDERS' | 'PENDING_REPORT'>('ALL_ORDERS');
+
+  // Dealer Ledger Modal State (Requirements #6 & #11)
+  const [isDealerLedgerModalOpen, setIsDealerLedgerModalOpen] = useState(false);
+  const [dealerForLedger, setDealerForLedger] = useState<any | null>(null);
+
+  // Post-Save Print Selection Modal State (Requirement #10)
+  const [isPrintSelectionModalOpen, setIsPrintSelectionModalOpen] = useState(false);
+  const [savedPrintInvoice, setSavedPrintInvoice] = useState<SalesInvoiceExportData | null>(null);
+  const [printSelectionFormats, setPrintSelectionFormats] = useState({
+    commercialFull: true,
+    standardSales: false,
+    basicDelivery: false,
+  });
+  const [printCopiesCount, setPrintCopiesCount] = useState(1);
+
+  // Comprehensive Combinable Filters (Requirement #12)
+  const [acknowledgementFilter, setAcknowledgementFilter] = useState<'ALL' | 'ACKNOWLEDGED' | 'PENDING'>('ALL');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
+  const [salesOfficerFilter, setSalesOfficerFilter] = useState('ALL');
+  const [regionFilter, setRegionFilter] = useState('ALL');
+  const [territoryFilter, setTerritoryFilter] = useState('ALL');
+  const [schemeFilter, setSchemeFilter] = useState('ALL');
 
   // Direct Invoice generation on Order creation
   const [generateInvoiceImmediately, setGenerateInvoiceImmediately] = useState(true);
@@ -418,6 +476,28 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     }
   }, [mode, companyWarehouses]);
 
+  const toggleOrderAcknowledgement = async (orderId: string, newAck: boolean) => {
+    try {
+      await ApiClient.patch(`/api/v1/sales-orders/${orderId}/acknowledgement`, {
+        isAcknowledged: newAck,
+      });
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, isAcknowledged: newAck } : o))
+      );
+      showToast({
+        title: 'Acknowledgement Updated',
+        message: `Order acknowledgement status marked as ${newAck ? 'Received' : 'Pending'}.`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      showToast({
+        title: 'Error',
+        message: err?.message || 'Failed to update acknowledgement',
+        type: 'error',
+      });
+    }
+  };
+
   // Fetch batches for product in warehouse
   const fetchBatchesForLine = async (idx: number, productId: string, warehouseId?: string) => {
     if (!productId) return;
@@ -599,6 +679,38 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, newSchemeId || undefined, linkedRlId || undefined);
       }
       return;
+    } else if (field === 'baseRate') {
+      const base = Math.max(0, Number(value) || 0);
+      item.baseRate = base;
+      const pct = Number(item.discountPercent || 0);
+      const discAmt = (base * pct) / 100;
+      item.discountAmount = discAmt;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setFormItems(updated);
+      return;
+    } else if (field === 'discountPercent') {
+      const pct = Math.max(0, Math.min(100, Number(value) || 0));
+      item.discountPercent = pct;
+      const base = Number(item.baseRate || item.unitPrice || 0);
+      const discAmt = (base * pct) / 100;
+      item.discountAmount = discAmt;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setFormItems(updated);
+      return;
+    } else if (field === 'discountAmount') {
+      const discAmt = Math.max(0, Number(value) || 0);
+      item.discountAmount = discAmt;
+      const base = Number(item.baseRate || item.unitPrice || 0);
+      item.discountPercent = base > 0 ? Math.round((discAmt / base) * 100 * 10) / 10 : 0;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setFormItems(updated);
+      return;
     } else if (field === 'unitPrice') {
       const price = Number(value) || 0;
       item.unitPrice = price;
@@ -754,6 +866,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       const createdOrder = res.data?.data || res.data;
       const effectiveOrderNumber = createdOrder?.orderNumber || 'SO-NEW';
 
+      let invoiceToPrint: SalesInvoiceExportData | null = null;
       if (immediateInvoice && createdOrder?.id && !isExceeded) {
         await ApiClient.patch(`/api/v1/sales-orders/${createdOrder.id}/approve`, { approved: true });
         const convRes = await ApiClient.post<any>(`/api/v1/sales-orders/${createdOrder.id}/convert-to-sale`, {
@@ -766,7 +879,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           type: 'success',
         });
         if (invoice && invoice.invoiceNumber) {
-          setActiveInvoice(invoice);
+          invoiceToPrint = invoice;
         }
       } else {
         showToast({
@@ -777,6 +890,63 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           type: isExceeded ? 'warning' : 'success',
         });
       }
+
+      if (!invoiceToPrint) {
+        const selectedDealer = dealers.find((d) => d.id === formData.dealerId) || dealerHierarchy?.dealer;
+        const grossTotal = formItems.reduce((s, it) => s + (Number(it.baseRate || it.unitPrice || 0) * Number(it.quantity || 1)), 0);
+        const discTotal = formItems.reduce((s, it) => s + (Number(it.discountAmount || 0) * Number(it.quantity || 1)), 0);
+        invoiceToPrint = {
+          invoiceNumber: effectiveOrderNumber,
+          invoiceDate: String(formData.orderDate || new Date().toISOString().slice(0, 10)),
+          postingStatus: createdOrder?.status || 'PENDING',
+          grossAmount: grossTotal,
+          discountAmount: discTotal,
+          taxAmount: 0,
+          netAmount: totalOrderVal,
+          notes: formData.notes,
+          paymentTerm: formData.paymentTerm,
+          dealer: {
+            id: selectedDealer?.id,
+            name: selectedDealer?.name || 'Authorized Dealer',
+            code: selectedDealer?.code || 'DL',
+            businessName: selectedDealer?.businessName,
+            address: selectedDealer?.address,
+            city: selectedDealer?.city,
+            territory: selectedDealer?.territory || dealerHierarchy?.territory,
+            territoryName: selectedDealer?.territory?.name || dealerHierarchy?.territory?.name,
+          },
+          salesOrder: {
+            orderNumber: effectiveOrderNumber,
+            territory: selectedDealer?.territory || dealerHierarchy?.territory,
+          },
+          items: formItems.map((it) => {
+            const qty = Number(it.quantity) || 1;
+            const base = Number(it.baseRate) || Number(it.unitPrice) || 0;
+            const discAmt = Number(it.discountAmount) || 0;
+            const sc = schemes.find((s) => s.id === it.schemeId);
+            return {
+              productName: it.productName,
+              productCode: it.productCode,
+              batchNumber: it.batchNumber || '—',
+              packing: it.packSize || 'Commercial Pack',
+              quantity: qty,
+              rate: base,
+              grossAmount: base * qty,
+              discountPercent: Number(it.discountPercent) || 0,
+              discountAmount: discAmt * qty,
+              netAmount: Number(it.totalPrice) || 0,
+              scheme: sc?.name || it.schemeId || 'SS',
+              schemeCode: sc?.code || sc?.shortCode || 'SS',
+              ctn: (it as any).ctn || Math.ceil(qty / 10),
+            };
+          }),
+        };
+      }
+
+      setSavedPrintInvoice(invoiceToPrint);
+      setPrintCopiesCount(1);
+      setPrintSelectionFormats({ commercialFull: true, standardSales: false, basicDelivery: false });
+      setIsPrintSelectionModalOpen(true);
 
       // DO NOT close modal: keep mode === 'create'
       // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
@@ -822,6 +992,70 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         type: 'error',
       });
     }
+  };
+
+  // Real-Time Live Preview Before Saving (Requirements #7, #8, #9)
+  const handleLivePdfPreview = () => {
+    if (!formData.dealerId) {
+      showToast({ title: 'Validation Error', message: 'Please select a Dealer to preview invoice', type: 'error' });
+      return;
+    }
+    const selectedDealer = dealers.find((d) => d.id === formData.dealerId) || dealerHierarchy?.dealer;
+    const grossTotal = formItems.reduce((s, it) => s + (Number(it.baseRate || it.unitPrice || 0) * Number(it.quantity || 1)), 0);
+    const netTotal = formItems.reduce((s, it) => s + (Number(it.totalPrice || 0)), 0);
+    const discTotal = Math.max(0, grossTotal - netTotal);
+
+    const previewInvoice: SalesInvoiceExportData = {
+      invoiceNumber: 'PREVIEW-SO',
+      invoiceDate: String(formData.orderDate || new Date().toISOString().slice(0, 10)),
+      postingStatus: 'REALTIME_PREVIEW',
+      grossAmount: grossTotal,
+      discountAmount: discTotal,
+      taxAmount: 0,
+      netAmount: netTotal,
+      notes: formData.notes || undefined,
+      paymentTerm: formData.paymentTerm || 'CASH',
+      dealer: {
+        id: selectedDealer?.id,
+        name: selectedDealer?.name || 'Selected Dealer',
+        code: selectedDealer?.code || 'DL-PREVIEW',
+        businessName: selectedDealer?.businessName || selectedDealer?.shopName,
+        address: selectedDealer?.address,
+        city: selectedDealer?.city,
+        territory: selectedDealer?.territory || dealerHierarchy?.territory,
+        territoryName: selectedDealer?.territory?.name || dealerHierarchy?.territory?.name,
+      },
+      salesOrder: {
+        orderNumber: 'DRAFT-SO-PREVIEW',
+        territory: selectedDealer?.territory || dealerHierarchy?.territory,
+      },
+      items: formItems.map((it) => {
+        const qty = Number(it.quantity) || 1;
+        const base = Number(it.baseRate || it.unitPrice || 0);
+        const discAmt = Number(it.discountAmount || 0);
+        const discPct = Number(it.discountPercent || 0);
+        const net = Number(it.unitPrice || (base - discAmt));
+        const sc = schemes.find((s) => s.id === it.schemeId);
+        return {
+          productName: it.productName || 'Finished Product',
+          productCode: it.productCode,
+          batchNumber: it.batchNumber || '—',
+          packing: it.packSize || it.packing || 'Commercial Pack',
+          quantity: qty,
+          rate: base,
+          grossAmount: base * qty,
+          discountPercent: discPct,
+          discountAmount: discAmt * qty,
+          netAmount: net * qty,
+          scheme: sc?.name || it.schemeId || 'SS',
+          schemeCode: sc?.code || sc?.shortCode || 'SS',
+          ctn: (it as any).ctn || Math.ceil(qty / 10),
+        };
+      }),
+    };
+
+    setActiveInvoice(previewInvoice);
+    setIsInvoiceModalOpen(true);
   };
 
   // Order Approval
@@ -1095,6 +1329,38 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         const price = Number(item.unitPrice) || 0;
         item.totalPrice = qty * price;
       }
+    } else if (field === 'baseRate') {
+      const base = Math.max(0, Number(val) || 0);
+      item.baseRate = base;
+      const pct = Number(item.discountPercent || 0);
+      const discAmt = (base * pct) / 100;
+      item.discountAmount = discAmt;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setCustomizeItems(updated);
+      return;
+    } else if (field === 'discountPercent') {
+      const pct = Math.max(0, Math.min(100, Number(val) || 0));
+      item.discountPercent = pct;
+      const base = Number(item.baseRate || item.unitPrice || 0);
+      const discAmt = (base * pct) / 100;
+      item.discountAmount = discAmt;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setCustomizeItems(updated);
+      return;
+    } else if (field === 'discountAmount') {
+      const discAmt = Math.max(0, Number(val) || 0);
+      item.discountAmount = discAmt;
+      const base = Number(item.baseRate || item.unitPrice || 0);
+      item.discountPercent = base > 0 ? Math.round((discAmt / base) * 100 * 10) / 10 : 0;
+      item.unitPrice = Math.max(0, base - discAmt);
+      item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      updated[index] = item;
+      setCustomizeItems(updated);
+      return;
     } else if (field === 'unitPrice') {
       const qty = Number(item.quantity) || 0;
       const price = Number(val) || 0;
@@ -1455,11 +1721,62 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
   const filteredOrders = orders.filter((o) => {
     const matchesSearch =
+      !searchQuery ||
       o.orderNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       o.dealer?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.dealer?.businessName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.dealer?.code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.dealer?.territory?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.dealer?.territory?.code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (o.salesOfficer && (o.salesOfficer.name || `${o.salesOfficer.firstName || ''} ${o.salesOfficer.lastName || ''}`.trim()).toLowerCase().includes(searchQuery.toLowerCase()));
+
     const matchesStatus = statusFilter === 'ALL' || o.status === statusFilter;
-    return matchesSearch && matchesStatus;
+
+    const matchesAck =
+      acknowledgementFilter === 'ALL'
+        ? true
+        : acknowledgementFilter === 'ACKNOWLEDGED'
+          ? Boolean(o.isAcknowledged)
+          : !o.isAcknowledged;
+
+    const orderTime = o.orderDate ? new Date(o.orderDate).getTime() : 0;
+    const matchesFromDate = !fromDateFilter || orderTime >= new Date(fromDateFilter).getTime();
+    const matchesToDate = !toDateFilter || orderTime <= new Date(toDateFilter + 'T23:59:59').getTime();
+
+    const matchesSO =
+      salesOfficerFilter === 'ALL' ||
+      o.salesOfficerId === salesOfficerFilter ||
+      o.salesOfficer?.id === salesOfficerFilter;
+
+    const matchesRegion =
+      regionFilter === 'ALL' ||
+      (o as any).regionId === regionFilter ||
+      o.dealer?.territory?.zone?.region?.id === regionFilter ||
+      o.dealer?.territory?.zone?.region?.name === regionFilter;
+
+    const matchesTerritory =
+      territoryFilter === 'ALL' ||
+      (o as any).territoryId === territoryFilter ||
+      o.dealer?.territory?.id === territoryFilter ||
+      o.dealer?.territory?.code === territoryFilter ||
+      o.dealer?.territory?.name === territoryFilter;
+
+    const matchesScheme =
+      schemeFilter === 'ALL' ||
+      o.schemeId === schemeFilter ||
+      o.items?.some((i) => i.schemeId === schemeFilter);
+
+    return (
+      matchesSearch &&
+      matchesStatus &&
+      matchesAck &&
+      matchesFromDate &&
+      matchesToDate &&
+      matchesSO &&
+      matchesRegion &&
+      matchesTerritory &&
+      matchesScheme
+    );
   });
 
   // KPIs
@@ -1467,6 +1784,89 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   const pendingOrders = orders.filter((o) => o.status === 'PENDING').length;
   const approvedOrders = orders.filter((o) => o.status === 'APPROVED').length;
   const convertedSales = orders.filter((o) => o.status === 'CONVERTED_TO_SALE').length;
+
+  const pendingOrdersList = React.useMemo(() => {
+    return filteredOrders.filter(
+      (o) => o.status === 'PENDING' || (o.status as string) === 'CREDIT_HOLD'
+    );
+  }, [filteredOrders]);
+
+  const pendingOrdersCount = React.useMemo(() => {
+    return orders.filter(
+      (o) => o.status === 'PENDING' || (o.status as string) === 'CREDIT_HOLD'
+    ).length;
+  }, [orders]);
+
+  const distinctSalesOfficers = React.useMemo(() => {
+    const map = new Map<string, string>();
+    orders.forEach((o) => {
+      const id = o.salesOfficerId || o.salesOfficer?.id;
+      const name = o.salesOfficer?.name || `${o.salesOfficer?.firstName || ''} ${o.salesOfficer?.lastName || ''}`.trim();
+      if (id && name) {
+        map.set(id, name);
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ label: name, value: id }));
+  }, [orders]);
+
+  const distinctRegions = React.useMemo(() => {
+    const map = new Map<string, string>();
+    dealers.forEach((d) => {
+      const reg = d.territory?.zone?.region;
+      if (reg?.id && reg?.name) {
+        map.set(reg.id, reg.name);
+      }
+    });
+    orders.forEach((o) => {
+      const reg = o.dealer?.territory?.zone?.region;
+      if (reg?.id && reg?.name) {
+        map.set(reg.id, reg.name);
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ label: name, value: id }));
+  }, [dealers, orders]);
+
+  const distinctTerritories = React.useMemo(() => {
+    const map = new Map<string, string>();
+    dealers.forEach((d) => {
+      const t = d.territory;
+      if (t?.id && t?.name) {
+        map.set(t.id, t.code ? `${t.name} (${t.code})` : t.name);
+      }
+    });
+    orders.forEach((o) => {
+      const t = o.dealer?.territory;
+      if (t?.id && t?.name) {
+        map.set(t.id, t.code ? `${t.name} (${t.code})` : t.name);
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ label: name, value: id }));
+  }, [dealers, orders]);
+
+  const distinctSchemes = React.useMemo(() => {
+    return schemes.map((s) => ({
+      label: s.code ? `${s.name} (${s.code})` : s.name,
+      value: s.id,
+    }));
+  }, [schemes]);
+
+  const groupedPendingOrders = React.useMemo(() => {
+    const groups: { [key: string]: { officerName: string; orders: SalesOrderRecord[]; totalAmount: number } } = {};
+    pendingOrdersList.forEach((o) => {
+      const officerKey = o.salesOfficerId || o.salesOfficer?.id || 'UNASSIGNED';
+      const officerName = o.salesOfficer?.name || `${o.salesOfficer?.firstName || ''} ${o.salesOfficer?.lastName || ''}`.trim() || 'Direct / Unassigned Officer';
+      if (!groups[officerKey]) {
+        groups[officerKey] = {
+          officerName,
+          orders: [],
+          totalAmount: 0,
+        };
+      }
+      groups[officerKey].orders.push(o);
+      groups[officerKey].totalAmount += Number((o as any).netTotal || o.totalAmount || 0);
+    });
+    return Object.values(groups);
+  }, [pendingOrdersList]);
 
   const columns: ColumnDef<SalesOrderRecord>[] = [
     {
@@ -1484,8 +1884,16 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       header: 'Dealer',
       render: (o) => (
         <div>
-          <div style={{ fontWeight: 600 }}>{o.dealer?.name || 'Dealer'}</div>
-          {o.dealer?.code && <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{o.dealer.code}</div>}
+          <div style={{ fontWeight: 700, color: '#0f172a' }}>{o.dealer?.name || 'Dealer'}</div>
+          <div style={{ fontSize: '11px', color: '#64748b' }}>
+            {o.dealer?.code && <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{o.dealer.code}</span>}
+            {o.dealer?.businessName && o.dealer.businessName !== o.dealer?.name && (
+              <span> • {o.dealer.businessName}</span>
+            )}
+            {o.dealer?.territory?.name && (
+              <span style={{ color: '#1d4ed8' }}> • {o.dealer.territory.code || o.dealer.territory.name}</span>
+            )}
+          </div>
         </div>
       ),
     },
@@ -1528,6 +1936,39 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       render: (o) => (
         <span style={{ fontWeight: 600 }}>PKR {Number(o.totalAmount || 0).toLocaleString()}</span>
       ),
+    },
+    {
+      key: 'acknowledgement',
+      header: 'Acknowledgement',
+      render: (o: any) => {
+        const isAck = Boolean(o.isAcknowledged);
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleOrderAcknowledgement(o.id, !isAck);
+            }}
+            title={isAck ? 'Click to toggle status to Pending' : 'Click to acknowledge order as Received by Dealer'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px 8px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: `1px solid ${isAck ? '#86efac' : '#fde68a'}`,
+              backgroundColor: isAck ? '#dcfce7' : '#fef3c7',
+              color: isAck ? '#15803d' : '#b45309',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>{isAck ? '✓ Received' : '⏳ Pending'}</span>
+          </button>
+        );
+      },
     },
     {
       key: 'status',
@@ -2272,6 +2713,190 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     );
   };
 
+  const renderPrintSelectionModal = () => {
+    if (!isPrintSelectionModalOpen || !savedPrintInvoice) return null;
+
+    const handlePrintSelected = () => {
+      const formats: Array<'COMMERCIAL_FULL' | 'STANDARD_SALES' | 'BASIC_DELIVERY'> = [];
+      if (printSelectionFormats.commercialFull) formats.push('COMMERCIAL_FULL');
+      if (printSelectionFormats.standardSales) formats.push('STANDARD_SALES');
+      if (printSelectionFormats.basicDelivery) formats.push('BASIC_DELIVERY');
+
+      if (formats.length === 0) {
+        showToast({ title: 'Select Format', message: 'Please select at least one document format to print', type: 'warning' });
+        return;
+      }
+
+      exportMultiFormatSalesInvoicesToPdf(savedPrintInvoice, formats, { copies: printCopiesCount });
+      setIsPrintSelectionModalOpen(false);
+      setSavedPrintInvoice(null);
+    };
+
+    return (
+      <Modal
+        isOpen={isPrintSelectionModalOpen}
+        onClose={() => {
+          setIsPrintSelectionModalOpen(false);
+          setSavedPrintInvoice(null);
+        }}
+        title="✓ Sales Order Saved — Print Selection"
+        size="md"
+      >
+        <div style={{ padding: '8px 4px' }}>
+          <div
+            style={{
+              padding: '12px 16px',
+              borderRadius: '8px',
+              background: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              color: '#065f46',
+              marginBottom: '16px',
+              fontSize: '13px',
+              lineHeight: 1.5,
+            }}
+          >
+            <strong>Sales Order #{savedPrintInvoice.salesOrder?.orderNumber || savedPrintInvoice.invoiceNumber}</strong> has been saved successfully! Choose which document formats and how many copies you want to print:
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: printSelectionFormats.commercialFull ? '#f0fdf4' : '#ffffff',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={printSelectionFormats.commercialFull}
+                onChange={(e) => setPrintSelectionFormats((prev) => ({ ...prev, commercialFull: e.target.checked }))}
+                style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+              />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
+                  Invoice 1: Full Commercial Tax Invoice
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                  Includes schemes, discount %, discount rupees, net amounts, and STRN copy.
+                </div>
+              </div>
+            </label>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: printSelectionFormats.standardSales ? '#f0fdf4' : '#ffffff',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={printSelectionFormats.standardSales}
+                onChange={(e) => setPrintSelectionFormats((prev) => ({ ...prev, standardSales: e.target.checked }))}
+                style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+              />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
+                  Invoice 2: Commercial Delivery Invoice
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                  Standard sales receipt with product, packaging, rate, and net totals.
+                </div>
+              </div>
+            </label>
+
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: printSelectionFormats.basicDelivery ? '#f0fdf4' : '#ffffff',
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={printSelectionFormats.basicDelivery}
+                onChange={(e) => setPrintSelectionFormats((prev) => ({ ...prev, basicDelivery: e.target.checked }))}
+                style={{ width: '18px', height: '18px', accentColor: '#16a34a' }}
+              />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
+                  Invoice 3: Basic Delivery Challan & Gate Pass
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b' }}>
+                  Zero-financial security dispatch slip with cartons, batches, and quantities.
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 14px',
+              borderRadius: '8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              marginBottom: '20px',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>Number of Copies:</div>
+              <div style={{ fontSize: '11px', color: '#64748b' }}>Prints multiple physical copies without duplicating financial data</div>
+            </div>
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={printCopiesCount}
+              onChange={(e) => setPrintCopiesCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              style={{
+                width: '60px',
+                padding: '6px 8px',
+                textAlign: 'center',
+                fontWeight: 700,
+                fontSize: '14px',
+                borderRadius: '6px',
+                border: '1px solid #cbd5e1',
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPrintSelectionModalOpen(false);
+                setSavedPrintInvoice(null);
+              }}
+            >
+              Skip
+            </Button>
+            <Button variant="primary" onClick={handlePrintSelected} style={{ background: '#0f172a' }}>
+              🖨 Print Selected Documents
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
   const renderConvertModal = () => {
     if (!orderToConvert) return null;
     const convertGrossTotal = convertItems.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.baseRate || i.unitPrice) || 0), 0);
@@ -2598,6 +3223,24 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         submitLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Create & Generate Sales Invoice' : 'Book Sales Order'}
         draftLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Save as Pending Order' : undefined}
         onSaveDraft={!isCreditExceeded && generateInvoiceImmediately ? () => handleCreateOrder(false) : undefined}
+        extraActions={
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleLivePdfPreview}
+            style={{
+              backgroundColor: '#f0fdf4',
+              borderColor: '#86efac',
+              color: '#15803d',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <IconEye size={16} /> 👁 Real-Time PDF / Invoice Preview
+          </Button>
+        }
       >
         {/* Active Company Context Banner */}
         <div
@@ -2734,16 +3377,56 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           <CardContent>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
               <div style={{ gridColumn: 'span 5' }}>
-                <SearchableCombobox
-                  id="field-so-dealer"
-                  label="Dealer (Customer / Party) *"
-                  placeholder="Type to search dealer by shop name, address, code, city..."
-                  required
-                  value={formData.dealerId}
-                  onChange={(val) => handleDealerChange(val)}
-                  options={dealerOptions}
-                  nextFocusId="field-so-warehouse"
-                />
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>
+                    <SearchableCombobox
+                      id="field-so-dealer"
+                      label="Dealer (Customer / Party) *"
+                      placeholder="Type to search dealer by shop name, address, code, city..."
+                      required
+                      value={formData.dealerId}
+                      onChange={(val) => handleDealerChange(val)}
+                      options={dealerOptions}
+                      nextFocusId="field-so-warehouse"
+                    />
+                  </div>
+                  {formData.dealerId && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const sel = dealers.find((d) => d.id === formData.dealerId) || dealerHierarchy?.dealer;
+                        if (sel) {
+                          setDealerForLedger({
+                            id: sel.id,
+                            name: sel.businessName || sel.name,
+                            code: sel.code || '',
+                            phone: sel.phone,
+                            city: sel.city,
+                            address: sel.address,
+                            creditLimit: sel.creditLimit,
+                            currentBalance: sel.currentBalance,
+                          });
+                          setIsDealerLedgerModalOpen(true);
+                        }
+                      }}
+                      style={{
+                        marginBottom: '2px',
+                        whiteSpace: 'nowrap',
+                        borderColor: '#2563eb',
+                        color: '#1d4ed8',
+                        background: '#eff6ff',
+                        fontWeight: 600,
+                        fontSize: '12px',
+                        padding: '7px 10px',
+                      }}
+                      title="View Dealer Ledger scoped to active company"
+                    >
+                      📋 View Ledger
+                    </Button>
+                  )}
+                </div>
               </div>
               <div style={{ gridColumn: 'span 4' }}>
                 <SearchableCombobox
@@ -2981,8 +3664,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                     <th style={{ padding: '10px 12px', minWidth: '220px' }}>Finished Product *</th>
                     <th style={{ padding: '10px 12px', minWidth: '180px' }}>Batch in WH *</th>
                     <th style={{ padding: '10px 8px', textAlign: 'center', width: '90px' }}>Qty *</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '95px' }}>Base Rate</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', minWidth: '110px' }}>Discount</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'right', minWidth: '95px' }}>Base Price *</th>
+                    <th style={{ padding: '10px 8px', textAlign: 'center', minWidth: '135px' }}>Discount (% / PKR)</th>
                     <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '105px' }}>Net Price</th>
                     <th style={{ padding: '10px 14px', textAlign: 'right', minWidth: '120px' }}>Line Total</th>
                     <th style={{ padding: '10px 8px', textAlign: 'center', width: '40px' }}></th>
@@ -3082,19 +3765,77 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         </td>
 
                         {/* Base Rate */}
-                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b', fontSize: '12.5px' }}>
-                          {item.baseRate ? `PKR ${Number(item.baseRate).toLocaleString()}` : '—'}
+                        <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            id={`field-item-baserate-${idx}`}
+                            value={item.baseRate !== undefined && item.baseRate !== null ? item.baseRate : ''}
+                            onChange={(e) => updateItem(idx, 'baseRate', e.target.value)}
+                            placeholder="0"
+                            min="0"
+                            step="any"
+                            style={{
+                              width: '90px',
+                              padding: '5px 8px',
+                              textAlign: 'right',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              fontWeight: 600,
+                              fontSize: '12.5px',
+                            }}
+                            title="Edit Base Price for this order (Master Rate List remains unchanged)"
+                          />
                         </td>
 
-                        {/* Discount */}
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          {hasDiscount ? (
-                            <span style={{ padding: '3px 8px', borderRadius: '4px', background: '#dcfce7', color: '#15803d', fontWeight: 700, fontSize: '11px', display: 'inline-block' }}>
-                              -PKR {Number(item.discountAmount).toLocaleString()}{item.discountPercent ? ` (${item.discountPercent}%)` : ''}
-                            </span>
-                          ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>
-                          )}
+                        {/* Editable Discount (% and PKR) */}
+                        <td style={{ padding: '8px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <input
+                                type="number"
+                                id={`field-item-disc-pct-${idx}`}
+                                value={item.discountPercent !== undefined && item.discountPercent !== null ? item.discountPercent : ''}
+                                onChange={(e) => updateItem(idx, 'discountPercent', e.target.value)}
+                                placeholder="%"
+                                min="0"
+                                max="100"
+                                step="any"
+                                style={{
+                                  width: '50px',
+                                  padding: '5px 6px',
+                                  textAlign: 'center',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                }}
+                                title="Discount %"
+                              />
+                              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>%</span>
+                            </div>
+                            <span style={{ color: '#cbd5e1' }}>|</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <input
+                                type="number"
+                                id={`field-item-disc-pkr-${idx}`}
+                                value={item.discountAmount !== undefined && item.discountAmount !== null ? item.discountAmount : ''}
+                                onChange={(e) => updateItem(idx, 'discountAmount', e.target.value)}
+                                placeholder="PKR"
+                                min="0"
+                                step="any"
+                                style={{
+                                  width: '70px',
+                                  padding: '5px 6px',
+                                  textAlign: 'right',
+                                  borderRadius: '6px',
+                                  border: '1px solid #cbd5e1',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                }}
+                                title="Discount PKR"
+                              />
+                            </div>
+                          </div>
                         </td>
 
                         {/* Net Price */}
@@ -3174,6 +3915,19 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             </div>
           </CardContent>
         </Card>
+
+        {/* Modals for Create Mode */}
+        <SalesInvoiceModal
+          isOpen={isInvoiceModalOpen}
+          onClose={() => setIsInvoiceModalOpen(false)}
+          invoice={activeInvoice}
+        />
+        {renderPrintSelectionModal()}
+        <DealerLedgerModal
+          isOpen={isDealerLedgerModalOpen}
+          onClose={() => setIsDealerLedgerModalOpen(false)}
+          dealer={dealerForLedger}
+        />
       </FormPageTemplate>
     );
   }
@@ -3420,6 +4174,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           onClose={() => setIsInvoiceModalOpen(false)}
           invoice={activeInvoice}
         />
+        {renderPrintSelectionModal()}
+        <DealerLedgerModal
+          isOpen={isDealerLedgerModalOpen}
+          onClose={() => setIsDealerLedgerModalOpen(false)}
+          dealer={dealerForLedger}
+        />
         {renderCustomizeModal()}
         {renderConvertModal()}
         {renderRejectModal()}
@@ -3467,38 +4227,405 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         <KpiCard title="Dispatched / Sold" value={convertedSales} subtitle="Stock and ledger posted" />
       </div>
 
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
-        <div style={{ flex: 1 }}>
-          <Input
-            placeholder="Search by order #, dealer, or sales officer..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <Select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          options={[
-            { label: 'All Statuses', value: 'ALL' },
-            { label: 'PENDING', value: 'PENDING' },
-            { label: 'APPROVED', value: 'APPROVED' },
-            { label: 'CONVERTED_TO_SALE', value: 'CONVERTED_TO_SALE' },
-            { label: 'REJECTED', value: 'REJECTED' },
-          ]}
-        />
+      {/* View Switcher: All Orders vs Pending Orders Report */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px' }}>
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('ALL_ORDERS')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: activeViewTab === 'ALL_ORDERS' ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+            background: activeViewTab === 'ALL_ORDERS' ? '#eff6ff' : '#ffffff',
+            color: activeViewTab === 'ALL_ORDERS' ? '#1d4ed8' : '#475569',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <IconFileText size={16} />
+          All Sales Orders ({orders.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveViewTab('PENDING_REPORT')}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: activeViewTab === 'PENDING_REPORT' ? '1.5px solid #d97706' : '1px solid #cbd5e1',
+            background: activeViewTab === 'PENDING_REPORT' ? '#fffbeb' : '#ffffff',
+            color: activeViewTab === 'PENDING_REPORT' ? '#b45309' : '#475569',
+            fontWeight: 700,
+            fontSize: '13px',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span style={{ fontSize: '15px' }}>⏳</span>
+          Pending Sales Orders Report ({pendingOrdersCount})
+        </button>
       </div>
 
-      {isLoading ? (
-        <TableSkeleton rows={5} />
-      ) : filteredOrders.length === 0 ? (
-        <EmptyState
-          title="No Sales Orders Found"
-          description="Sales orders booked via the Sales Officer Mobile App or ERP web interface will appear here."
-          actionLabel="Book Sales Order"
-          onAction={() => setMode('create')}
-        />
+      {/* Comprehensive Combinable Filters Bar (Requirement #12) */}
+      <Card style={{ marginBottom: '16px', padding: '14px 16px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          <div style={{ gridColumn: 'span 2' }}>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Search Any Field
+            </label>
+            <Input
+              placeholder="Search by order #, dealer, code, territory, SO..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Status
+            </label>
+            <Select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              disabled={activeViewTab === 'PENDING_REPORT'}
+              options={[
+                { label: 'All Statuses', value: 'ALL' },
+                { label: 'PENDING', value: 'PENDING' },
+                { label: 'APPROVED', value: 'APPROVED' },
+                { label: 'CONVERTED_TO_SALE', value: 'CONVERTED_TO_SALE' },
+                { label: 'REJECTED', value: 'REJECTED' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Dealer Ack
+            </label>
+            <Select
+              value={acknowledgementFilter}
+              onChange={(e) => setAcknowledgementFilter(e.target.value as any)}
+              options={[
+                { label: 'All Acknowledgements', value: 'ALL' },
+                { label: '✓ Received Only', value: 'ACKNOWLEDGED' },
+                { label: '⏳ Pending Only', value: 'PENDING' },
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              From Date
+            </label>
+            <Input
+              type="date"
+              value={fromDateFilter}
+              onChange={(e) => setFromDateFilter(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              To Date
+            </label>
+            <Input
+              type="date"
+              value={toDateFilter}
+              onChange={(e) => setToDateFilter(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Sales Officer
+            </label>
+            <Select
+              value={salesOfficerFilter}
+              onChange={(e) => setSalesOfficerFilter(e.target.value)}
+              options={[
+                { label: 'All Sales Officers', value: 'ALL' },
+                ...distinctSalesOfficers,
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Region
+            </label>
+            <Select
+              value={regionFilter}
+              onChange={(e) => setRegionFilter(e.target.value)}
+              options={[
+                { label: 'All Regions', value: 'ALL' },
+                ...distinctRegions,
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Territory
+            </label>
+            <Select
+              value={territoryFilter}
+              onChange={(e) => setTerritoryFilter(e.target.value)}
+              options={[
+                { label: 'All Territories', value: 'ALL' },
+                ...distinctTerritories,
+              ]}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>
+              Scheme
+            </label>
+            <Select
+              value={schemeFilter}
+              onChange={(e) => setSchemeFilter(e.target.value)}
+              options={[
+                { label: 'All Schemes', value: 'ALL' },
+                ...distinctSchemes,
+              ]}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setSearchQuery('');
+                setStatusFilter('ALL');
+                setAcknowledgementFilter('ALL');
+                setFromDateFilter('');
+                setToDateFilter('');
+                setSalesOfficerFilter('ALL');
+                setRegionFilter('ALL');
+                setTerritoryFilter('ALL');
+                setSchemeFilter('ALL');
+              }}
+              style={{ width: '100%', height: '38px', fontSize: '12px' }}
+            >
+              Reset Filters
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Conditional Content: Pending Orders Report vs All Orders Table */}
+      {activeViewTab === 'PENDING_REPORT' ? (
+        <div style={{ marginTop: '16px' }}>
+          <div
+            style={{
+              padding: '16px 20px',
+              backgroundColor: '#fffbeb',
+              border: '1.5px solid #fde68a',
+              borderRadius: '12px',
+              marginBottom: '20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>⏳ Pending Sales Orders Report</span>
+                <span style={{ fontSize: '12px', background: '#fef3c7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #f59e0b' }}>
+                  {pendingOrdersList.length} Pending Order{pendingOrdersList.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div style={{ fontSize: '12.5px', color: '#78350f', marginTop: '4px' }}>
+                Orders awaiting manager review, credit approval, or warehouse dispatch. Grouped by responsible Sales Officer with complete 4-tier market hierarchy.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Button
+                variant="primary"
+                onClick={() => exportPendingOrdersReportToPdf({
+                  orders: pendingOrdersList as any,
+                  companyName: activeCompanyName || 'Shehswar Chemicals',
+                })}
+                disabled={pendingOrdersList.length === 0}
+                style={{
+                  background: 'linear-gradient(135deg, #d97706 0%, #b45309 100%)',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <IconPrinter size={16} /> 🖨 Print Pending Orders Report
+              </Button>
+            </div>
+          </div>
+
+          {pendingOrdersList.length === 0 ? (
+            <EmptyState
+              title="No Pending Orders"
+              description="There are currently no orders pending manager sign-off or credit hold."
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {groupedPendingOrders.map((grp, gIdx) => (
+                <Card key={gIdx} style={{ overflow: 'hidden' }}>
+                  <CardHeader style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '12px 18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
+                        <CardTitle style={{ fontSize: '14px', fontWeight: 800 }}>
+                          Sales Officer: {grp.officerName}
+                        </CardTitle>
+                        <span style={{ fontSize: '12px', color: '#64748b' }}>
+                          ({grp.orders.length} order{grp.orders.length !== 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#047857' }}>
+                        Subtotal: PKR {grp.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent style={{ padding: 0 }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
+                            <th style={{ padding: '8px 12px' }}>Order # / Date</th>
+                            <th style={{ padding: '8px 12px' }}>Region / Zone</th>
+                            <th style={{ padding: '8px 12px' }}>Territory (Code)</th>
+                            <th style={{ padding: '8px 12px' }}>Dealer & Shop Name</th>
+                            <th style={{ padding: '8px 12px' }}>Address</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Amount (PKR)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Ack</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Status</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grp.orders.map((o) => {
+                            const isAck = Boolean(o.isAcknowledged);
+                            const tCode = o.dealer?.territory?.code || (o as any).territoryCode;
+                            const tName = o.dealer?.territory?.name || (o as any).territoryName || '—';
+                            const zName = o.dealer?.territory?.zone?.name || (o as any).zoneName || '—';
+                            const rName = o.dealer?.territory?.zone?.region?.name || (o as any).regionName || '—';
+                            const shop = o.dealer?.businessName || (o.dealer as any)?.shopName || '—';
+                            const addr = o.dealer?.address || '—';
+
+                            return (
+                              <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <strong style={{ color: '#2563eb' }}>{o.orderNumber}</strong>
+                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                    {o.orderDate ? new Date(o.orderDate).toLocaleDateString() : '—'}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <div>{rName}</div>
+                                  <div style={{ fontSize: '11px', color: '#64748b' }}>{zName}</div>
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <div style={{ fontWeight: 600 }}>{tName}</div>
+                                  {tCode && (
+                                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                      {tCode}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '10px 12px' }}>
+                                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{o.dealer?.name || '—'}</div>
+                                  <div style={{ fontSize: '11.5px', color: '#0284c7' }}>Shop: {shop}</div>
+                                </td>
+                                <td style={{ padding: '10px 12px', maxWidth: '200px', fontSize: '11.5px', color: '#475569' }}>
+                                  {addr}
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857' }}>
+                                  PKR {Number((o as any).netTotal || o.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleOrderAcknowledgement(o.id, !isAck)}
+                                    title={isAck ? 'Click to toggle status to Pending' : 'Click to acknowledge order as Received by Dealer'}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      padding: '3px 8px',
+                                      borderRadius: '6px',
+                                      fontSize: '11px',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      border: `1px solid ${isAck ? '#86efac' : '#fde68a'}`,
+                                      backgroundColor: isAck ? '#dcfce7' : '#fef3c7',
+                                      color: isAck ? '#15803d' : '#b45309',
+                                    }}
+                                  >
+                                    {isAck ? '✓ Received' : '⏳ Pending'}
+                                  </button>
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                  <StatusBadge status={o.status} />
+                                </td>
+                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                  <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        setSelectedOrder(o);
+                                        setMode('detail');
+                                      }}
+                                      title="View Details"
+                                    >
+                                      <IconEye size={14} />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => openConvertModal(o)}
+                                      title="Approve & Convert"
+                                      style={{ color: '#059669' }}
+                                    >
+                                      <IconCheck size={14} />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
-        <DataTable columns={columns} data={filteredOrders} />
+        isLoading ? (
+          <TableSkeleton rows={5} />
+        ) : filteredOrders.length === 0 ? (
+          <EmptyState
+            title="No Sales Orders Found"
+            description="Sales orders booked via the Sales Officer Mobile App or ERP web interface will appear here."
+            actionLabel="Book Sales Order"
+            onAction={() => setMode('create')}
+          />
+        ) : (
+          <DataTable columns={columns} data={filteredOrders} />
+        )
       )}
 
       {/* Modals rendered on List page */}
@@ -3511,6 +4638,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         isOpen={isInvoiceModalOpen}
         onClose={() => setIsInvoiceModalOpen(false)}
         invoice={activeInvoice}
+      />
+      {renderPrintSelectionModal()}
+      <DealerLedgerModal
+        isOpen={isDealerLedgerModalOpen}
+        onClose={() => setIsDealerLedgerModalOpen(false)}
+        dealer={dealerForLedger}
       />
 
       {/* Floating Action Dropdown Portal (Rendered above table row) */}

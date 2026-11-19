@@ -35,6 +35,7 @@ export interface FormPageTemplateProps {
   submitLabel?: string;
   draftLabel?: string;
   stickyFooter?: boolean;
+  extraActions?: React.ReactNode;
 }
 
 export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
@@ -52,6 +53,7 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
   submitLabel = 'Save Record',
   draftLabel = 'Save as Draft',
   stickyFooter = true,
+  extraActions,
 }) => {
   const activeSubmitting = isSubmitting || isSaving;
 
@@ -230,6 +232,7 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+          {extraActions}
           {onCancel && (
             <Button
               type="button"

@@ -2312,6 +2312,8 @@ model SalesOrder {
   commercialCondition String?   @db.VarChar(255)
   documentFormat      String    @default("COMMERCIAL_FULL") @db.VarChar(50)
   notes               String?   @db.Text
+  isAcknowledged      Boolean   @default(false) @map("is_acknowledged")
+  acknowledgedAt      DateTime? @map("acknowledged_at") @db.Timestamptz(6)
   approvedAt          DateTime? @db.Timestamptz(6)
   approvedById        String?   @db.VarChar(100)
   createdAt           DateTime  @default(now()) @db.Timestamptz(6)

@@ -13,7 +13,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { IconFileText } from '../icons';
 import { SHEHSWAR_LOGO_BASE64 } from '../../lib/shehswar-logo-base64';
-import { exportSalesInvoiceToPdf, SalesInvoiceExportData, convertNumberToWordsPKR } from '../../lib/pdf-export';
+import { exportSalesInvoiceToPdf, exportMultiFormatSalesInvoicesToPdf, SalesInvoiceExportData, convertNumberToWordsPKR } from '../../lib/pdf-export';
 
 interface SalesInvoiceModalProps {
   isOpen: boolean;
@@ -183,7 +183,7 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
         </div>
 
         {/* Print / Close Actions */}
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <Button
             variant="primary"
             onClick={() => exportSalesInvoiceToPdf(invoice, selectedFormat)}
@@ -196,7 +196,22 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
               gap: '6px',
             }}
           >
-            <IconFileText size={15} /> Print / Download PDF
+            <IconFileText size={15} /> Print {selectedFormat === 'COMMERCIAL_FULL' ? 'Invoice 1' : selectedFormat === 'STANDARD_SALES' ? 'Invoice 2' : 'Invoice 3'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => exportMultiFormatSalesInvoicesToPdf(invoice, ['COMMERCIAL_FULL', 'STANDARD_SALES', 'BASIC_DELIVERY'])}
+            style={{
+              background: '#f8fafc',
+              borderColor: '#cbd5e1',
+              color: '#0f172a',
+              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            🖨 Print All 3 Formats
           </Button>
           <Button variant="secondary" onClick={onClose}>
             Close

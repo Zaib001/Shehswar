@@ -60,6 +60,9 @@ export interface LedgerEntryRecord {
   dealerPaymentId?: string;
   salesReturnId?: string;
   provisionalReceiptAllocationId?: string;
+  isAcknowledged?: boolean;
+  acknowledgement?: string;
+  salesOrderNumber?: string;
   // Product commercial attributes
   items?: LedgerEntryItem[];
   productName?: string;
@@ -718,6 +721,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                     <th style={{ padding: '10px 10px', fontWeight: 700, width: '85px' }}>Date</th>
                     <th style={{ padding: '10px 10px', fontWeight: 700, width: '80px' }}>Voucher</th>
                     <th style={{ padding: '10px 10px', fontWeight: 700, width: '85px' }}>Type</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '90px', textAlign: 'center' }}>Ack</th>
                     <th style={{ padding: '10px 10px', fontWeight: 700, minWidth: '140px' }}>Product Name</th>
                     <th style={{ padding: '10px 10px', fontWeight: 700, minWidth: '110px' }}>Description</th>
                     <th style={{ padding: '10px 10px', fontWeight: 700, width: '75px' }}>Pack Size</th>
@@ -823,6 +827,29 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                           >
                             {e.entryType?.replace(/_/g, ' ')}
                           </span>
+                        </td>
+
+                        {/* Acknowledgement Status */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', textAlign: 'center' }}>
+                          {e.entryType?.includes('SALE') || e.salesInvoiceId ? (
+                            <span
+                              style={{
+                                display: 'inline-block',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                backgroundColor: e.isAcknowledged ? '#dcfce7' : '#fef3c7',
+                                color: e.isAcknowledged ? '#15803d' : '#b45309',
+                                border: `1px solid ${e.isAcknowledged ? '#86efac' : '#fde68a'}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {e.isAcknowledged ? '✓ Received' : 'Pending'}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontSize: '11px' }}>—</span>
+                          )}
                         </td>
 
                         {/* Product Name */}

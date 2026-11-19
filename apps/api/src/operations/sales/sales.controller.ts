@@ -255,6 +255,15 @@ export class SalesOrdersController {
     @Query('salesOfficerId') salesOfficerId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('acknowledgement') acknowledgement?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('regionId') regionId?: string,
+    @Query('zoneId') zoneId?: string,
+    @Query('territoryId') territoryId?: string,
+    @Query('schemeId') schemeId?: string,
+    @Query('productId') productId?: string,
+    @Query('batchId') batchId?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
@@ -270,11 +279,29 @@ export class SalesOrdersController {
         salesOfficerId,
         status,
         search,
+        acknowledgement,
+        fromDate,
+        toDate,
+        regionId,
+        zoneId,
+        territoryId,
+        schemeId,
+        productId,
+        batchId,
         limit: limit ? parseInt(limit, 10) : undefined,
         offset: offset ? parseInt(offset, 10) : undefined,
       },
       user,
     );
+  }
+
+  @Patch(':id/acknowledgement')
+  async toggleAcknowledgement(
+    @Param('id') id: string,
+    @Body('isAcknowledged') isAcknowledged: boolean,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.salesService.updateAcknowledgement(id, isAcknowledged, user);
   }
 
   @Get(':id')

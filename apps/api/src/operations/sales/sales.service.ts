@@ -920,6 +920,15 @@ export class SalesService {
       salesOfficerId?: string;
       status?: string;
       search?: string;
+      acknowledgement?: string;
+      fromDate?: string;
+      toDate?: string;
+      regionId?: string;
+      zoneId?: string;
+      territoryId?: string;
+      schemeId?: string;
+      productId?: string;
+      batchId?: string;
       limit?: number;
       offset?: number;
     },
@@ -934,11 +943,64 @@ export class SalesService {
     }
     if (filters?.dealerId) where.dealerId = filters.dealerId;
     if (filters?.salesOfficerId) where.salesOfficerId = filters.salesOfficerId;
-    if (filters?.status) where.status = filters.status;
+    if (filters?.status && filters.status !== 'ALL') where.status = filters.status;
+
+    if (filters?.acknowledgement) {
+      if (filters.acknowledgement === 'ACKNOWLEDGED' || filters.acknowledgement === 'true') {
+        where.isAcknowledged = true;
+      } else if (filters.acknowledgement === 'PENDING' || filters.acknowledgement === 'false') {
+        where.isAcknowledged = false;
+      }
+    }
+
+    if (filters?.fromDate || filters?.toDate) {
+      where.orderDate = {
+        ...(filters.fromDate ? { gte: new Date(filters.fromDate) } : {}),
+        ...(filters.toDate ? { lte: new Date(filters.toDate) } : {}),
+      };
+    }
+
+    if (filters?.regionId) where.regionId = filters.regionId;
+    if (filters?.zoneId) where.zoneId = filters.zoneId;
+    if (filters?.territoryId) where.territoryId = filters.territoryId;
+
+    if (filters?.schemeId) {
+      where.OR = [
+        ...(where.OR || []),
+        { schemeId: filters.schemeId },
+        { items: { some: { schemeId: filters.schemeId } } },
+      ];
+    }
+
+    if (filters?.productId) {
+      where.items = {
+        ...(where.items || {}),
+        some: {
+          ...(where.items?.some || {}),
+          finishedProductId: filters.productId,
+        },
+      };
+    }
+
+    if (filters?.batchId) {
+      where.items = {
+        ...(where.items || {}),
+        some: {
+          ...(where.items?.some || {}),
+          batchId: filters.batchId,
+        },
+      };
+    }
+
     if (filters?.search) {
       where.OR = [
+        ...(where.OR || []),
         { orderNumber: { contains: filters.search, mode: 'insensitive' } },
         { dealer: { name: { contains: filters.search, mode: 'insensitive' } } },
+        { dealer: { businessName: { contains: filters.search, mode: 'insensitive' } } },
+        { dealer: { code: { contains: filters.search, mode: 'insensitive' } } },
+        { dealer: { territory: { name: { contains: filters.search, mode: 'insensitive' } } } },
+        { dealer: { territory: { code: { contains: filters.search, mode: 'insensitive' } } } },
       ];
     }
 
@@ -947,7 +1009,39 @@ export class SalesService {
       this.prisma.salesOrder.findMany({
         where,
         include: {
-          dealer: { select: { id: true, name: true, code: true, currentBalance: true, creditLimit: true } },
+          dealer: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              businessName: true,
+              address: true,
+              currentBalance: true,
+              creditLimit: true,
+              phone: true,
+              territory: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  zone: {
+                    select: {
+                      id: true,
+                      name: true,
+                      code: true,
+                      region: {
+                        select: {
+                          id: true,
+                          name: true,
+                          code: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
           warehouse: { select: { id: true, name: true, code: true } },
           rateList: { select: { id: true, code: true, name: true, category: true } },
@@ -981,7 +1075,39 @@ export class SalesService {
     const order = await this.prisma.salesOrder.findFirst({
       where,
       include: {
-        dealer: { select: { id: true, name: true, code: true, currentBalance: true, creditLimit: true, phone: true } },
+        dealer: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            businessName: true,
+            address: true,
+            currentBalance: true,
+            creditLimit: true,
+            phone: true,
+            territory: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                zone: {
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    region: {
+                      select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
         warehouse: { select: { id: true, name: true, code: true } },
         rateList: { select: { id: true, code: true, name: true, category: true } },
@@ -1209,6 +1335,29 @@ export class SalesService {
           primaryRateListVersionId = resolved.rateListVersionId;
         }
       }
+
+      // Section 1, 2, 3: Allow User Manual Overrides for Base Price and Discounts
+      // Overrides apply ONLY to this Sales Order line, master Rate List remains untouched.
+      const customBaseRate = (item as any).baseRate !== undefined && (item as any).baseRate !== null && !isNaN(Number((item as any).baseRate))
+        ? Number((item as any).baseRate)
+        : ((item as any).basePrice !== undefined && !isNaN(Number((item as any).basePrice)) ? Number((item as any).basePrice) : null);
+
+      if (customBaseRate !== null && customBaseRate > 0) {
+        baseRate = customBaseRate;
+      }
+
+      if ((item as any).discountAmount !== undefined && (item as any).discountAmount !== null && !isNaN(Number((item as any).discountAmount))) {
+        discountAmount = Number((item as any).discountAmount);
+        discountPercent = baseRate > 0 ? (discountAmount / baseRate) * 100 : 0;
+      } else if ((item as any).discountPercent !== undefined && (item as any).discountPercent !== null && !isNaN(Number((item as any).discountPercent))) {
+        discountPercent = Number((item as any).discountPercent);
+        discountAmount = (baseRate * discountPercent) / 100;
+      } else if (customBaseRate !== null) {
+        discountAmount = (baseRate * discountPercent) / 100;
+      }
+
+      unitPrice = Math.max(0, baseRate - discountAmount);
+      totalPrice = unitPrice * qty;
 
       // Batch Resolution & Expiry Validation
       let itemBatchId = (item as any).batchId || null;
@@ -1565,6 +1714,66 @@ export class SalesService {
 
   async rejectOrder(id: string, rejectionReason: string, actor: AuthUser, queryCompanyId?: string) {
     return this.approveOrRejectOrder(id, { approved: false, rejectionReason }, actor, queryCompanyId);
+  }
+
+  async updateAcknowledgement(id: string, isAcknowledged: boolean, actor: AuthUser) {
+    const existing = await this.prisma.salesOrder.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Sales Order ${id} not found`);
+    }
+
+    const updated = await this.prisma.salesOrder.update({
+      where: { id },
+      data: {
+        isAcknowledged: Boolean(isAcknowledged),
+        acknowledgedAt: isAcknowledged ? new Date() : null,
+      },
+      include: {
+        dealer: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            businessName: true,
+            address: true,
+            currentBalance: true,
+            creditLimit: true,
+            phone: true,
+            territory: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                zone: {
+                  select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    region: {
+                      select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true } },
+        warehouse: { select: { id: true, name: true, code: true } },
+        rateList: { select: { id: true, code: true, name: true } },
+        scheme: { select: { id: true, code: true, name: true } },
+        items: true,
+      },
+    });
+
+    this.logger.log(`Sales Order ${existing.orderNumber} acknowledgement set to ${isAcknowledged} by ${actor.email}`);
+    return this.serializeOrder(updated);
   }
 
   // ============================
@@ -3330,6 +3539,8 @@ export class SalesService {
   private serializeOrder(o: any) {
     return {
       ...o,
+      isAcknowledged: Boolean(o.isAcknowledged),
+      acknowledgedAt: o.acknowledgedAt || null,
       totalAmount: Number(o.totalAmount),
       discountAmount: o.discountAmount !== null && o.discountAmount !== undefined ? Number(o.discountAmount) : 0,
       freeQuantityTotal: o.freeQuantityTotal !== null && o.freeQuantityTotal !== undefined ? Number(o.freeQuantityTotal) : 0,

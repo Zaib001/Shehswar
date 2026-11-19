@@ -1309,6 +1309,7 @@ export interface SalesInvoiceExportData {
   taxAmount?: number | string;
   netAmount: number | string;
   notes?: string;
+  paymentTerm?: string;
   documentFormat?: 'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string;
   pricingPhase?: string;
   commercialCondition?: string;
@@ -2200,6 +2201,209 @@ export const exportSalesInvoiceToPdf = (
       setTimeout(function() {
         window.print();
       }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+};
+
+export const exportMultiFormatSalesInvoicesToPdf = (
+  invoice: SalesInvoiceExportData,
+  formats: Array<'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string>,
+  options?: { copies?: number }
+) => {
+  const copies = Math.max(1, Number(options?.copies || 1));
+  const validFormats = formats.length > 0 ? formats : ['COMMERCIAL_FULL'];
+
+  validFormats.forEach((fmt, idx) => {
+    for (let c = 0; c < copies; c++) {
+      setTimeout(() => {
+        exportSalesInvoiceToPdf(invoice, fmt);
+      }, (idx * copies + c) * 600);
+    }
+  });
+};
+
+export const exportPendingOrdersReportToPdf = (data: {
+  orders: any[];
+  companyName?: string;
+  filterSummary?: string;
+}) => {
+  const { orders, companyName } = data;
+  const generatedDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  // Group orders by Sales Officer
+  const groupedBySO: { [soName: string]: any[] } = {};
+  for (const o of orders) {
+    const soName = o.salesOfficer
+      ? `${o.salesOfficer.firstName || ''} ${o.salesOfficer.lastName || ''}`.trim() || o.salesOfficer.name || 'Unassigned / Direct'
+      : 'Unassigned / Direct';
+    if (!groupedBySO[soName]) groupedBySO[soName] = [];
+    groupedBySO[soName].push(o);
+  }
+
+  const totalOrdersCount = orders.length;
+  const totalOrdersValue = orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pending_Sales_Orders_Report</title>
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; background: #ffffff; color: #0f172a; font-size: 8.5pt; }
+    .screen-toolbar { position: sticky; top: 0; background: #0f172a; color: #fff; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 1000; }
+    .screen-toolbar button { background: #1e293b; color: #fff; border: 1px solid #475569; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+    @media print { .screen-toolbar { display: none !important; } }
+    .header-table { width: 100%; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+    .logo-img { height: 44px; width: auto; }
+    .so-banner { background: #1e293b; color: #ffffff; padding: 6px 12px; border-radius: 4px; font-weight: 700; font-size: 9pt; margin-top: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .report-table { width: 100%; border-collapse: collapse; font-size: 8pt; margin-bottom: 10px; border: 1px solid #cbd5e1; }
+    .report-table th { background: #0f172a; color: #ffffff; padding: 6px 8px; text-align: left; font-size: 7.5pt; text-transform: uppercase; border-right: 1px solid #334155; }
+    .report-table td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: middle; }
+    .report-table tr:nth-child(even) { background: #f8fafc; }
+    .mono { font-family: monospace; }
+    .ack-badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 7pt; font-weight: 700; }
+    .ack-rec { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+    .ack-pend { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+    .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+    .sum-card { border: 1px solid #cbd5e1; border-radius: 4px; padding: 8px 12px; background: #f8fafc; }
+    .sum-card .lbl { font-size: 7pt; color: #64748b; text-transform: uppercase; font-weight: 700; }
+    .sum-card .val { font-size: 11pt; font-weight: 800; color: #0f172a; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <div class="screen-toolbar">
+    <div><strong>PENDING SALES ORDERS REPORT</strong> • ${companyName || 'SHEHSWAR ONE360'}</div>
+    <div><button onclick="window.print()">Print / Save PDF</button></div>
+  </div>
+
+  <div style="padding: 14px;">
+    <table class="header-table">
+      <tr>
+        <td style="width: 50px; vertical-align: middle;"><img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar"></td>
+        <td style="padding-left: 10px; vertical-align: middle;">
+          <div style="font-size: 12pt; font-weight: 800; text-transform: uppercase;">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+          <div style="font-size: 7.5pt; color: #475569;">Commercial Division • Consolidated Pending Sales Orders Report • 4-Tier Market Hierarchy</div>
+        </td>
+        <td style="text-align: right; vertical-align: middle;">
+          <div style="display: inline-block; background: #0f172a; color: #fff; padding: 3px 10px; border-radius: 3px; font-weight: 700; font-size: 8pt;">PENDING ORDERS</div>
+          <div style="font-size: 7.5pt; color: #64748b; margin-top: 3px;">Generated: ${generatedDate}</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="summary-cards">
+      <div class="sum-card">
+        <div class="lbl">Total Pending Orders</div>
+        <div class="val">${totalOrdersCount} Orders</div>
+      </div>
+      <div class="sum-card">
+        <div class="lbl">Total Order Value</div>
+        <div class="val">PKR ${totalOrdersValue.toLocaleString()}</div>
+      </div>
+      <div class="sum-card">
+        <div class="lbl">Field Sales Officers</div>
+        <div class="val">${Object.keys(groupedBySO).length} Officers</div>
+      </div>
+      <div class="sum-card">
+        <div class="lbl">Company Scope</div>
+        <div class="val">${companyName || 'Active Company'}</div>
+      </div>
+    </div>
+
+    ${Object.entries(groupedBySO).map(([soName, soOrders]) => {
+      const soTotal = soOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+      return `
+        <div class="so-banner">
+          <span>Sales Officer: ${soName}</span>
+          <span>${soOrders.length} Order(s) • Total: PKR ${soTotal.toLocaleString()}</span>
+        </div>
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width: 3%; text-align: center;">#</th>
+              <th style="width: 8%;">Province</th>
+              <th style="width: 9%;">Region</th>
+              <th style="width: 9%;">Zone</th>
+              <th style="width: 9%;">Territory</th>
+              <th style="width: 17%;">Dealer & Shop</th>
+              <th style="width: 14%;">Address</th>
+              <th style="width: 9%;">Order #</th>
+              <th style="width: 7%; text-align: center;">Date</th>
+              <th style="width: 9%; text-align: right;">Amount (PKR)</th>
+              <th style="width: 6%; text-align: center;">Ack</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${soOrders.map((o, idx) => {
+              const d = o.dealer;
+              const terr = d?.territory;
+              const zone = terr?.zone;
+              const reg = zone?.region;
+              const prov = reg?.name?.includes('Sindh') ? 'Sindh' : (reg?.name?.includes('KPK') ? 'KPK' : (reg?.name?.includes('Baloch') ? 'Balochistan' : 'Punjab'));
+              const isAck = Boolean(o.isAcknowledged);
+              const orderDateStr = new Date(o.orderDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+              return `
+                <tr>
+                  <td style="text-align: center;" class="mono">${idx + 1}</td>
+                  <td>${prov}</td>
+                  <td>${reg?.name || '—'}</td>
+                  <td>${zone?.name || '—'}</td>
+                  <td>${terr?.name ? `${terr.name} (${terr.code || '—'})` : '—'}</td>
+                  <td>
+                    <strong>${d?.name || '—'}</strong>
+                    ${d?.businessName && d.businessName !== d.name ? `<div style="font-size: 7pt; color: #475569;">${d.businessName}</div>` : ''}
+                  </td>
+                  <td style="font-size: 7pt; color: #475569;">${d?.address || '—'}</td>
+                  <td class="mono" style="font-weight: 700; color: #1d4ed8;">${o.orderNumber}</td>
+                  <td style="text-align: center;" class="mono">${orderDateStr}</td>
+                  <td style="text-align: right;" class="mono" style="font-weight: 700;">PKR ${Number(o.totalAmount || 0).toLocaleString()}</td>
+                  <td style="text-align: center;">
+                    <span class="ack-badge ${isAck ? 'ack-rec' : 'ack-pend'}">${isAck ? '✓ Received' : 'Pending'}</span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }).join('')}
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 30px; text-align: center;">
+      <div>
+        <div style="border-top: 1px solid #475569; margin-bottom: 4px;"></div>
+        <div style="font-weight: 700; font-size: 8pt;">PREPARED BY (ERP OPERATOR)</div>
+      </div>
+      <div>
+        <div style="border-top: 1px solid #475569; margin-bottom: 4px;"></div>
+        <div style="font-weight: 700; font-size: 8pt;">AREA / REGIONAL SALES MANAGER</div>
+      </div>
+      <div>
+        <div style="border-top: 1px solid #475569; margin-bottom: 4px;"></div>
+        <div style="font-weight: 700; font-size: 8pt;">DIRECTOR COMMERCIAL / GM SALES</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
     };
   </script>
 </body>
@@ -3431,9 +3635,10 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
           <tr>
             <th style="width: 7%;" class="text-center">Date</th>
             <th style="width: 7%;">Voucher</th>
-            <th style="width: 8%;">Type</th>
-            <th style="width: 14%;">Product Name</th>
-            <th style="width: 11%;">Description</th>
+            <th style="width: 7%;">Type</th>
+            <th style="width: 6%;" class="text-center">Ack</th>
+            <th style="width: 13%;">Product Name</th>
+            <th style="width: 10%;">Description</th>
             <th style="width: 6%;">Pack Size</th>
             <th style="width: 4%;" class="text-center">CTN</th>
             <th style="width: 6%;">Batch</th>
@@ -3448,7 +3653,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
         <tbody>
           ${entries.length === 0 ? `
             <tr>
-              <td colspan="14" class="text-center" style="padding: 20px; color: #64748b;">
+              <td colspan="15" class="text-center" style="padding: 20px; color: #64748b;">
                 No ledger transactions found for the specified period.
               </td>
             </tr>
@@ -3495,6 +3700,13 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
                 <td class="text-center mono" style="color: #475569; vertical-align: top;">${dateStr}</td>
                 <td class="mono" style="font-weight: 700; color: #1d4ed8; vertical-align: top;" title="${entry.voucherNumber || ''}">${smallVoucher}</td>
                 <td style="vertical-align: top;"><span style="font-weight: 600; font-size: 7.2pt;">${entry.entryType}</span></td>
+                <td style="vertical-align: top;" class="text-center">
+                  ${(entry as any).isAcknowledged
+                    ? '<span style="color: #15803d; font-weight: 700; background: #dcfce7; padding: 1px 4px; border-radius: 3px; font-size: 6.5pt;">✓ Received</span>'
+                    : (entry.entryType?.includes('SALE')
+                      ? '<span style="color: #b45309; font-weight: 700; background: #fef3c7; padding: 1px 4px; border-radius: 3px; font-size: 6.5pt;">Pending</span>'
+                      : '<span style="color: #94a3b8; font-size: 7pt;">—</span>')}
+                </td>
                 <td style="vertical-align: top;">${prodNamesHtml}</td>
                 <td style="vertical-align: top;">${descHtml}</td>
                 <td style="vertical-align: top;">${packHtml}</td>
@@ -3512,7 +3724,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="11" class="text-right" style="text-transform: uppercase;">PERIOD TOTALS:</td>
+            <td colspan="12" class="text-right" style="text-transform: uppercase;">PERIOD TOTALS:</td>
             <td class="text-right mono">PKR ${totalDebits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td class="text-right mono">PKR ${totalCredits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td class="text-right mono" style="font-weight: 800;">PKR ${closingBalFormatted} ${closingBalSuffix}</td>
