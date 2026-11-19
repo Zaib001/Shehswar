@@ -395,14 +395,7 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                 <span style={{ color: '#64748b' }}>Warehouse:</span>
                 <span>{invoice.warehouse?.name || 'Main Factory Warehouse'}</span>
               </div>
-              {isCommercialFull ? (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748b' }}>Commercial Condition:</span>
-                  <span style={{ fontWeight: 700, color: '#166534' }}>
-                    {invoice.commercialCondition || invoice.pricingPhase || 'Standard Cash'}
-                  </span>
-                </div>
-              ) : isBasicDelivery ? (
+              {isBasicDelivery ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Gate Pass Mode:</span>
                   <span style={{ fontWeight: 600, color: '#0f172a' }}>Outward Delivery Note</span>

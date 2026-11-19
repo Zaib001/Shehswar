@@ -1984,11 +1984,7 @@ export const exportSalesInvoiceToPdf = (
             <span class="meta-label">Warehouse:</span>
             <span class="meta-val">${invoice.warehouse?.name || 'Main Factory Warehouse'}</span>
           </div>
-          ${isCommercialFull ? `
-          <div class="meta-row">
-            <span class="meta-label">Commercial Condition:</span>
-            <span class="meta-val" style="color: #166534; font-weight: 700;">${invoice.commercialCondition || invoice.pricingPhase || 'Standard Cash'}</span>
-          </div>` : isBasicDelivery ? `
+          ${isBasicDelivery ? `
           <div class="meta-row">
             <span class="meta-label">Gate Pass Mode:</span>
             <span class="meta-val">Outward Dispatch Note</span>
