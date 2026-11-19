@@ -93,8 +93,9 @@ export class PricingController {
     @Body() dto: CreateRateListDto | UpsertRateListDto,
     @CurrentUser() user: AuthUser,
     @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    const targetCompanyId = (dto as any).companyId || ctx?.companyId || user.companyId;
+    const targetCompanyId = (dto as any).companyId || queryCompanyId || ctx?.companyId || user.companyId;
     // If legacy UpsertRateListDto was passed
     if ('finishedProductId' in dto && 'phase' in dto) {
       return this.pricingService.upsertLegacyRateList(dto as UpsertRateListDto, user);
@@ -107,8 +108,11 @@ export class PricingController {
     @Param('id') id: string,
     @Body() dto: UpdateRateListDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.updateRateList(id, dto, user);
+    const effectiveCompanyId = (dto as any).companyId || queryCompanyId || ctx?.companyId || user.companyId;
+    return this.pricingService.updateRateList(id, dto, user, effectiveCompanyId);
   }
 
   @Post('rate-lists/:id/versions')
@@ -116,8 +120,11 @@ export class PricingController {
     @Param('id') id: string,
     @Body() dto: CreateRateListVersionDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.createRateListVersion({ ...dto, rateListId: id }, user);
+    const effectiveCompanyId = (dto as any).companyId || queryCompanyId || ctx?.companyId || user.companyId;
+    return this.pricingService.createRateListVersion({ ...dto, rateListId: id, companyId: effectiveCompanyId }, user);
   }
 
   @Post('rate-lists/:id/duplicate')
@@ -133,8 +140,11 @@ export class PricingController {
   async archiveRateList(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.archiveRateList(id, user);
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
+    return this.pricingService.archiveRateList(id, user, effectiveCompanyId);
   }
 
   @Post('rate-lists/:id/add-products')
@@ -142,16 +152,22 @@ export class PricingController {
     @Param('id') id: string,
     @Body() body: { productIds: string[] },
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    return this.pricingService.addNewProductsToRateList(id, body.productIds || [], user);
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
+    return this.pricingService.addNewProductsToRateList(id, body.productIds || [], user, effectiveCompanyId);
   }
 
   @Get('rate-lists/:id/pdf')
   async getRateListPdfHtml(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
   ) {
-    const html = await this.pricingService.generateRateListPdfHtml(id, user.companyId);
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
+    const html = await this.pricingService.generateRateListPdfHtml(id, effectiveCompanyId);
     return { html };
   }
 

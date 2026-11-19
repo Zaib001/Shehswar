@@ -994,6 +994,13 @@ export const PricingManagementView: React.FC = () => {
       const typeCode = scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR';
       const year = new Date().getFullYear();
 
+      let autoCode = `RL-${shortCode}-${year}`;
+      let counter = 1;
+      while (rateLists.some((rl) => rl.code === autoCode)) {
+        counter++;
+        autoCode = `RL-${shortCode}-${year}-${String(counter).padStart(2, '0')}`;
+      }
+
       // Store scheme info for summary card
       setSelectedSchemeInfo(scheme);
       setSchemeComboQuery(`${shortCode} - ${scheme.name}`);
@@ -1004,7 +1011,7 @@ export const PricingManagementView: React.FC = () => {
         schemeShortCode: shortCode,
         schemeName: scheme.name,
         schemeTypeCode: typeCode,
-        code: `RL-${shortCode}-${year}`,
+        code: autoCode,
         name: `${scheme.name} Rate List`,
         description: `Official Rate List for ${scheme.name} (${typeCode})`,
         category:
