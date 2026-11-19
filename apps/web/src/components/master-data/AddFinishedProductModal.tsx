@@ -90,7 +90,7 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
 
   // 5. Packaging Container & Commercial Specifications
   const [packagingContainer, setPackagingContainer] = useState<number | ''>(100);
-  const [ppc, setPpc] = useState<number>(12); // Packs Per Carton
+  const [ppc, setPpc] = useState<number | ''>(12); // Packs Per Carton / Cotton
   const [baseSellingPrice, setBaseSellingPrice] = useState<number>(1250);
   const [brand, setBrand] = useState('Shehswar Agro');
   const [grade, setGrade] = useState('Standard');
@@ -201,7 +201,13 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
             ? productToEdit.customFields.packagingContainer
             : productToEdit.packingQuantity || 100
         );
-        setPpc(productToEdit.ppc ? Number(productToEdit.ppc) : 1);
+        setPpc(
+          productToEdit.ppc !== null && productToEdit.ppc !== undefined
+            ? Number(productToEdit.ppc)
+            : productToEdit.customFields?.ppc !== undefined
+            ? Number(productToEdit.customFields.ppc)
+            : 1
+        );
         setBaseSellingPrice(Number(productToEdit.defaultSellingPrice || productToEdit.baseRate || 0));
         setBrand(productToEdit.customFields?.brand || productToEdit.brand || 'Shehswar Agro');
         setGrade(productToEdit.customFields?.grade || productToEdit.grade || 'Standard');
@@ -293,7 +299,7 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
           packSizeId: selectedPackSizeId || null,
           packingQuantity: commercialVolume !== '' ? Number(commercialVolume) : null,
           packingUnit: volumeUnit || null,
-          ppc: ppc ? Number(ppc) : 1,
+          ppc: ppc !== '' ? Number(ppc) : 1,
           defaultSellingPrice: baseSellingPrice ? Number(baseSellingPrice) : 0,
           status: isActive ? 'ACTIVE' : 'INACTIVE',
           description: description.trim() || null,
@@ -305,6 +311,7 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
             brand: brand.trim() || 'Shehswar Agro',
             grade: grade.trim() || 'Standard',
             packagingContainer: packagingContainer !== '' ? Number(packagingContainer) : undefined,
+            ppc: ppc !== '' ? Number(ppc) : 1,
           },
         };
 
@@ -346,7 +353,7 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
         packSizeId: selectedPackSizeId || undefined,
         packSizeQuantity: commercialVolume !== '' ? Number(commercialVolume) : 100,
         packSizeUnit: volumeUnit || 'Gram',
-        ppc: ppc ? Number(ppc) : 1,
+        ppc: ppc !== '' ? Number(ppc) : 1,
         baseSellingPrice: baseSellingPrice ? Number(baseSellingPrice) : undefined,
         status: isActive ? 'ACTIVE' : 'INACTIVE',
       };
@@ -779,11 +786,14 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
 
             <div>
               <Input
-                label="PPC (Packs Per Carton) *"
+                label="PPC (Pack Per Cotton / Carton) *"
                 type="number"
+                min={1}
+                step={1}
+                placeholder="e.g. 10, 12, 20"
                 value={ppc}
-                onChange={(e) => setPpc(Number(e.target.value))}
-                helperText="Units packed in 1 master box"
+                onChange={(e) => setPpc(e.target.value === '' ? '' : Number(e.target.value))}
+                helperText="Units packed in 1 master cotton / carton box"
               />
             </div>
 

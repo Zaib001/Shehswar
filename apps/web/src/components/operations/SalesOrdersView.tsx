@@ -219,11 +219,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
   const dealerOptions = React.useMemo(() => {
     return companyDealers.map((d) => {
-      const terr = d.territory?.name || '';
-      const zone = d.territory?.zone?.name || '';
-      const reg = d.territory?.zone?.region?.name || '';
+      const terrCode = d.territory?.code || '';
+      const terrName = d.territory?.name || '';
+      const zoneName = d.territory?.zone?.name || '';
+      const regName = d.territory?.zone?.region?.name || '';
       let prov = 'Punjab';
-      const regLow = (reg || '').toLowerCase();
+      const regLow = (regName || '').toLowerCase();
       const cityLow = (d.city || '').toLowerCase();
       const addrLow = (d.address || '').toLowerCase();
       if (/sindh/i.test(regLow) || /karachi|hyderabad|sukkur|larkana/i.test(cityLow + ' ' + addrLow)) {
@@ -235,18 +236,37 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       } else if (/islamabad/i.test(regLow) || /islamabad/i.test(cityLow + ' ' + addrLow)) {
         prov = 'Islamabad';
       }
-      const hierarchyPath = [prov, reg, zone, terr].filter(Boolean).join(' → ');
 
-      // Prioritize Shop/Business Name & Address over individual dealer name
-      const shopName = (d.businessName || '').trim() || d.name;
+      const shopName = (d.businessName || '').trim();
+      const dealerName = (d.name || '').trim() || shopName;
+      const dealerCode = (d.code || '').trim();
       const addressParts = [d.address?.trim(), d.city?.trim()].filter(Boolean).join(', ');
-      const displayLabel = addressParts ? `${shopName} — ${addressParts}` : shopName;
+      const soName = d.assignedOfficer
+        ? `${d.assignedOfficer.firstName || ''} ${d.assignedOfficer.lastName || ''}`.trim()
+        : (d.territory?.salesOfficer
+          ? `${d.territory.salesOfficer.firstName || ''} ${d.territory.salesOfficer.lastName || ''}`.trim()
+          : (d.territory?.manager
+            ? `${d.territory.manager.firstName || ''} ${d.territory.manager.lastName || ''}`.trim()
+            : ''));
+
+      // Structure:
+      // ABC Traders · DL-000125
+      // Shop: ABC Agro Store · Main Bazar, Chiniot
+      // CH · Chiniot · Faisalabad · Central
+      // SO: Ahmed
+      const hierarchyLine = [terrCode, terrName, zoneName, regName].filter(Boolean).join(' · ');
+      const subtextParts = [
+        shopName ? `Shop: ${shopName}${addressParts ? ` · ${addressParts}` : ''}` : (addressParts ? `Address: ${addressParts}` : ''),
+        hierarchyLine,
+        soName ? `SO: ${soName}` : '',
+      ].filter(Boolean);
 
       return {
         value: d.id,
-        label: displayLabel,
-        subtext: `Address: ${addressParts || 'No address'}${d.code ? ` • Code: ${d.code}` : ''}${hierarchyPath ? ` • ${hierarchyPath}` : ''}`,
-        searchTerms: `${shopName} ${d.businessName || ''} ${d.address || ''} ${d.city || ''} ${d.name || ''} ${d.code || ''} ${d.phone || ''} ${prov} ${reg} ${zone} ${terr}`,
+        label: `${dealerName}${dealerCode ? ` · ${dealerCode}` : ''}`,
+        subtext: subtextParts.join('\n'),
+        badge: terrCode || undefined,
+        searchTerms: `${dealerName} ${dealerCode} ${shopName} ${d.businessName || ''} ${d.address || ''} ${d.city || ''} ${d.phone || ''} ${terrCode} ${terrName} ${zoneName} ${regName} ${prov} ${soName}`,
       };
     });
   }, [companyDealers]);
@@ -263,37 +283,25 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
   const productOptions = React.useMemo(() => {
     return companyProducts.map((p) => {
-      const pPack = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
-      const codeStr = p.productCode ? `[${p.productCode}] ` : '';
-      const categoryName =
-        typeof p.category === 'object' && p.category !== null
-          ? String(p.category.name || p.category.code || '')
-          : typeof p.category === 'string'
-            ? p.category
-            : '';
-      const subparts = [
-        p.sku ? `SKU: ${p.sku}` : '',
-        categoryName ? `Category: ${categoryName}` : '',
-      ].filter(Boolean);
+      const cleanName = (p.productName || 'Unnamed Product').trim();
       return {
         value: String(p.id),
-        label: `${codeStr}${p.productName || 'Unnamed Product'} (${pPack})`,
-        subtext: subparts.length > 0 ? subparts.join(' • ') : undefined,
-        searchTerms: `${p.productCode || ''} ${p.productName || ''} ${p.sku || ''} ${categoryName} ${pPack}`,
+        label: cleanName,
+        searchTerms: `${cleanName} ${p.productCode || ''} ${p.sku || ''}`,
       };
     });
   }, [companyProducts]);
 
   const schemeOptions = React.useMemo(() => {
     return companySchemes.map((s) => {
-      const isParent = activeCompanyId && s.companyId && s.companyId !== activeCompanyId;
+      const codeOnly = (s.shortCode || s.code || 'SCHEME').trim();
       return {
         value: s.id,
-        label: `${s.shortCode || s.code || 'SCHEME'} — ${s.name || s.schemeName} (${s.defaultDiscountPct || s.discountPct || 0}%)${isParent ? ' [Parent Group]' : ''}`,
-        subtext: s.description || undefined,
+        label: codeOnly,
+        searchTerms: `${codeOnly} ${s.name || s.schemeName || ''} ${s.description || ''}`,
       };
     });
-  }, [companySchemes, activeCompanyId]);
+  }, [companySchemes]);
 
   const rateListOptions = React.useMemo(() => {
     return [
@@ -588,8 +596,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
   const addItemRow = () => {
     const defaultSchemeId = companySchemes[0]?.id || '';
-    setFormItems([
-      ...formItems,
+    const newIdx = formItems.length;
+    setFormItems((prev) => [
+      ...prev,
       {
         finishedProductId: '',
         productName: '',
@@ -604,6 +613,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         totalPrice: 0,
       },
     ]);
+    setTimeout(() => {
+      const el = document.getElementById(`field-item-scheme-${newIdx}`) || document.getElementById(`field-item-product-${newIdx}`);
+      el?.focus();
+    }, 60);
   };
 
   const removeItemRow = (index: number) => {
@@ -691,6 +704,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     try {
       const payload = {
         dealerId: formData.dealerId,
+        territoryId: dealerHierarchy?.territoryId || dealerHierarchy?.territory?.id || undefined,
+        zoneId: dealerHierarchy?.zoneId || dealerHierarchy?.zone?.id || undefined,
+        regionId: dealerHierarchy?.regionId || dealerHierarchy?.region?.id || undefined,
+        salesOfficerId: dealerHierarchy?.salesOfficerId || dealerHierarchy?.salesOfficer?.id || undefined,
+        areaManagerId: dealerHierarchy?.areaManagerId || dealerHierarchy?.areaManager?.id || undefined,
+        businessManagerId: dealerHierarchy?.businessManagerId || dealerHierarchy?.businessManager?.id || undefined,
         warehouseId: warehouseIdToUse,
         orderDate: formData.orderDate,
         notes: formData.notes || undefined,
@@ -2837,8 +2856,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
                   <div style={{ backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Tier 3: Territory & SO</div>
-                    <div style={{ fontWeight: 700, color: '#d97706', fontSize: '14px', marginTop: '2px' }}>
-                      {dealerHierarchy.hierarchy?.territory || dealerHierarchy.territory?.name || 'Territory'}
+                    <div style={{ fontWeight: 700, color: '#d97706', fontSize: '14px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{dealerHierarchy.hierarchy?.territory || dealerHierarchy.territory?.name || 'Territory'}</span>
+                      {(dealerHierarchy.territoryCode || dealerHierarchy.hierarchy?.territoryCode) && (
+                        <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                          {dealerHierarchy.territoryCode || dealerHierarchy.hierarchy?.territoryCode}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: '12px', color: '#334155', marginTop: '2px' }}>
                       Responsible SO: <strong style={{ color: '#2563eb' }}>{
@@ -2926,7 +2950,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   Select product, warehouse batch, and applicable commercial scheme per line item.
                 </div>
               </div>
-              <Button variant="secondary" size="sm" onClick={addItemRow}>
+              <Button id="btn-add-product-line" variant="secondary" size="sm" onClick={addItemRow}>
                 <IconPlus size={16} /> Add Product Line
               </Button>
             </div>
@@ -2937,10 +2961,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                   <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
                     <th style={{ padding: '10px 10px', width: '36px', textAlign: 'center' }}>#</th>
+                    <th style={{ padding: '10px 12px', minWidth: '130px' }}>Scheme *</th>
                     <th style={{ padding: '10px 12px', minWidth: '220px' }}>Finished Product *</th>
                     <th style={{ padding: '10px 12px', minWidth: '180px' }}>Batch in WH *</th>
-                    <th style={{ padding: '10px 12px', minWidth: '180px' }}>Commercial Rate List</th>
-                    <th style={{ padding: '10px 12px', minWidth: '180px' }}>Scheme *</th>
+                    <th style={{ padding: '10px 12px', minWidth: '160px' }}>Commercial Rate List</th>
                     <th style={{ padding: '10px 8px', textAlign: 'center', width: '90px' }}>Qty *</th>
                     <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '95px' }}>Base Rate</th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', minWidth: '110px' }}>Discount</th>
@@ -2962,9 +2986,22 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           {idx + 1}
                         </td>
 
+                        {/* Product-Specific Commercial Scheme */}
+                        <td style={{ padding: '10px 12px', minWidth: '130px' }}>
+                          <Select
+                            id={`field-item-scheme-${idx}`}
+                            placeholder="Scheme..."
+                            value={item.schemeId || ''}
+                            options={schemeOptions}
+                            onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value || e)}
+                            isSearchable={true}
+                          />
+                        </td>
+
                         {/* Finished Product Selector */}
                         <td style={{ padding: '10px 12px', minWidth: '220px' }}>
                           <Select
+                            id={`field-item-product-${idx}`}
                             placeholder="Select Finished Product..."
                             value={item.finishedProductId || ''}
                             options={productOptions}
@@ -2976,12 +3013,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         {/* Warehouse-Specific Batches */}
                         <td style={{ padding: '10px 12px', minWidth: '180px' }}>
                           <Select
+                            id={`field-item-batch-${idx}`}
                             placeholder={item.finishedProductId ? ((item.availableBatches || []).length > 0 ? "-- Select Batch in WH --" : "No batches in selected WH") : "Select product first"}
                             value={item.batchId || ''}
                             disabled={!item.finishedProductId || (item.availableBatches || []).length === 0}
                             options={(item.availableBatches || []).map((b: any) => ({
                               value: b.id,
-                              label: `${b.batchNumber} — ${b.availableQuantity} Units${b.isExpired ? ' [EXPIRED]' : ''}`,
+                              label: `${b.batchNumber} (Stock: ${b.availableQuantity})${b.isExpired ? ' [EXPIRED]' : ''}`,
                               disabled: b.isExpired,
                             }))}
                             onChange={(e: any) => updateItem(idx, 'batchId', e?.target?.value || e)}
@@ -2990,8 +3028,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         </td>
 
                         {/* Product-Specific Commercial Rate List */}
-                        <td style={{ padding: '10px 12px', minWidth: '180px' }}>
+                        <td style={{ padding: '10px 12px', minWidth: '160px' }}>
                           <Select
+                            id={`field-item-ratelist-${idx}`}
                             placeholder="Standard Catalogue"
                             value={item.rateListId || ''}
                             options={rateListOptions}
@@ -3000,24 +3039,25 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           />
                         </td>
 
-                        {/* Product-Specific Commercial Scheme */}
-                        <td style={{ padding: '10px 12px', minWidth: '180px' }}>
-                          <Select
-                            placeholder="-- Select Scheme --"
-                            value={item.schemeId || ''}
-                            options={schemeOptions}
-                            onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value || e)}
-                            isSearchable={true}
-                          />
-                        </td>
-
                         {/* Quantity with inline stock validation */}
                         <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           <input
+                            id={`field-item-qty-${idx}`}
                             type="number"
                             min="1"
                             value={item.quantity}
                             onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (idx < formItems.length - 1) {
+                                  const nextEl = document.getElementById(`field-item-scheme-${idx + 1}`) || document.getElementById(`field-item-product-${idx + 1}`);
+                                  nextEl?.focus();
+                                } else {
+                                  document.getElementById('btn-add-product-line')?.focus();
+                                }
+                              }
+                            }}
                             style={{
                               width: '75px',
                               padding: '6px 8px',

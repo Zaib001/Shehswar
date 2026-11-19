@@ -4878,6 +4878,49 @@ export class MasterDataService {
     return territory;
   }
 
+  async generateTerritoryCode(name: string): Promise<string> {
+    const clean = (name || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (!clean) return 'TR';
+
+    // Primary candidate: first two letters
+    const base2 = clean.length >= 2 ? clean.slice(0, 2) : (clean + 'T').slice(0, 2);
+    const exists = await this.prisma.territory.findFirst({
+      where: { code: base2 },
+    });
+    if (!exists) return base2;
+
+    // Check first + subsequent letters from name
+    for (let i = 2; i < clean.length; i++) {
+      const candidate = clean.charAt(0) + clean.charAt(i);
+      const found = await this.prisma.territory.findFirst({
+        where: { code: candidate },
+      });
+      if (!found) return candidate;
+    }
+
+    // Check 3-letter prefix
+    if (clean.length >= 3) {
+      const base3 = clean.slice(0, 3);
+      const found = await this.prisma.territory.findFirst({
+        where: { code: base3 },
+      });
+      if (!found) return base3;
+    }
+
+    // Deterministic numeric suffix
+    let suffix = 1;
+    while (suffix < 99) {
+      const candidate = `${base2}${suffix}`;
+      const found = await this.prisma.territory.findFirst({
+        where: { code: candidate },
+      });
+      if (!found) return candidate;
+      suffix++;
+    }
+
+    return `${base2}${Date.now().toString().slice(-2)}`;
+  }
+
   async createTerritory(dto: CreateTerritoryDto, actor: { id: string; email?: string }) {
     const zone = await this.prisma.zone.findUnique({
       where: { id: dto.zoneId },
@@ -4886,12 +4929,8 @@ export class MasterDataService {
     if (!zone) throw new NotFoundException('Zone not found');
 
     let code = (dto.code || '').trim().toUpperCase();
-    if (!code || code === 'AUTO') {
-      code = await this.codeGen.generateCode({
-        companyId: zone.region.companyId,
-        organizationId: zone.region.company.organizationId,
-        entityType: 'TERRITORY',
-      });
+    if (!code || code === 'AUTO' || code.startsWith('TER-') || code.startsWith('TERR-')) {
+      code = await this.generateTerritoryCode(dto.name);
     }
 
     const managerId = await this.resolveManagerUserId(

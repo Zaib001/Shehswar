@@ -327,6 +327,7 @@ export interface FinishedProductDto {
   standardCost?: number | null;
   defaultSellingPrice?: number | null;
   hsCode?: string | null;
+  ppc?: number | null;
   status: 'ACTIVE' | 'INACTIVE' | string;
   approvalStatus: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | string;
   category?: ProductCategoryDto | null;

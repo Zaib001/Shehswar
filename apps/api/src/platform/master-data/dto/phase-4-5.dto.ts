@@ -672,6 +672,10 @@ export class CreateFinishedProductDto {
   @IsOptional()
   defaultSellingPrice?: number;
 
+  @IsNumber()
+  @IsOptional()
+  ppc?: number;
+
   @IsString()
   @IsOptional()
   hsCode?: string;
@@ -753,6 +757,10 @@ export class UpdateFinishedProductDto {
   @IsNumber()
   @IsOptional()
   defaultSellingPrice?: number;
+
+  @IsNumber()
+  @IsOptional()
+  ppc?: number;
 
   @IsString()
   @IsOptional()

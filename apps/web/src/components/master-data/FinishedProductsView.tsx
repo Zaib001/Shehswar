@@ -597,12 +597,15 @@ export const FinishedProductsView: React.FC = () => {
     },
     {
       key: 'ppc',
-      label: 'PPC',
+      label: 'PPC (Pack/Cotton)',
       align: 'center' as const,
+      sortable: true,
       render: (row: FinishedProductItem) => (
         <span
           style={{
-            display: 'inline-block',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
             padding: '2px 8px',
             borderRadius: '6px',
             backgroundColor: '#F8FAFC',
@@ -612,8 +615,9 @@ export const FinishedProductsView: React.FC = () => {
             fontSize: '0.78rem',
             color: '#334155',
           }}
+          title={`${row.ppc || 1} packs per master carton / cotton`}
         >
-          {row.ppc || 1}
+          {row.ppc || 1} <span style={{ fontSize: '0.68rem', color: '#64748B', fontWeight: 500 }}>/ctn</span>
         </span>
       ),
     },
@@ -1225,7 +1229,7 @@ export const FinishedProductsView: React.FC = () => {
                   Pack Size: {viewingProduct.packingQuantity ? `${viewingProduct.packingQuantity} ${viewingProduct.packingUnit || 'Liter'}` : 'Not Specified'}
                 </div>
                 <div style={{ marginTop: '4px', color: '#475569' }}>
-                  PPC (Pack Per Carton): <strong>{viewingProduct.ppc || 1} units/box</strong>
+                  PPC (Pack Per Cotton / Carton): <strong>{viewingProduct.ppc || 1} packs/carton</strong>
                 </div>
                 <div style={{ marginTop: '4px', color: '#475569' }}>
                   Packaging Material: <strong>{viewingProduct.packagingMaterial?.materialName || 'None Assigned'}</strong>
@@ -1576,6 +1580,26 @@ export const FinishedProductsView: React.FC = () => {
                 }}
               >
                 Code: {productToDelete.productCode}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  marginTop: '8px',
+                  paddingTop: '8px',
+                  borderTop: '1px solid #FECACA',
+                  fontSize: '0.78rem',
+                  color: '#991B1B',
+                }}
+              >
+                <div>
+                  Pack Size: <strong>{productToDelete.packingQuantity ? `${productToDelete.packingQuantity} ${productToDelete.packingUnit || ''}` : 'N/A'}</strong>
+                </div>
+                <span>•</span>
+                <div>
+                  PPC (Pack Per Cotton / Carton): <strong>{productToDelete.ppc || 1}</strong>
+                </div>
               </div>
             </div>
             <p style={{ fontSize: '0.82rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>

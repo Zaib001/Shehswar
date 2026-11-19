@@ -2373,6 +2373,9 @@ export const PricingManagementView: React.FC = () => {
                       <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
                         {p.packSize ? `${p.packSize} ${p.packagingMaterial || ''}`.trim() : p.unit || 'Unit'}
                         {resolvePackSizeDisplay(p)}
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          PPC: {p.ppc || 1}
+                        </div>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         {p.batchNumber ? (
@@ -3391,6 +3394,9 @@ export const PricingManagementView: React.FC = () => {
                           <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
                             {item.packSize || item.unit || 'Standard'}
                             {resolvePackSizeDisplay(item)}
+                            <div style={{ fontSize: '10px', color: '#64748b' }}>
+                              PPC: {item.ppc || item.finishedProduct?.ppc || 1}
+                            </div>
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                             <input

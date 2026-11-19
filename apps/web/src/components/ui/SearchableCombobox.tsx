@@ -520,8 +520,9 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                           style={{
                             fontSize: '11px',
                             color: 'var(--text-muted, #64748B)',
-                            whiteSpace: 'normal',
+                            whiteSpace: 'pre-line',
                             wordBreak: 'break-word',
+                            lineHeight: 1.35,
                           }}
                         >
                           {safeFormatValue(opt.subtext)}

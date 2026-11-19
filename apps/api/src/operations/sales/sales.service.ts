@@ -97,9 +97,11 @@ export class SalesService {
     const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
     const where: any = {};
     if (companyId && companyId !== 'ALL' && companyId !== 'all') {
-      where.companyId = companyId;
+      const allowed = await this.resolveAllowedCompanyIds(companyId);
+      where.companyId = allowed.length > 0 ? { in: allowed } : companyId;
     } else if (!isSuper) {
-      where.companyId = actor?.companyId || companyId;
+      const allowed = await this.resolveAllowedCompanyIds(actor?.companyId || companyId);
+      where.companyId = allowed.length > 0 ? { in: allowed } : (actor?.companyId || companyId);
     }
     // Exclude virtual inter-company mirror records from commercial dealer lists
     where.NOT = [
@@ -110,15 +112,19 @@ export class SalesService {
     if (filters?.search) {
       where.OR = [
         { name: { contains: filters.search, mode: 'insensitive' } },
+        { businessName: { contains: filters.search, mode: 'insensitive' } },
         { code: { contains: filters.search, mode: 'insensitive' } },
         { phone: { contains: filters.search, mode: 'insensitive' } },
         { city: { contains: filters.search, mode: 'insensitive' } },
+        { address: { contains: filters.search, mode: 'insensitive' } },
         { territory: { name: { contains: filters.search, mode: 'insensitive' } } },
         { territory: { code: { contains: filters.search, mode: 'insensitive' } } },
         { territory: { zone: { name: { contains: filters.search, mode: 'insensitive' } } } },
         { territory: { zone: { code: { contains: filters.search, mode: 'insensitive' } } } },
         { territory: { zone: { region: { name: { contains: filters.search, mode: 'insensitive' } } } } },
         { territory: { zone: { region: { code: { contains: filters.search, mode: 'insensitive' } } } } },
+        { assignedOfficer: { firstName: { contains: filters.search, mode: 'insensitive' } } },
+        { assignedOfficer: { lastName: { contains: filters.search, mode: 'insensitive' } } },
       ];
     }
     if (filters?.salesOfficerId) {
@@ -166,9 +172,15 @@ export class SalesService {
         include: {
           territory: {
             include: {
+              salesOfficer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
               zone: {
                 include: {
-                  region: true,
+                  areaManager: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+                  region: {
+                    include: {
+                      businessManager: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+                    },
+                  },
                 },
               },
             },
@@ -787,6 +799,13 @@ export class SalesService {
       dealerId: dealer.id,
       dealerCode: dealer.code,
       dealerName: dealer.name,
+      territoryCode: territory?.code || null,
+      regionId: region?.id || null,
+      zoneId: zone?.id || null,
+      territoryId: territory?.id || null,
+      salesOfficerId: soObj.id || null,
+      businessManagerId: bmObj.id || null,
+      areaManagerId: amObj.id || null,
       dealer: {
         id: dealer.id,
         code: dealer.code,
@@ -1037,8 +1056,12 @@ export class SalesService {
       throw new BadRequestException('A company cannot be selected as a customer dealer. Please select a valid commercial dealer.');
     }
 
-    const dealer = await this.prisma.dealer.findFirst({
-      where: { id: dto.dealerId, companyId },
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    let dealer = await this.prisma.dealer.findFirst({
+      where: {
+        id: dto.dealerId,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+      },
       include: {
         territory: {
           include: {
@@ -1051,6 +1074,22 @@ export class SalesService {
         },
       },
     });
+    if (!dealer) {
+      dealer = await this.prisma.dealer.findFirst({
+        where: { id: dto.dealerId },
+        include: {
+          territory: {
+            include: {
+              zone: {
+                include: {
+                  region: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
     if (!dealer) throw new NotFoundException('Dealer not found');
 
     // Section 11 & 16: Validate market scope for non-admin users
@@ -2107,8 +2146,12 @@ export class SalesService {
       throw new BadRequestException('A company cannot be selected as a customer dealer. Please select a valid commercial dealer.');
     }
 
-    const dealer = await this.prisma.dealer.findFirst({
-      where: { id: dto.dealerId, companyId },
+    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    let dealer = await this.prisma.dealer.findFirst({
+      where: {
+        id: dto.dealerId,
+        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
+      },
       include: {
         territory: {
           include: {
@@ -2121,6 +2164,22 @@ export class SalesService {
         },
       },
     });
+    if (!dealer) {
+      dealer = await this.prisma.dealer.findFirst({
+        where: { id: dto.dealerId },
+        include: {
+          territory: {
+            include: {
+              zone: {
+                include: {
+                  region: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
     if (!dealer) throw new NotFoundException('Dealer not found');
 
     // Requirement 21: Validate Invoice Date against Scheme Invoice Period
