@@ -445,14 +445,14 @@ export const PricingManagementView: React.FC = () => {
       const rawSchemes: any[] = Array.isArray(schemesData) ? schemesData : [];
       const rawProducts: any[] = Array.isArray(productsData) ? productsData : [];
 
-      const filteredRL = (!isParentActive && effectiveCompId)
-        ? rawRateLists.filter((rl) => !rl.companyId || rl.companyId === effectiveCompId)
+      const filteredRL = effectiveCompId
+        ? rawRateLists.filter((rl) => rl.companyId === effectiveCompId)
         : rawRateLists;
-      const filteredSC = (!isParentActive && effectiveCompId)
-        ? rawSchemes.filter((sc) => !sc.companyId || sc.companyId === effectiveCompId)
+      const filteredSC = effectiveCompId
+        ? rawSchemes.filter((sc) => sc.companyId === effectiveCompId)
         : rawSchemes;
-      const filteredPR = (!isParentActive && effectiveCompId)
-        ? rawProducts.filter((pr) => !pr.companyId || pr.companyId === effectiveCompId)
+      const filteredPR = effectiveCompId
+        ? rawProducts.filter((pr) => pr.companyId === effectiveCompId)
         : rawProducts;
 
       setRateLists(filteredRL);
@@ -1041,7 +1041,7 @@ export const PricingManagementView: React.FC = () => {
       // Map loaded products to editable rate list items with automatic discount application!
       const isChild = !isParentActive;
       const childOnlyProducts = (isChild && effectiveCompId)
-        ? (products || []).filter((p: any) => !p.companyId || p.companyId === effectiveCompId)
+        ? (products || []).filter((p: any) => p.companyId === effectiveCompId)
         : (products || []);
       const mappedItems = childOnlyProducts.map((p: any) => {
         // Requirement 2: When creating rate list for child company, don't show the actual base rate.
@@ -1277,8 +1277,8 @@ export const PricingManagementView: React.FC = () => {
   const schemeComboResults = useMemo(() => {
     const q = schemeComboQuery.toLowerCase().trim();
     const effectiveCompId = activeCompanyId || activeCompany?.id;
-    const candidateSchemes = (!isParentActive && effectiveCompId)
-      ? schemes.filter((s) => !s.companyId || s.companyId === effectiveCompId)
+    const candidateSchemes = effectiveCompId
+      ? schemes.filter((s) => s.companyId === effectiveCompId)
       : schemes;
     if (!q) return candidateSchemes.slice(0, 50);
     return candidateSchemes.filter(

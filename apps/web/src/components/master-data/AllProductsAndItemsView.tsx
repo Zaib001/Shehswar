@@ -68,6 +68,9 @@ export interface UnifiedProductItem {
   baseUomName: string;
   baseUomSymbol?: string | null;
   packSize?: string | null;
+  ppc?: number | null;
+  companyId?: string | null;
+  companyName?: string | null;
   grade?: string | null;
   specifications?: string | null;
   storageRequirements?: string | null;
@@ -125,6 +128,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
     urduName: '',
     categoryId: '',
     packSize: '',
+    ppc: 12 as number | '',
     uomId: '',
     status: 'ACTIVE',
     description: '',
@@ -168,15 +172,24 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
     setIsLoading(true);
     setError(null);
     try {
+      const companyQuery = activeCompany?.id ? `&companyId=${encodeURIComponent(activeCompany.id)}` : '';
       const [productsRes, catRes, uomRes] = await Promise.all([
-        ApiClient.get<UnifiedProductItem[]>('/api/v1/master-data/all-products?tab=ALL'),
+        ApiClient.get<UnifiedProductItem[]>(`/api/v1/master-data/all-products?tab=ALL${companyQuery}`),
         ApiClient.get<any[]>('/api/v1/master-data/unified-categories').catch(() =>
           ApiClient.get<any[]>('/api/v1/master-data/material-categories')
         ),
         ApiClient.get<any[]>('/api/v1/master-data/uoms'),
       ]);
 
-      setItems(productsRes.data || []);
+      let loadedItems = productsRes.data || [];
+      // If a child company is selected, strictly isolate to that child company's items:
+      if (activeCompany?.id && !isParentActive) {
+        loadedItems = loadedItems.filter(
+          (i) => i.companyId === activeCompany.id || i.rawRecord?.companyId === activeCompany.id
+        );
+      }
+
+      setItems(loadedItems);
       setCategories(catRes.data || []);
       setUoms(uomRes.data || []);
     } catch (err: any) {
@@ -189,7 +202,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [activeCompany?.id, isParentActive, showToast]);
 
   useEffect(() => {
     loadData();
@@ -296,6 +309,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
       urduName: '',
       categoryId: matchingCat?.id || categories[0]?.id || '',
       packSize: defaultPack,
+      ppc: 12,
       uomId: defaultUom?.id || '',
       status: 'ACTIVE',
       description: '',
@@ -313,6 +327,8 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
         u.code === item.baseUomSymbol
     );
 
+    const resolvedPpc = item.ppc ?? item.rawRecord?.ppc ?? item.rawRecord?.customFields?.ppc ?? 12;
+
     setProductForm({
       itemType: item.itemType,
       code: item.code,
@@ -320,6 +336,7 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
       urduName: item.urduName || '',
       categoryId: item.categoryId || '',
       packSize: item.packSize && item.packSize !== 'Bulk' && item.packSize !== 'Item' ? item.packSize : (item.packSize || ''),
+      ppc: resolvedPpc,
       uomId: matchedUom?.id || item.rawRecord?.baseUomId || '',
       status: item.status || (item.isActive ? 'ACTIVE' : 'INACTIVE'),
       description: item.specifications || item.rawRecord?.description || '',
@@ -362,8 +379,10 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
           packSizeUnit: parsedUnit,
           packingQuantity: parsedQty,
           packingUnit: parsedUnit,
+          ppc: productForm.ppc ? Number(productForm.ppc) : 1,
           productType: productForm.packSize || undefined,
           status: productForm.status,
+          companyId: activeCompany?.id || undefined,
         };
 
         if (editingItemId) {
@@ -762,6 +781,37 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
           {cleanPackSize(row.packSize, row.baseUomSymbol || 'KG') || '—'}
         </span>
       ),
+    },
+    {
+      key: 'ppc',
+      label: 'PPC',
+      render: (row: UnifiedProductItem) => {
+        if (row.itemType !== 'FINISHED_PRODUCT') {
+          return <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>;
+        }
+        const ppcVal = row.ppc ?? row.rawRecord?.ppc ?? row.rawRecord?.customFields?.ppc;
+        return (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 700,
+              fontSize: '11.5px',
+              color: '#0369a1',
+              backgroundColor: '#e0f2fe',
+              padding: '2px 7px',
+              borderRadius: '5px',
+              border: '1px solid #bae6fd',
+              whiteSpace: 'nowrap',
+            }}
+            title={`${ppcVal || 1} packs per carton / cotton box`}
+          >
+            📦 {ppcVal || 1} / ctn
+          </span>
+        );
+      },
     },
     {
       key: 'uom',
@@ -1500,6 +1550,45 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
               </div>
             </div>
 
+            {/* 7. PPC (Pack Per Cotton / Carton) for Finished Products */}
+            {productForm.itemType === 'FINISHED_PRODUCT' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  PPC (Pack Per Cotton / Carton) *
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={productForm.ppc}
+                  onChange={(e) =>
+                    setProductForm((prev) => ({
+                      ...prev,
+                      ppc: e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value, 10) || 1),
+                    }))
+                  }
+                  placeholder="e.g. 10, 12, 20"
+                />
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '3px' }}>
+                  Number of packs per master cotton / carton box (e.g. 10, 12, 20 packs/carton)
+                </div>
+              </div>
+            )}
+
+            {/* 8. Description / Specification for RM, PM, and Other */}
+            {productForm.itemType !== 'FINISHED_PRODUCT' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  Description / Specification (Optional)
+                </label>
+                <Input
+                  value={productForm.description}
+                  onChange={(e) => setProductForm((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="e.g. Purity %, grade specifications, packaging compatibility"
+                />
+              </div>
+            )}
+
             {/* Form Footer */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
               <Button variant="secondary" onClick={() => setIsProductModalOpen(false)}>
@@ -1736,6 +1825,15 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
                 <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>{cleanPackSize(viewingItem.packSize, viewingItem.baseUomSymbol || 'KG') || '—'}</div>
               </div>
 
+              {viewingItem.itemType === 'FINISHED_PRODUCT' && (
+                <div>
+                  <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>PPC (Pack Per Cotton / Carton)</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#0369a1' }}>
+                    📦 {viewingItem.ppc ?? viewingItem.rawRecord?.ppc ?? viewingItem.rawRecord?.customFields?.ppc ?? 1} packs / carton
+                  </div>
+                </div>
+              )}
+
               <div>
                 <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Status</div>
                 <div style={{ marginTop: '2px' }}>
@@ -1796,7 +1894,10 @@ export const AllProductsAndItemsView: React.FC<AllProductsAndItemsViewProps> = (
             >
               <IconAlertTriangle size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
               <div style={{ fontSize: '13px', color: '#991b1b' }}>
-                Are you sure you want to delete <strong>[{deletingItem.code}] {deletingItem.name}</strong>?
+                Are you sure you want to delete <strong>[{deletingItem.code}] {deletingItem.name}</strong>
+                {deletingItem.itemType === 'FINISHED_PRODUCT' && (
+                  <span> (PPC: {deletingItem.ppc ?? deletingItem.rawRecord?.ppc ?? deletingItem.rawRecord?.customFields?.ppc ?? 1} packs/carton)</span>
+                )}?
                 This record will be permanently marked inactive or deleted from the specialized master.
               </div>
             </div>

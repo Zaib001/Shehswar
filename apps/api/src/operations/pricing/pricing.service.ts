@@ -1771,8 +1771,8 @@ export class PricingService {
     );
 
     const allProducts = await this.getActiveFinishedProductsForRateList(effectiveCompanyId);
-    const candidateProducts = isChildCompany
-      ? allProducts.filter((p: any) => !p.companyId || p.companyId === effectiveCompanyId)
+    const candidateProducts = effectiveCompanyId && effectiveCompanyId !== 'ALL'
+      ? allProducts.filter((p: any) => p.companyId === effectiveCompanyId)
       : allProducts;
 
     // Single Discount % field (Requirements 12, 13, 14, 20)

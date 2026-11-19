@@ -3058,14 +3058,6 @@ export class MasterDataService {
   }
 
   async createFinishedProduct(dto: any, actor: { id: string; email?: string }) {
-    if (dto.companyId) {
-      const targetCompany = await this.prisma.company.findUnique({
-        where: { id: dto.companyId },
-        include: { childCompanies: { select: { id: true } } },
-      });
-      // Both parent manufacturing companies and child marketing/distribution companies can register finished goods
-    }
-
     let productCode = (dto.productCode || '').trim().toUpperCase();
     if (!productCode || productCode === 'AUTO') {
       productCode = await this.codeGen.generateCode({
