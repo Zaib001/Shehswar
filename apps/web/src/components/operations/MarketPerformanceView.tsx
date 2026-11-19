@@ -35,6 +35,7 @@ import {
   CardDescription,
 } from '../ui';
 import { SalesInvoiceModal } from './SalesInvoiceModal';
+import { DealerLedgerModal } from './DealerLedgerModal';
 import {
   SalesInvoiceExportData,
   exportMarketPerformancePdf,
@@ -56,6 +57,7 @@ import {
   IconUser,
   IconCreditCard,
   IconDownload,
+  IconFileText,
 } from '../icons';
 
 interface BreadcrumbItem {
@@ -103,6 +105,9 @@ export const MarketPerformanceView: React.FC = () => {
   const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
   const [pdfViewerHtml, setPdfViewerHtml] = useState<string>('');
   const [pdfViewerTitle, setPdfViewerTitle] = useState<string>('Market Performance Report');
+
+  // Dealer Ledger Modal state for direct Tier 4 inspection
+  const [selectedDealerForLedger, setSelectedDealerForLedger] = useState<any | null>(null);
 
   // Build query string based on active period preset
   const buildPeriodParams = useCallback(() => {
@@ -1695,7 +1700,7 @@ export const MarketPerformanceView: React.FC = () => {
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Units Sold</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Invoices</th>
-                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Action</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Ledger</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1719,8 +1724,14 @@ export const MarketPerformanceView: React.FC = () => {
                             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
                             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                           >
-                            <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: 700, color: '#0f172a' }}>{d.dealerName}</div>
+                            <td
+                              style={{ padding: '12px 16px' }}
+                              onClick={() => navigateToDealer(d.dealerId, d.dealerName, d.dealerCode)}
+                              title="Click to view full Dealer Performance Card"
+                            >
+                              <div style={{ fontWeight: 700, color: '#1d4ed8' }} className="hover:underline">
+                                {d.dealerName}
+                              </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
                                 <span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>{d.dealerCode}</span>
                                 {d.phone && <span style={{ fontSize: '11px', color: '#94a3b8' }}>• {d.phone}</span>}
@@ -1755,12 +1766,31 @@ export const MarketPerformanceView: React.FC = () => {
                                 variant="primary"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  navigateToDealer(d.dealerId, d.dealerName, d.dealerCode);
+                                  setSelectedDealerForLedger({
+                                    id: d.dealerId,
+                                    name: d.dealerName,
+                                    code: d.dealerCode,
+                                    phone: d.phone,
+                                    city: d.city,
+                                    creditLimit: d.creditLimit,
+                                    currentBalance: d.actualSales,
+                                  });
                                 }}
-                                style={{ fontSize: '12px', padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '6px 14px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  fontWeight: 600,
+                                  background: '#0284c7',
+                                  borderColor: '#0284c7',
+                                  color: '#ffffff',
+                                }}
+                                title="Open Authoritative Dealer Ledger & Statement of Account"
                               >
-                                <span>Open Card</span>
-                                <IconArrowRight size={13} />
+                                <IconFileText size={13} />
+                                <span>Open Ledger</span>
                               </Button>
                             </td>
                           </tr>
@@ -1805,6 +1835,36 @@ export const MarketPerformanceView: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <Button
+                      variant="primary"
+                      onClick={() => {
+                        setSelectedDealerForLedger({
+                          id: selectedDealerId || performanceData.dealer?.id,
+                          name: performanceData.dealer?.name,
+                          code: performanceData.dealer?.code,
+                          phone: performanceData.dealer?.phone,
+                          city: performanceData.dealer?.city || performanceData.dealer?.territory,
+                          creditLimit: performanceData.creditControl?.creditLimit,
+                          currentBalance: performanceData.creditControl?.currentBalance,
+                        });
+                      }}
+                      style={{
+                        fontSize: '12.5px',
+                        padding: '9px 16px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontWeight: 600,
+                        background: '#0284c7',
+                        borderColor: '#0284c7',
+                        color: '#ffffff',
+                      }}
+                      title="Open Dealer Sub-Ledger Statement"
+                    >
+                      <IconFileText size={15} />
+                      <span>Open Ledger</span>
+                    </Button>
+
                     <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                       <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Approved Credit Limit</div>
                       <div style={{ fontSize: '16px', fontWeight: 800, color: '#059669', fontFamily: 'monospace', marginTop: '2px' }}>
@@ -2052,6 +2112,13 @@ export const MarketPerformanceView: React.FC = () => {
         onClose={() => setIsPdfViewerOpen(false)}
         title={pdfViewerTitle}
         htmlContent={pdfViewerHtml}
+      />
+
+      {/* Authoritative Dealer Sub-Ledger Modal */}
+      <DealerLedgerModal
+        isOpen={Boolean(selectedDealerForLedger)}
+        onClose={() => setSelectedDealerForLedger(null)}
+        dealer={selectedDealerForLedger}
       />
     </div>
   );

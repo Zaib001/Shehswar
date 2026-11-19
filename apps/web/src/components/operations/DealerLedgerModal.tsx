@@ -24,6 +24,23 @@ export interface DealerLedgerModalProps {
   } | null;
 }
 
+export interface LedgerEntryItem {
+  productName: string;
+  productCode?: string;
+  description?: string;
+  packSize?: string;
+  ppc?: number;
+  ctn?: number | string;
+  batchNumber?: string;
+  quantity: number | string;
+  price: number | string;
+  grossAmount?: number;
+  discountPercent?: number;
+  discountRupees?: number;
+  netAmount?: number;
+  schemeCode?: string;
+}
+
 export interface LedgerEntryRecord {
   id: string;
   entryDate: string;
@@ -41,6 +58,73 @@ export interface LedgerEntryRecord {
   dealerPaymentId?: string;
   salesReturnId?: string;
   provisionalReceiptAllocationId?: string;
+  // Product commercial attributes
+  items?: LedgerEntryItem[];
+  productName?: string;
+  descriptionSummary?: string;
+  packSize?: string;
+  ctn?: number | string;
+  batchNumber?: string;
+  quantity?: number | string;
+  price?: number | string;
+  schemeCode?: string;
+  discountPercent?: number;
+  discountRupees?: number;
+}
+
+/**
+ * Shortens long voucher / reference codes into compact codes (e.g. SI-0001, PR-0002, IC-7719, #9830)
+ * while preserving full voucher number on hover tooltip & drill-down.
+ */
+export function formatSmallVoucherCode(voucher?: string | null): string {
+  if (!voucher) return '—';
+  const clean = String(voucher).trim();
+  if (clean.length <= 10) return clean;
+
+  // Check if it's a UUID
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(clean)) {
+    return `#${clean.slice(-6).toUpperCase()}`;
+  }
+
+  // Intercompany transfer pattern
+  if (/^IC/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `IC-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+
+  // Sales Invoice pattern
+  if (/SI|INV|SALE/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SI-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+
+  // Payment / Receipt pattern
+  if (/PR|RCP|PAY|PMT/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `PR-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+
+  // Sales Order pattern
+  if (/SO|ORD/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SO-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+
+  // Return pattern
+  if (/SR|RET/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SR-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+
+  // Fallback: if ends with digits
+  const lastDigits = clean.match(/\d+$/);
+  if (lastDigits) {
+    const prefix = clean.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'VCH';
+    return `${prefix}-${lastDigits[0].slice(-4)}`;
+  }
+
+  return clean.slice(0, 10);
 }
 
 export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
@@ -156,6 +240,10 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
           (e.voucherNumber && e.voucherNumber.toLowerCase().includes(q)) ||
           (e.sourceNumber && e.sourceNumber.toLowerCase().includes(q)) ||
           (e.description && e.description.toLowerCase().includes(q)) ||
+          (e.productName && e.productName.toLowerCase().includes(q)) ||
+          (e.batchNumber && e.batchNumber.toLowerCase().includes(q)) ||
+          (e.schemeCode && e.schemeCode.toLowerCase().includes(q)) ||
+          (e.items && e.items.some((it) => it.productName.toLowerCase().includes(q) || (it.schemeCode && it.schemeCode.toLowerCase().includes(q)))) ||
           String(e.debit).includes(q) ||
           String(e.credit).includes(q)
       );
@@ -219,7 +307,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
         isOpen={isOpen}
         onClose={onClose}
         title={`Statement of Account — ${dealer.name} (${dealer.code})`}
-        size="xl"
+        size="2xl"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Top Corporate Toolbar */}
@@ -490,13 +578,14 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
               border: '1px solid #cbd5e1',
               borderRadius: '8px',
               overflow: 'hidden',
-              maxHeight: '440px',
+              maxHeight: '480px',
               overflowY: 'auto',
+              overflowX: 'auto',
             }}
           >
             {isLoading ? (
               <div style={{ padding: '24px' }}>
-                <TableSkeleton rows={5} columns={8} />
+                <TableSkeleton rows={5} columns={10} />
               </div>
             ) : filteredEntries.length === 0 ? (
               <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
@@ -506,18 +595,25 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 </p>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+              <table style={{ width: '100%', minWidth: '1380px', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#1e293b', color: '#f8fafc' }}>
                   <tr>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '4%' }}>#</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '11%' }}>Date</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '16%' }}>Voucher / Ref #</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '14%' }}>Type</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '21%' }}>Particulars</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '11%', textAlign: 'right' }}>Debit (PKR)</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '11%', textAlign: 'right' }}>Credit (PKR)</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '11%', textAlign: 'right' }}>Balance (PKR)</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, width: '9%', textAlign: 'center' }}>Trace</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '32px', textAlign: 'center' }}>#</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '85px' }}>Date</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '80px' }}>Voucher</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '85px' }}>Type</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, minWidth: '140px' }}>Product Name</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, minWidth: '110px' }}>Description</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '75px' }}>Pack Size</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '50px', textAlign: 'center' }}>CTN</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '75px' }}>Batch</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '60px', textAlign: 'center' }}>Qty</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '80px', textAlign: 'right' }}>Price (PKR)</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, minWidth: '120px' }}>Scheme</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '90px', textAlign: 'right' }}>Debit (PKR)</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '90px', textAlign: 'right' }}>Credit (PKR)</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '100px', textAlign: 'right' }}>Balance (PKR)</th>
+                    <th style={{ padding: '10px 10px', fontWeight: 700, width: '55px', textAlign: 'center' }}>Trace</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -525,6 +621,20 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                     const debitNum = Number(e.debit || 0);
                     const creditNum = Number(e.credit || 0);
                     const balNum = Number(e.runningBalance || 0);
+                    const itemsToRender: LedgerEntryItem[] = (Array.isArray(e.items) && e.items.length > 0)
+                      ? e.items
+                      : [{
+                          productName: e.productName || (e.entryType?.includes('PAYMENT') || e.entryType?.includes('RECEIPT') ? 'Payment Received' : 'Commercial Transaction'),
+                          description: e.descriptionSummary || e.description || '—',
+                          packSize: e.packSize || '—',
+                          ctn: e.ctn || '—',
+                          batchNumber: e.batchNumber || '—',
+                          quantity: e.quantity || '—',
+                          price: e.price || '—',
+                          schemeCode: e.schemeCode || '—',
+                          discountPercent: e.discountPercent || 0,
+                          discountRupees: e.discountRupees || 0,
+                        }];
 
                     return (
                       <tr
@@ -542,17 +652,22 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                         className="hover:bg-blue-50/70 focus:bg-blue-50 focus:outline-none transition-colors"
                         title="Double-click or press Enter to inspect source document"
                       >
-                        <td style={{ padding: '9px 12px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                        {/* # */}
+                        <td style={{ padding: '8px 10px', color: '#94a3b8', fontFamily: 'monospace', textAlign: 'center', verticalAlign: 'top' }}>
                           {idx + 1}
                         </td>
-                        <td style={{ padding: '9px 12px', color: '#334155', fontWeight: 500, whiteSpace: 'nowrap' }}>
+
+                        {/* Date */}
+                        <td style={{ padding: '8px 10px', color: '#334155', fontWeight: 500, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
                           {new Date(e.entryDate).toLocaleDateString('en-GB', {
                             day: '2-digit',
                             month: 'short',
                             year: 'numeric',
                           })}
                         </td>
-                        <td style={{ padding: '9px 12px', fontWeight: 700, fontFamily: 'monospace' }}>
+
+                        {/* Voucher / Ref # as Small Code */}
+                        <td style={{ padding: '8px 10px', fontWeight: 700, fontFamily: 'monospace', verticalAlign: 'top' }}>
                           <button
                             type="button"
                             onClick={(ev) => {
@@ -560,11 +675,14 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                               handleOpenSource(e);
                             }}
                             className="text-blue-700 hover:text-blue-900 hover:underline text-left font-bold"
+                            title={`Original Voucher: ${e.voucherNumber || '—'}`}
                           >
-                            {e.voucherNumber || '—'}
+                            {formatSmallVoucherCode(e.voucherNumber)}
                           </button>
                         </td>
-                        <td style={{ padding: '9px 12px' }}>
+
+                        {/* Type */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
                           <span
                             style={{
                               display: 'inline-block',
@@ -572,6 +690,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                               borderRadius: '4px',
                               fontSize: '10px',
                               fontWeight: 700,
+                              whiteSpace: 'nowrap',
                               backgroundColor:
                                 e.entryType?.includes('SALE') || e.entryType === 'DEBIT'
                                   ? '#eff6ff'
@@ -589,43 +708,247 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                             {e.entryType?.replace(/_/g, ' ')}
                           </span>
                         </td>
-                        <td style={{ padding: '9px 12px', color: '#475569' }}>
-                          {e.description || 'Commercial Transaction'}
+
+                        {/* Product Name */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontWeight: 600,
+                                color: e.entryType?.includes('PAYMENT') || e.entryType?.includes('RECEIPT') ? '#047857' : '#0f172a',
+                              }}
+                            >
+                              {it.productName}
+                              {it.productCode && (
+                                <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '4px', fontFamily: 'monospace' }}>
+                                  ({it.productCode})
+                                </span>
+                              )}
+                            </div>
+                          ))}
                         </td>
+
+                        {/* Description */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                color: '#475569',
+                                fontSize: '11.5px',
+                              }}
+                            >
+                              {it.description || '—'}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Pack Size */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontFamily: 'monospace',
+                                color: '#334155',
+                              }}
+                            >
+                              {it.packSize || '—'}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* CTN */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', textAlign: 'center' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontFamily: 'monospace',
+                                fontWeight: it.ctn && it.ctn !== '—' ? 700 : 400,
+                                color: it.ctn && it.ctn !== '—' ? '#0f172a' : '#94a3b8',
+                              }}
+                            >
+                              {it.ctn !== undefined && it.ctn !== null && it.ctn !== '—' ? Number(it.ctn).toLocaleString() : '—'}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Batch */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontFamily: 'monospace',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                color: it.batchNumber && it.batchNumber !== '—' ? '#0284c7' : '#94a3b8',
+                              }}
+                            >
+                              {it.batchNumber || '—'}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Quantity */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', textAlign: 'center' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontFamily: 'monospace',
+                                fontWeight: it.quantity && it.quantity !== '—' ? 700 : 400,
+                                color: it.quantity && it.quantity !== '—' ? '#0f172a' : '#94a3b8',
+                              }}
+                            >
+                              {it.quantity !== undefined && it.quantity !== null && it.quantity !== '—' && !isNaN(Number(it.quantity))
+                                ? Number(it.quantity).toLocaleString()
+                                : (it.quantity || '—')}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Price (PKR) */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', textAlign: 'right' }}>
+                          {itemsToRender.map((it, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                padding: '2px 0',
+                                borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                fontFamily: 'monospace',
+                                fontWeight: 600,
+                                color: Number(it.price) > 0 ? '#334155' : '#94a3b8',
+                              }}
+                            >
+                              {Number(it.price) > 0 ? Number(it.price).toLocaleString() : '—'}
+                            </div>
+                          ))}
+                        </td>
+
+                        {/* Scheme: code, discount in %, discount in rupees */}
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {itemsToRender.map((it, i) => {
+                            const hasCode = it.schemeCode && it.schemeCode !== '—';
+                            const hasPct = Number(it.discountPercent || 0) > 0;
+                            const hasRs = Number(it.discountRupees || 0) > 0;
+
+                            return (
+                              <div
+                                key={i}
+                                style={{
+                                  padding: '2px 0',
+                                  borderBottom: i < itemsToRender.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                  {hasCode && (
+                                    <span
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        padding: '1px 5px',
+                                        borderRadius: '4px',
+                                        background: '#eff6ff',
+                                        color: '#1d4ed8',
+                                        border: '1px solid #bfdbfe',
+                                      }}
+                                      title={`Scheme Code: ${it.schemeCode}`}
+                                    >
+                                      {it.schemeCode}
+                                    </span>
+                                  )}
+                                  {hasPct && (
+                                    <span
+                                      style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: 700,
+                                        color: '#047857',
+                                      }}
+                                      title={`Discount: ${it.discountPercent}%`}
+                                    >
+                                      {it.discountPercent}%
+                                    </span>
+                                  )}
+                                  {hasRs && (
+                                    <span
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: 600,
+                                        color: '#059669',
+                                      }}
+                                      title={`Discount: Rs. ${Number(it.discountRupees).toLocaleString()}`}
+                                    >
+                                      Rs. {Number(it.discountRupees).toLocaleString()}
+                                    </span>
+                                  )}
+                                  {!hasCode && !hasPct && !hasRs && (
+                                    <span style={{ color: '#94a3b8', fontSize: '11px' }}>—</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </td>
+
+                        {/* Debit */}
                         <td
                           style={{
-                            padding: '9px 12px',
+                            padding: '8px 10px',
                             textAlign: 'right',
                             fontFamily: 'monospace',
                             fontWeight: debitNum > 0 ? 700 : 400,
                             color: debitNum > 0 ? '#0f172a' : '#94a3b8',
+                            verticalAlign: 'top',
                           }}
                         >
                           {debitNum > 0 ? debitNum.toLocaleString() : '—'}
                         </td>
+
+                        {/* Credit */}
                         <td
                           style={{
-                            padding: '9px 12px',
+                            padding: '8px 10px',
                             textAlign: 'right',
                             fontFamily: 'monospace',
                             fontWeight: creditNum > 0 ? 700 : 400,
                             color: creditNum > 0 ? '#047857' : '#94a3b8',
+                            verticalAlign: 'top',
                           }}
                         >
                           {creditNum > 0 ? creditNum.toLocaleString() : '—'}
                         </td>
+
+                        {/* Balance */}
                         <td
                           style={{
-                            padding: '9px 12px',
+                            padding: '8px 10px',
                             textAlign: 'right',
                             fontFamily: 'monospace',
                             fontWeight: 800,
                             color: balNum > 0 ? '#0f172a' : '#047857',
+                            verticalAlign: 'top',
                           }}
                         >
                           {balNum.toLocaleString()} {balNum > 0 ? 'Dr' : 'Cr'}
                         </td>
-                        <td style={{ padding: '9px 12px', textAlign: 'center' }}>
+
+                        {/* Trace */}
+                        <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'top' }}>
                           <button
                             type="button"
                             onClick={(ev) => {
@@ -643,7 +966,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 </tbody>
                 <tfoot style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 700 }}>
                   <tr>
-                    <td colSpan={5} style={{ padding: '10px 12px', textAlign: 'right', color: '#475569' }}>
+                    <td colSpan={12} style={{ padding: '10px 12px', textAlign: 'right', color: '#475569' }}>
                       STATEMENT TOTALS:
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'monospace', color: '#0f172a' }}>

@@ -104,7 +104,7 @@ export class DealerLedgerService {
     dealerId: string,
     _companyId?: string,
     options?: { fromDate?: Date; toDate?: Date; limit?: number },
-  ) {
+  ): Promise<any> {
     const dealer = await this.prisma.dealer.findUnique({
       where: { id: dealerId },
       select: { currentBalance: true, creditLimit: true, name: true, code: true, phone: true, city: true, address: true, companyId: true },
@@ -357,7 +357,7 @@ export class DealerLedgerService {
   /**
    * Regenerate and recalculate dealer running balances from chronological documents.
    */
-  async recalculateLedger(dealerId: string, _companyId?: string) {
+  async recalculateLedger(dealerId: string, _companyId?: string): Promise<any> {
     const dealer = await this.prisma.dealer.findUnique({
       where: { id: dealerId },
       select: { id: true, companyId: true, organizationId: true },
@@ -396,13 +396,13 @@ export class DealerLedgerService {
       }
     }
 
-    // 2. Sync any posted DealerPaymentReceipts that don't have a ledger entry yet
+    // 2. Sync any confirmed/posted DealerPaymentReceipts that don't have a ledger entry yet
     const postedPayments = await this.prisma.dealerPaymentReceipt.findMany({
-      where: { dealerId, status: 'POSTED' },
-      include: { dealerLedgerEntries: { select: { id: true } } },
+      where: { dealerId, status: { in: ['POSTED', 'CONFIRMED'] } },
+      include: { ledgerEntries: { select: { id: true } } },
     });
     for (const pmt of postedPayments) {
-      if (!pmt.dealerLedgerEntries || pmt.dealerLedgerEntries.length === 0) {
+      if (!pmt.ledgerEntries || pmt.ledgerEntries.length === 0) {
         await this.prisma.dealerLedgerEntry.create({
           data: {
             organizationId: pmt.organizationId,
@@ -410,8 +410,8 @@ export class DealerLedgerService {
             dealerId: pmt.dealerId,
             entryType: 'PAYMENT_RECEIPT',
             referenceId: pmt.id,
-            voucherNumber: pmt.voucherNumber,
-            description: pmt.description ?? null,
+            voucherNumber: pmt.receiptNumber,
+            description: pmt.notes ?? (pmt.bankName ? `Payment via ${pmt.bankName}` : 'Dealer Payment Receipt'),
             debit: 0,
             credit: pmt.amount,
             runningBalance: 0,
@@ -419,7 +419,7 @@ export class DealerLedgerService {
             dealerPaymentId: pmt.id,
             sourceType: 'PAYMENT_RECEIPT',
             sourceId: pmt.id,
-            sourceNumber: pmt.voucherNumber,
+            sourceNumber: pmt.receiptNumber,
           },
         });
       }

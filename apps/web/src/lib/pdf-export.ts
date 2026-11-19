@@ -2914,7 +2914,7 @@ export interface DealerLedgerExportData {
   startDate?: string;
   endDate?: string;
   entries: Array<{
-    id: string;
+    id?: string;
     entryDate: string;
     entryType: string;
     voucherNumber: string;
@@ -2922,7 +2922,66 @@ export interface DealerLedgerExportData {
     debit: number;
     credit: number;
     runningBalance: number;
+    items?: Array<{
+      productName: string;
+      productCode?: string;
+      description?: string;
+      packSize?: string;
+      ppc?: number;
+      ctn?: number | string;
+      batchNumber?: string;
+      quantity: number | string;
+      price: number | string;
+      discountPercent?: number;
+      discountRupees?: number;
+      schemeCode?: string;
+    }>;
+    productName?: string;
+    descriptionSummary?: string;
+    packSize?: string;
+    ctn?: number | string;
+    batchNumber?: string;
+    quantity?: number | string;
+    price?: number | string;
+    schemeCode?: string;
+    discountPercent?: number;
+    discountRupees?: number;
   }>;
+}
+
+function formatSmallPdfVoucher(voucher?: string | null): string {
+  if (!voucher) return '—';
+  const clean = String(voucher).trim();
+  if (clean.length <= 10) return clean;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)) {
+    return `#${clean.slice(-6).toUpperCase()}`;
+  }
+  if (/^IC/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `IC-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+  if (/SI|INV|SALE/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SI-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+  if (/PR|RCP|PAY|PMT/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `PR-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+  if (/SO|ORD/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SO-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+  if (/SR|RET/i.test(clean)) {
+    const digits = clean.match(/\d+$/);
+    return digits ? `SR-${digits[0].slice(-4)}` : clean.slice(0, 8);
+  }
+  const lastDigits = clean.match(/\d+$/);
+  if (lastDigits) {
+    const prefix = clean.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() || 'VCH';
+    return `${prefix}-${lastDigits[0].slice(-4)}`;
+  }
+  return clean.slice(0, 10);
 }
 
 export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
@@ -2955,8 +3014,8 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
   <title>Dealer_Ledger_${dealer.code}_${dealer.name.replace(/\s+/g, '_')}</title>
   <style>
     @page {
-      size: A4 portrait;
-      margin: 10mm 12mm 10mm 12mm;
+      size: A4 landscape;
+      margin: 8mm 10mm 8mm 10mm;
     }
     * {
       box-sizing: border-box;
@@ -2968,7 +3027,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
       color: #0f172a;
       margin: 0;
       padding: 0;
-      font-size: 8.5pt;
+      font-size: 8pt;
       line-height: 1.35;
       width: 100%;
       background: #f8fafc;
@@ -3033,11 +3092,11 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
         padding-bottom: 40px;
       }
       .page-container {
-        width: 210mm;
-        min-height: 282mm;
+        width: 297mm;
+        min-height: 200mm;
         height: auto;
         margin: 20px auto;
-        padding: 10mm 12mm;
+        padding: 8mm 12mm;
         background: #ffffff;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         border: 1px solid #e2e8f0;
@@ -3356,19 +3415,26 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
       <table class="ledger-table">
         <thead>
           <tr>
-            <th style="width: 10%;" class="text-center">Date</th>
-            <th style="width: 14%;">Voucher Type</th>
-            <th style="width: 16%;">Voucher #</th>
-            <th style="width: 24%;">Particulars / Description</th>
-            <th style="width: 12%;" class="text-right">Debit (PKR)</th>
-            <th style="width: 12%;" class="text-right">Credit (PKR)</th>
-            <th style="width: 12%;" class="text-right">Balance (PKR)</th>
+            <th style="width: 7%;" class="text-center">Date</th>
+            <th style="width: 7%;">Voucher</th>
+            <th style="width: 8%;">Type</th>
+            <th style="width: 14%;">Product Name</th>
+            <th style="width: 11%;">Description</th>
+            <th style="width: 6%;">Pack Size</th>
+            <th style="width: 4%;" class="text-center">CTN</th>
+            <th style="width: 6%;">Batch</th>
+            <th style="width: 4%;" class="text-center">Qty</th>
+            <th style="width: 6%;" class="text-right">Price</th>
+            <th style="width: 9%;">Scheme</th>
+            <th style="width: 6%;" class="text-right">Debit (PKR)</th>
+            <th style="width: 6%;" class="text-right">Credit (PKR)</th>
+            <th style="width: 6%;" class="text-right">Balance (PKR)</th>
           </tr>
         </thead>
         <tbody>
           ${entries.length === 0 ? `
             <tr>
-              <td colspan="7" class="text-center" style="padding: 20px; color: #64748b;">
+              <td colspan="14" class="text-center" style="padding: 20px; color: #64748b;">
                 No ledger transactions found for the specified period.
               </td>
             </tr>
@@ -3378,23 +3444,61 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
     const creditNum = Number(entry.credit || 0);
     const balNum = Number(entry.runningBalance || 0);
     const balType = balNum >= 0 ? 'Dr' : 'Cr';
+    const smallVoucher = formatSmallPdfVoucher(entry.voucherNumber);
+
+    const itemsToRender = (Array.isArray(entry.items) && entry.items.length > 0)
+      ? entry.items
+      : [{
+          productName: entry.productName || (entry.entryType?.includes('PAYMENT') || entry.entryType?.includes('RECEIPT') ? 'Payment Received' : 'Commercial Transaction'),
+          description: entry.descriptionSummary || entry.description || '—',
+          packSize: entry.packSize || '—',
+          ctn: entry.ctn || '—',
+          batchNumber: entry.batchNumber || '—',
+          quantity: entry.quantity || '—',
+          price: entry.price || '—',
+          schemeCode: entry.schemeCode || '—',
+          discountPercent: entry.discountPercent || 0,
+          discountRupees: entry.discountRupees || 0,
+        }];
+
+    const prodNamesHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-weight: 600;">${it.productName}${it.productCode ? ` <span style='font-size: 6.5pt; color: #64748b;'>(${it.productCode})</span>` : ''}</div>`).join('');
+    const descHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-size: 7.2pt; color: #475569;">${it.description || '—'}</div>`).join('');
+    const packHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-family: monospace;">${it.packSize || '—'}</div>`).join('');
+    const ctnHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-family: monospace; font-weight: 700; text-align: center;">${it.ctn !== undefined && it.ctn !== null && it.ctn !== '—' ? Number(it.ctn).toLocaleString() : '—'}</div>`).join('');
+    const batchHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-family: monospace; font-size: 7pt; color: #0284c7;">${it.batchNumber || '—'}</div>`).join('');
+    const qtyHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-family: monospace; font-weight: 700; text-align: center;">${it.quantity !== undefined && it.quantity !== null && it.quantity !== '—' && !isNaN(Number(it.quantity)) ? Number(it.quantity).toLocaleString() : (it.quantity || '—')}</div>`).join('');
+    const priceHtml = itemsToRender.map((it, i) => `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}; font-family: monospace; text-align: right;">${Number(it.price) > 0 ? Number(it.price).toLocaleString() : '—'}</div>`).join('');
+    const schemeHtml = itemsToRender.map((it, i) => {
+      const codePart = it.schemeCode && it.schemeCode !== '—' ? `<span style="font-weight: 700; color: #1d4ed8; background: #eff6ff; padding: 1px 4px; border-radius: 3px; font-size: 6.8pt;">${it.schemeCode}</span>` : '';
+      const pctPart = Number(it.discountPercent || 0) > 0 ? `<span style="font-weight: 700; color: #047857; font-size: 7pt;">${it.discountPercent}%</span>` : '';
+      const rsPart = Number(it.discountRupees || 0) > 0 ? `<span style="font-size: 6.8pt; color: #059669;">Rs.${Number(it.discountRupees).toLocaleString()}</span>` : '';
+      const content = [codePart, pctPart, rsPart].filter(Boolean).join(' ') || '<span style="color: #94a3b8;">—</span>';
+      return `<div style="${i < itemsToRender.length - 1 ? 'border-bottom: 1px dashed #cbd5e1; padding-bottom: 2px; margin-bottom: 2px;' : ''}">${content}</div>`;
+    }).join('');
 
     return `
               <tr>
-                <td class="text-center mono" style="color: #475569;">${dateStr}</td>
-                <td><span style="font-weight: 600;">${entry.entryType}</span></td>
-                <td class="mono" style="font-weight: 600;">${entry.voucherNumber || '—'}</td>
-                <td style="color: #334155; font-size: 7.5pt;">${entry.description || 'Commercial Transaction'}</td>
-                <td class="text-right mono">${debitNum > 0 ? debitNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                <td class="text-right mono">${creditNum > 0 ? creditNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                <td class="text-right mono" style="font-weight: 700;">${Math.abs(balNum).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${balType}</td>
+                <td class="text-center mono" style="color: #475569; vertical-align: top;">${dateStr}</td>
+                <td class="mono" style="font-weight: 700; color: #1d4ed8; vertical-align: top;" title="${entry.voucherNumber || ''}">${smallVoucher}</td>
+                <td style="vertical-align: top;"><span style="font-weight: 600; font-size: 7.2pt;">${entry.entryType}</span></td>
+                <td style="vertical-align: top;">${prodNamesHtml}</td>
+                <td style="vertical-align: top;">${descHtml}</td>
+                <td style="vertical-align: top;">${packHtml}</td>
+                <td style="vertical-align: top;" class="text-center">${ctnHtml}</td>
+                <td style="vertical-align: top;">${batchHtml}</td>
+                <td style="vertical-align: top;" class="text-center">${qtyHtml}</td>
+                <td style="vertical-align: top;" class="text-right">${priceHtml}</td>
+                <td style="vertical-align: top;">${schemeHtml}</td>
+                <td class="text-right mono" style="vertical-align: top;">${debitNum > 0 ? debitNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td class="text-right mono" style="vertical-align: top;">${creditNum > 0 ? creditNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td class="text-right mono" style="font-weight: 700; vertical-align: top;">${Math.abs(balNum).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${balType}</td>
               </tr>
             `;
   }).join('')}
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="4" class="text-right" style="text-transform: uppercase;">PERIOD TOTALS:</td>
+            <td colspan="11" class="text-right" style="text-transform: uppercase;">PERIOD TOTALS:</td>
             <td class="text-right mono">PKR ${totalDebits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td class="text-right mono">PKR ${totalCredits.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             <td class="text-right mono" style="font-weight: 800;">PKR ${closingBalFormatted} ${closingBalSuffix}</td>
