@@ -269,8 +269,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         typeof p.category === 'object' && p.category !== null
           ? String(p.category.name || p.category.code || '')
           : typeof p.category === 'string'
-          ? p.category
-          : '';
+            ? p.category
+            : '';
       const subparts = [
         p.sku ? `SKU: ${p.sku}` : '',
         categoryName ? `Category: ${categoryName}` : '',
@@ -1502,10 +1502,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           o.status === 'CONVERTED_TO_SALE'
             ? 'success'
             : o.status === 'APPROVED'
-            ? 'info'
-            : o.status === 'REJECTED'
-            ? 'danger'
-            : 'warning';
+              ? 'info'
+              : o.status === 'REJECTED'
+                ? 'danger'
+                : 'warning';
         return <StatusBadge status={o.status} variant={variant} />;
       },
     },
@@ -2674,8 +2674,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               {isCreditExceeded
                 ? 'Order total exceeds available dealer credit. Must be booked as PENDING / CREDIT_HOLD for credit committee approval.'
                 : generateInvoiceImmediately
-                ? 'Approves order, deducts warehouse inventory, debits dealer ledger, creates numbered Sales Invoice, and redirects directly to Sales Invoices!'
-                : 'Saves as PENDING order visible on mobile app. Manager approval and manual conversion required later.'}
+                  ? 'Approves order, deducts warehouse inventory, debits dealer ledger, creates numbered Sales Invoice, and redirects directly to Sales Invoices!'
+                  : 'Saves as PENDING order visible on mobile app. Manager approval and manual conversion required later.'}
             </div>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isCreditExceeded ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
@@ -3136,9 +3136,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     return (
       <DetailPageTemplate
         title={`Sales Order ${selectedOrder.orderNumber}`}
-        subtitle={`Dealer: ${selectedOrder.dealer?.name} | Booked by: ${
-          selectedOrder.salesOfficer ? (selectedOrder.salesOfficer.name || `${selectedOrder.salesOfficer.firstName || ''} ${selectedOrder.salesOfficer.lastName || ''}`.trim() || 'Direct') : 'Direct'
-        }`}
+        subtitle={`Dealer: ${selectedOrder.dealer?.name} | Booked by: ${selectedOrder.salesOfficer ? (selectedOrder.salesOfficer.name || `${selectedOrder.salesOfficer.firstName || ''} ${selectedOrder.salesOfficer.lastName || ''}`.trim() || 'Direct') : 'Direct'
+          }`}
         breadcrumbs={[{ label: 'Sales Orders', onClick: () => setMode('list') }, { label: selectedOrder.orderNumber }]}
         actions={
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

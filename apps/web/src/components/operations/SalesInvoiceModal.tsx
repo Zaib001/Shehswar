@@ -73,7 +73,8 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
     const trimmed = itemScheme.trim();
     if (trimmed.length <= 6) return trimmed.toUpperCase();
     const match = trimmed.match(/^([A-Za-z0-9-_]+)[\s\-:]/);
-    if (match && match[1] && match[1].length <= 6) return match[1].toUpperCase();
+    const firstGroup = match?.[1];
+    if (firstGroup && firstGroup.length <= 6) return firstGroup.toUpperCase();
     return trimmed.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 4).toUpperCase() || 'SS';
   };
 
@@ -114,8 +115,8 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
   const titleBadge = isBasicDelivery
     ? 'DELIVERY CHALLAN & GATE PASS'
     : isStandardSales
-    ? 'SALES RECEIPT / SLIP'
-    : 'SALES TAX COMMERCIAL INVOICE';
+      ? 'SALES RECEIPT / SLIP'
+      : 'SALES TAX COMMERCIAL INVOICE';
 
   return (
     <Modal
