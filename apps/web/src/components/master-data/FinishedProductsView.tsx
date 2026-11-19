@@ -87,7 +87,7 @@ interface FinishedProductItem {
 
 export const FinishedProductsView: React.FC = () => {
   const { showToast } = useToast();
-  const { activeCompany, isParentActive } = useCompany();
+  const { activeCompany, isParentActive, activeCompanyId } = useCompany();
   const [products, setProducts] = useState<FinishedProductItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,11 +136,18 @@ export const FinishedProductsView: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const prodRes = await ApiClient.get<any[]>('/api/v1/master-data/finished-products');
+      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const companyParam = effectiveCompId ? `?companyId=${effectiveCompId}` : '';
+      const prodRes = await ApiClient.get<any[]>(`/api/v1/master-data/finished-products${companyParam}`);
 
-      const prodList = Array.isArray(prodRes.data)
+      const rawList = Array.isArray(prodRes.data)
         ? prodRes.data
         : (prodRes.data as any)?.data || [];
+
+      // Strict company isolation: in child company mode, never show parent company products
+      const prodList = (!isParentActive && effectiveCompId)
+        ? rawList.filter((p: any) => !p.companyId || p.companyId === effectiveCompId)
+        : rawList;
 
       setProducts(prodList);
     } catch (err: any) {
@@ -153,7 +160,7 @@ export const FinishedProductsView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, activeCompanyId, activeCompany?.id, isParentActive]);
 
   const handleConfirmDelete = async () => {
     if (!productToDelete) return;
@@ -245,7 +252,7 @@ export const FinishedProductsView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, activeCompanyId, activeCompany?.id]);
 
   // Executive KPI Calculations
   const totalCount = products.length;

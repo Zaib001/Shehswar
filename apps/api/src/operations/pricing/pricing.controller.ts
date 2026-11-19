@@ -298,8 +298,6 @@ export class PricingController {
     const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getAuthorityLimits(user.organizationId, effectiveCompanyId);
   }
-    return this.pricingService.getAuthorityLimits(user.organizationId, user.companyId);
-  }
 
   @Put('authority-limits')
   async updateAuthorityLimit(

@@ -409,34 +409,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     }
   }, [initialDealerId]);
 
-  // Set default warehouse and commercial phase (scheme) when entering create mode
+  // Set default warehouse when entering create mode
   useEffect(() => {
     if (mode === 'create') {
       if (!formData.warehouseId && companyWarehouses.length > 0) {
         setFormData((prev) => ({ ...prev, warehouseId: companyWarehouses[0].id }));
       }
-      if (!formData.schemeId && companySchemes.length > 0) {
-        const defaultScheme = companySchemes.find((s) => s.shortCode === 'SS' || s.code === 'SS') || companySchemes[0];
-        if (defaultScheme) {
-          let linkedRlId = defaultScheme.baseRateListId || defaultScheme.baseRateList?.id;
-          if (!linkedRlId && Array.isArray(defaultScheme.rateLists) && defaultScheme.rateLists.length > 0) {
-            linkedRlId = defaultScheme.rateLists[0].id;
-          }
-          if (!linkedRlId) {
-            const matchedRl = rateLists.find(
-              (rl) => rl.schemeId === defaultScheme.id || (defaultScheme.shortCode && rl.schemeShortCode === defaultScheme.shortCode)
-            );
-            if (matchedRl) linkedRlId = matchedRl.id;
-          }
-          setFormData((prev) => ({
-            ...prev,
-            schemeId: defaultScheme.id,
-            rateListId: linkedRlId || '',
-          }));
-        }
-      }
     }
-  }, [mode, companyWarehouses, companySchemes, rateLists]);
+  }, [mode, companyWarehouses]);
 
   // Fetch batches for product in warehouse
   const fetchBatchesForLine = async (idx: number, productId: string, warehouseId?: string) => {
@@ -486,6 +466,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   ) => {
     if (!prodId) return;
     try {
+      const effectiveSchemeId = schemeId ? String(schemeId).trim() : undefined;
       const targetRateListId = overrideRateListId !== undefined ? overrideRateListId : (formData.rateListId || undefined);
       const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
         companyId: activeCompanyId || undefined,
@@ -493,9 +474,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         finishedProductId: prodId,
         quantity: qty,
         paymentTerm: formData.paymentTerm || 'CASH',
-        requestedSchemeId: schemeId || undefined,
-        requestedRateListId: targetRateListId || undefined,
-        rateListId: targetRateListId || undefined,
+        requestedSchemeId: effectiveSchemeId,
+        requestedRateListId: targetRateListId,
+        rateListId: targetRateListId,
         orderDate: formData.orderDate || undefined,
       });
 
@@ -504,15 +485,21 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         setFormItems((prev) => {
           const next = [...prev];
           if (next[idx]) {
+            // If no scheme was selected, discount MUST be 0!
+            const discPct = effectiveSchemeId ? Number(r.discountPercent || 0) : 0;
+            const discAmt = effectiveSchemeId ? Number(r.discountAmount || 0) : 0;
+            const base = Number(r.baseRate || 0);
+            const net = effectiveSchemeId && discAmt > 0 ? Number(r.finalUnitRate || (base - discAmt)) : base;
+
             next[idx] = {
               ...next[idx],
-              baseRate: Number(r.baseRate || 0),
-              unitPrice: Number(r.finalUnitRate || r.baseRate || 0),
-              discountPercent: Number(r.discountPercent || 0),
-              discountAmount: Number(r.discountAmount || 0),
-              freeQuantity: Number(r.freeQuantity || 0),
-              totalPrice: Number(r.finalAmount || (Number(r.finalUnitRate || 0) * qty)),
-              commercialCondition: r.commercialCondition || undefined,
+              baseRate: base,
+              unitPrice: net,
+              discountPercent: discPct,
+              discountAmount: discAmt,
+              freeQuantity: effectiveSchemeId ? Number(r.freeQuantity || 0) : 0,
+              totalPrice: net * qty,
+              commercialCondition: effectiveSchemeId ? (r.commercialCondition || undefined) : undefined,
               rateListId: targetRateListId || '',
             };
           }
@@ -542,11 +529,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       item.batchId = '';
       item.batchNumber = '';
       if (!item.schemeId) {
-        item.schemeId = companySchemes[0]?.id || '';
+        item.discountPercent = 0;
+        item.discountAmount = 0;
+        item.freeQuantity = 0;
       }
       updated[index] = item;
       setFormItems(updated);
-      resolveLinePrice(index, value, Number(item.quantity) || 1, item.schemeId, item.rateListId);
+      resolveLinePrice(index, value, Number(item.quantity) || 1, item.schemeId || undefined, item.rateListId || undefined);
       fetchBatchesForLine(index, value, formData.warehouseId || companyWarehouses[0]?.id);
       return;
     } else if (field === 'batchId') {
@@ -577,11 +566,37 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       }
       return;
     } else if (field === 'schemeId') {
-      item.schemeId = value;
+      const newSchemeId = String(value || '').trim();
+      item.schemeId = newSchemeId;
+      // Auto-fetch linked rate list for this scheme
+      let linkedRlId = '';
+      if (newSchemeId) {
+        const sc = companySchemes.find((s) => s.id === newSchemeId);
+        if (sc) {
+          linkedRlId = sc.baseRateListId || sc.baseRateList?.id;
+          if (!linkedRlId && Array.isArray(sc.rateLists) && sc.rateLists.length > 0) {
+            linkedRlId = sc.rateLists[0].id;
+          }
+          if (!linkedRlId) {
+            const matchedRl = rateLists.find(
+              (rl) => rl.schemeId === sc.id || (sc.shortCode && rl.schemeShortCode === sc.shortCode)
+            );
+            if (matchedRl) linkedRlId = matchedRl.id;
+          }
+        }
+      }
+      item.rateListId = linkedRlId;
+      if (!newSchemeId) {
+        item.discountPercent = 0;
+        item.discountAmount = 0;
+        item.freeQuantity = 0;
+        item.unitPrice = Number(item.baseRate || 0);
+        item.totalPrice = (Number(item.quantity) || 1) * item.unitPrice;
+      }
       updated[index] = item;
       setFormItems(updated);
       if (item.finishedProductId) {
-        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, value, item.rateListId);
+        resolveLinePrice(index, item.finishedProductId, Number(item.quantity) || 1, newSchemeId || undefined, linkedRlId || undefined);
       }
       return;
     } else if (field === 'unitPrice') {
@@ -595,7 +610,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   };
 
   const addItemRow = () => {
-    const defaultSchemeId = companySchemes[0]?.id || '';
     const newIdx = formItems.length;
     setFormItems((prev) => [
       ...prev,
@@ -603,7 +617,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         finishedProductId: '',
         productName: '',
         rateListId: '',
-        schemeId: defaultSchemeId,
+        schemeId: '', // No scheme by default: 0% discount until chosen
         quantity: 1,
         baseRate: 0,
         discountPercent: 0,
@@ -766,18 +780,20 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
       // DO NOT close modal: keep mode === 'create'
       // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
-      const defaultSchemeId = companySchemes[0]?.id || '';
       setFormData((prev) => ({
         ...prev,
         dealerId: '',
         notes: '',
+        schemeId: '',
+        rateListId: '',
       }));
       setDealerHierarchy(null);
       setFormItems([
         {
           finishedProductId: '',
           productName: '',
-          schemeId: defaultSchemeId,
+          schemeId: '',
+          rateListId: '',
           quantity: 1,
           baseRate: 0,
           discountPercent: 0,
@@ -2964,7 +2980,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                     <th style={{ padding: '10px 12px', minWidth: '130px' }}>Scheme *</th>
                     <th style={{ padding: '10px 12px', minWidth: '220px' }}>Finished Product *</th>
                     <th style={{ padding: '10px 12px', minWidth: '180px' }}>Batch in WH *</th>
-                    <th style={{ padding: '10px 12px', minWidth: '160px' }}>Commercial Rate List</th>
                     <th style={{ padding: '10px 8px', textAlign: 'center', width: '90px' }}>Qty *</th>
                     <th style={{ padding: '10px 12px', textAlign: 'right', minWidth: '95px' }}>Base Rate</th>
                     <th style={{ padding: '10px 12px', textAlign: 'center', minWidth: '110px' }}>Discount</th>
@@ -2990,9 +3005,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         <td style={{ padding: '10px 12px', minWidth: '130px' }}>
                           <Select
                             id={`field-item-scheme-${idx}`}
-                            placeholder="Scheme..."
+                            placeholder="-- Select Scheme --"
                             value={item.schemeId || ''}
-                            options={schemeOptions}
+                            options={[
+                              { value: '', label: '-- No Scheme --' },
+                              ...schemeOptions,
+                            ]}
                             onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value || e)}
                             isSearchable={true}
                           />
@@ -3023,18 +3041,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               disabled: b.isExpired,
                             }))}
                             onChange={(e: any) => updateItem(idx, 'batchId', e?.target?.value || e)}
-                            isSearchable={true}
-                          />
-                        </td>
-
-                        {/* Product-Specific Commercial Rate List */}
-                        <td style={{ padding: '10px 12px', minWidth: '160px' }}>
-                          <Select
-                            id={`field-item-ratelist-${idx}`}
-                            placeholder="Standard Catalogue"
-                            value={item.rateListId || ''}
-                            options={rateListOptions}
-                            onChange={(e: any) => updateItem(idx, 'rateListId', e?.target?.value || e)}
                             isSearchable={true}
                           />
                         </td>

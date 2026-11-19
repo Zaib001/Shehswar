@@ -831,7 +831,6 @@ export const PricingManagementView: React.FC = () => {
       description: '',
       category: 'SEASONAL',
       currency: 'PKR',
-      companyId: activeCompanyId || activeCompany?.id || undefined,
       isMobileVisible: true,
       isMobileSelectable: true,
       isInternalOnly: false,
