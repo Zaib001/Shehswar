@@ -449,10 +449,10 @@ export const PricingManagementView: React.FC = () => {
         ? rawRateLists.filter((rl) => rl.companyId === effectiveCompId)
         : rawRateLists;
       const filteredSC = effectiveCompId
-        ? rawSchemes.filter((sc) => sc.companyId === effectiveCompId)
+        ? rawSchemes.filter((sc) => sc.companyId === effectiveCompId || sc.company?.isParent)
         : rawSchemes;
       const filteredPR = effectiveCompId
-        ? rawProducts.filter((pr) => pr.companyId === effectiveCompId)
+        ? rawProducts.filter((pr) => !pr.companyId || pr.companyId === effectiveCompId)
         : rawProducts;
 
       setRateLists(filteredRL);
@@ -839,7 +839,41 @@ export const PricingManagementView: React.FC = () => {
       effectiveTo: '',
       notes: 'Initial Published Version',
     });
-    setRateListItems([]);
+    const effectiveCompId = activeCompanyId || activeCompany?.id;
+    const isChild = !isParentActive;
+    const companyProducts = effectiveCompId
+      ? allProducts.filter((p: any) => !p.companyId || p.companyId === effectiveCompId)
+      : allProducts;
+
+    if (companyProducts.length > 0) {
+      const defaultItems = companyProducts.map((p: any) => {
+        const baseRate = isChild ? 0 : Number(p.baseSellingPrice || p.baseRate || 0);
+        return {
+          finishedProductId: p.finishedProductId || p.id,
+          companyId: p.companyId,
+          productCode: p.productCode,
+          productName: p.productName,
+          category: p.category || p.mType || 'General Formulation',
+          mType: p.mType,
+          packagingMaterial: p.packaging || '',
+          packSize: p.packSize || '',
+          packSizeId: p.packSizeId || null,
+          unit: p.unit || 'BAG',
+          baseRate,
+          baseSellingPrice: baseRate,
+          schemeRate: baseRate,
+          discountPercent: 0,
+          rateType: 'DIRECT',
+          fixedNetRate: null,
+          minAllowedRate: Math.round(baseRate * 0.8),
+          alreadySaved: false,
+        };
+      });
+      setRateListItems(defaultItems);
+    } else {
+      setRateListItems([]);
+    }
+
     setRateListItemSearch('');
     setBulkAdjustmentPct('');
     setSchemeComboQuery('');
@@ -1278,7 +1312,7 @@ export const PricingManagementView: React.FC = () => {
     const q = schemeComboQuery.toLowerCase().trim();
     const effectiveCompId = activeCompanyId || activeCompany?.id;
     const candidateSchemes = effectiveCompId
-      ? schemes.filter((s) => s.companyId === effectiveCompId)
+      ? schemes.filter((s) => s.companyId === effectiveCompId || s.company?.isParent)
       : schemes;
     if (!q) return candidateSchemes.slice(0, 50);
     return candidateSchemes.filter(
@@ -2925,8 +2959,15 @@ export const PricingManagementView: React.FC = () => {
                       schemeName: '',
                       schemeTypeCode: '',
                     }));
-                    setRateListItems([]);
+                    setRateListItems((prev) =>
+                      prev.map((item) => ({
+                        ...item,
+                        schemeRate: item.baseRate,
+                        discountPercent: 0,
+                      }))
+                    );
                     setSelectedSchemeInfo(null);
+                    setBulkAdjustmentPct('');
                   }
                 }}
                 onFocus={() => { setSchemeComboOpen(true); setSchemeComboHighlight(0); }}

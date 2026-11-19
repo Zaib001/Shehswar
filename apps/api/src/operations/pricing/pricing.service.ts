@@ -406,6 +406,7 @@ export class PricingService {
 
       return {
         finishedProductId: p.id,
+        companyId: p.companyId,
         productCode: p.productCode,
         productName: p.productName,
         category: categoryName,
@@ -1598,6 +1599,7 @@ export class PricingService {
       where,
       include: {
         schemeTypeRef: true,
+        company: { select: { id: true, name: true, isParent: true } },
         baseRateList: { select: { id: true, code: true, name: true } },
         rateLists: {
           select: {
@@ -1772,7 +1774,7 @@ export class PricingService {
 
     const allProducts = await this.getActiveFinishedProductsForRateList(effectiveCompanyId);
     const candidateProducts = effectiveCompanyId && effectiveCompanyId !== 'ALL'
-      ? allProducts.filter((p: any) => p.companyId === effectiveCompanyId)
+      ? allProducts.filter((p: any) => !p.companyId || p.companyId === effectiveCompanyId)
       : allProducts;
 
     // Single Discount % field (Requirements 12, 13, 14, 20)
