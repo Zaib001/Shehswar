@@ -249,7 +249,7 @@ export const getCategoryBadgeStyle = (category: string): React.CSSProperties => 
 
 export const PricingManagementView: React.FC = () => {
   const { showToast } = useToast();
-  const { isParentActive, activeCompany } = useCompany();
+  const { isParentActive, activeCompany, activeCompanyId } = useCompany();
   const [activeTab, setActiveTab] = useState<PricingTab>('rate-lists');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -420,7 +420,7 @@ export const PricingManagementView: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const effectiveCompId = activeCompany?.id;
       const companyParam = effectiveCompId ? `?companyId=${effectiveCompId}` : '';
       const [rateListsRes, schemesRes, schemeTypesRes, limitsRes, productsRes, dealersRes, paymentTypesRes] =
         await Promise.all([
@@ -985,7 +985,7 @@ export const PricingManagementView: React.FC = () => {
 
     setIsLoadingSchemeProducts(true);
     try {
-      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const effectiveCompId = activeCompany?.id;
       const companyParam = effectiveCompId ? `?companyId=${effectiveCompId}` : '';
       const res = await ApiClient.get<any>(`/api/v1/pricing/schemes/${schemeId}/products${companyParam}`);
       const { scheme, products } = res.data?.data || res.data;
@@ -1371,7 +1371,7 @@ export const PricingManagementView: React.FC = () => {
     }
 
     try {
-      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const effectiveCompId = activeCompany?.id;
       const payload = {
         companyId: effectiveCompId || undefined,
         schemeId: rateListForm.schemeId,
