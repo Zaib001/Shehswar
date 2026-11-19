@@ -332,13 +332,15 @@ export class PricingService {
    * STRICT: ONLY Finished Products; NO raw materials, packing materials, bottles, cartons, wastage.
    */
   async getActiveFinishedProductsForRateList(companyId: string) {
-    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
+    const where: any = {
+      status: 'ACTIVE',
+      deletedAt: null,
+    };
+    if (companyId && companyId !== 'ALL') {
+      where.companyId = companyId;
+    }
     const products = await this.prisma.finishedProduct.findMany({
-      where: {
-        ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
-        status: 'ACTIVE',
-        deletedAt: null,
-      },
+      where,
       select: {
         id: true,
         companyId: true,
@@ -454,10 +456,10 @@ export class PricingService {
     companyId: string,
     filter?: { category?: string; status?: string; isMobileVisible?: boolean; schemeId?: string },
   ) {
-    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
-    const where: any = {
-      ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
-    };
+    const where: any = {};
+    if (companyId && companyId !== 'ALL') {
+      where.companyId = companyId;
+    }
     if (filter?.category) where.category = filter.category;
     if (filter?.status) {
       where.status = filter.status;
@@ -1569,10 +1571,10 @@ export class PricingService {
     companyId: string,
     filter?: { schemeType?: string; status?: string; isMobileVisible?: boolean; paymentTerm?: string },
   ) {
-    const allowedCompanyIds = await this.resolveAllowedCompanyIds(companyId);
-    const where: any = {
-      ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
-    };
+    const where: any = {};
+    if (companyId && companyId !== 'ALL') {
+      where.companyId = companyId;
+    }
     if (filter?.status) {
       where.status = filter.status;
     } else {

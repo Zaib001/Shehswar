@@ -94,27 +94,27 @@ export const resolvePackSizeDisplay = (product: any, item?: any): string => {
     p.packSize?.name
       ? p.packSize.name
       : typeof p.packSize === 'string' && p.packSize.trim() && p.packSize !== '[object Object]'
-      ? p.packSize.trim()
-      : it.packSize?.name
-      ? it.packSize.name
-      : typeof it.packSize === 'string' && it.packSize.trim() && it.packSize !== '[object Object]'
-      ? it.packSize.trim()
-      : p.packingQuantity
-      ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim()
-      : it.packingQuantity
-      ? `${it.packingQuantity} ${it.packingUnit || ''}`.trim()
-      : '';
+        ? p.packSize.trim()
+        : it.packSize?.name
+          ? it.packSize.name
+          : typeof it.packSize === 'string' && it.packSize.trim() && it.packSize !== '[object Object]'
+            ? it.packSize.trim()
+            : p.packingQuantity
+              ? `${p.packingQuantity} ${p.packingUnit || ''}`.trim()
+              : it.packingQuantity
+                ? `${it.packingQuantity} ${it.packingUnit || ''}`.trim()
+                : '';
 
   const packagingStr =
     p.packagingMaterial?.materialName
       ? p.packagingMaterial.materialName
       : typeof p.packagingMaterial === 'string' && p.packagingMaterial.trim() && p.packagingMaterial !== '[object Object]'
-      ? p.packagingMaterial.trim()
-      : it.packagingMaterial?.materialName
-      ? it.packagingMaterial.materialName
-      : typeof it.packagingMaterial === 'string' && it.packagingMaterial.trim() && it.packagingMaterial !== '[object Object]'
-      ? it.packagingMaterial.trim()
-      : '';
+        ? p.packagingMaterial.trim()
+        : it.packagingMaterial?.materialName
+          ? it.packagingMaterial.materialName
+          : typeof it.packagingMaterial === 'string' && it.packagingMaterial.trim() && it.packagingMaterial !== '[object Object]'
+            ? it.packagingMaterial.trim()
+            : '';
 
   if (packSizeStr && packagingStr && !packSizeStr.toLowerCase().includes(packagingStr.toLowerCase())) {
     return `${packSizeStr} (${packagingStr})`;
@@ -527,29 +527,29 @@ export const PricingManagementView: React.FC = () => {
     const colStartStr = (scheme.collectionStartDate
       ? new Date(scheme.collectionStartDate).toISOString().split('T')[0]
       : scheme.startDate
-      ? new Date(scheme.startDate).toISOString().split('T')[0]
-      : new Date().toISOString().split('T')[0]) || '';
+        ? new Date(scheme.startDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0]) || '';
     const colEndStr = (scheme.collectionEndDate
       ? new Date(scheme.collectionEndDate).toISOString().split('T')[0]
       : scheme.endDate
-      ? new Date(scheme.endDate).toISOString().split('T')[0]
-      : '') || '';
+        ? new Date(scheme.endDate).toISOString().split('T')[0]
+        : '') || '';
     const invStartStr = (scheme.invoiceStartDate
       ? new Date(scheme.invoiceStartDate).toISOString().split('T')[0]
       : scheme.effectiveFrom
-      ? new Date(scheme.effectiveFrom).toISOString().split('T')[0]
-      : colStartStr) || '';
+        ? new Date(scheme.effectiveFrom).toISOString().split('T')[0]
+        : colStartStr) || '';
     const invEndStr = (scheme.invoiceEndDate
       ? new Date(scheme.invoiceEndDate).toISOString().split('T')[0]
       : scheme.effectiveTo
-      ? new Date(scheme.effectiveTo).toISOString().split('T')[0]
-      : colEndStr) || '';
+        ? new Date(scheme.effectiveTo).toISOString().split('T')[0]
+        : colEndStr) || '';
 
     const disc = scheme.discountPct !== null && scheme.discountPct !== undefined
       ? Number(scheme.discountPct)
       : scheme.defaultDiscountPct !== null && scheme.defaultDiscountPct !== undefined
-      ? Number(scheme.defaultDiscountPct)
-      : '';
+        ? Number(scheme.defaultDiscountPct)
+        : '';
 
     const stCode = scheme.schemeTypeCode || scheme.schemeTypeRef?.code || 'SR';
     const stName = scheme.schemeTypeRef?.name || scheme.schemeType || stCode;
@@ -872,13 +872,13 @@ export const PricingManagementView: React.FC = () => {
       const effFrom = activeVersion.effectiveFrom
         ? new Date(activeVersion.effectiveFrom).toISOString().split('T')[0]
         : rl.effectiveFrom
-        ? new Date(rl.effectiveFrom).toISOString().split('T')[0]
-        : '';
+          ? new Date(rl.effectiveFrom).toISOString().split('T')[0]
+          : '';
       const effTo = activeVersion.effectiveTo
         ? new Date(activeVersion.effectiveTo).toISOString().split('T')[0]
         : rl.effectiveTo
-        ? new Date(rl.effectiveTo).toISOString().split('T')[0]
-        : '';
+          ? new Date(rl.effectiveTo).toISOString().split('T')[0]
+          : '';
 
       const schemeInfo = rl.scheme || schemes.find((s) => s.id === rl.schemeId) || null;
       setSelectedSchemeInfo(schemeInfo);
@@ -1018,8 +1018,8 @@ export const PricingManagementView: React.FC = () => {
           typeCode === 'CA'
             ? 'CASH'
             : typeCode === 'ABC'
-            ? 'ADVANCE_BOOKING'
-            : 'SEASONAL',
+              ? 'ADVANCE_BOOKING'
+              : 'SEASONAL',
         effectiveFrom: (scheme.startDate
           ? new Date(scheme.startDate).toISOString().split('T')[0]
           : prev.effectiveFrom) || '',
@@ -1052,8 +1052,8 @@ export const PricingManagementView: React.FC = () => {
         const schemeRate = isChild
           ? 0
           : effectiveDisc > 0
-          ? Math.round(baseRate * (1 - effectiveDisc / 100))
-          : Number(p.schemeRate || baseRate);
+            ? Math.round(baseRate * (1 - effectiveDisc / 100))
+            : Number(p.schemeRate || baseRate);
         const dynamicCat = resolveProductCategory(p);
 
         return {
@@ -1089,8 +1089,8 @@ export const PricingManagementView: React.FC = () => {
         message: isChild
           ? `Loaded ${mappedItems.length} products. Please add base rates to apply scheme rates.`
           : schemeDiscount > 0
-          ? `Loaded ${mappedItems.length} products with ${schemeDiscount}% scheme discount applied.`
-          : `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
+            ? `Loaded ${mappedItems.length} products with ${schemeDiscount}% scheme discount applied.`
+            : `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
         type: 'success',
       });
     } catch (err: any) {
@@ -1187,8 +1187,8 @@ export const PricingManagementView: React.FC = () => {
           it.discountPercent > 0
             ? it.discountPercent
             : bulkAdjustmentPct !== ''
-            ? bulkAdjustmentPct
-            : 0
+              ? bulkAdjustmentPct
+              : 0
         );
         const newSchemeRate = discPct > 0
           ? Math.round(newBaseRate * (1 - discPct / 100))
@@ -1221,12 +1221,12 @@ export const PricingManagementView: React.FC = () => {
         if ((p.finishedProductId || p.id) === savedBatch.finishedProductId) {
           const updatedBatches = p.batches
             ? p.batches.map((b: any) =>
-                b.id === savedBatch.id
-                  ? savedBatch
-                  : savedBatch.isActive
+              b.id === savedBatch.id
+                ? savedBatch
+                : savedBatch.isActive
                   ? { ...b, isActive: false }
                   : b
-              )
+            )
             : [savedBatch];
           if (!p.batches?.some((b: any) => b.id === savedBatch.id)) {
             updatedBatches.push(savedBatch);
@@ -1476,8 +1476,8 @@ export const PricingManagementView: React.FC = () => {
   const handleExportPdf = async (rl: any) => {
     try {
       let fullRateList = rl;
-      const hasItems = (rl?.items && rl.items.length > 0) || 
-                       (rl?.versions && rl.versions.some((v: any) => v.items && v.items.length > 0));
+      const hasItems = (rl?.items && rl.items.length > 0) ||
+        (rl?.versions && rl.versions.some((v: any) => v.items && v.items.length > 0));
 
       if (!hasItems && rl?.id) {
         showToast({
@@ -1492,7 +1492,7 @@ export const PricingManagementView: React.FC = () => {
       const targetItems = fullRateList?.items?.length
         ? fullRateList.items
         : fullRateList?.versions?.find((v: any) => v.status === 'ACTIVE')?.items ||
-          fullRateList?.versions?.[0]?.items || [];
+        fullRateList?.versions?.[0]?.items || [];
 
       if (targetItems.length === 0 && fullRateList?.id) {
         try {
@@ -1632,7 +1632,11 @@ export const PricingManagementView: React.FC = () => {
 
   // Filtered lists
   const filteredRateLists = useMemo(() => {
+    const effectiveCompId = activeCompanyId || activeCompany?.id;
     return rateLists.filter((rl) => {
+      if (!isParentActive && effectiveCompId && rl.companyId && rl.companyId !== effectiveCompId) {
+        return false;
+      }
       const matchesSearch =
         (rl.name || '').toLowerCase().includes(rateListSearch.toLowerCase()) ||
         (rl.code || '').toLowerCase().includes(rateListSearch.toLowerCase()) ||
@@ -1644,10 +1648,14 @@ export const PricingManagementView: React.FC = () => {
         rl.schemeShortCode === rateListSchemeFilter;
       return matchesSearch && matchesScheme;
     });
-  }, [rateLists, rateListSearch, rateListSchemeFilter]);
+  }, [rateLists, rateListSearch, rateListSchemeFilter, isParentActive, activeCompanyId, activeCompany?.id]);
 
   const filteredSchemes = useMemo(() => {
+    const effectiveCompId = activeCompanyId || activeCompany?.id;
     return schemes.filter((s) => {
+      if (!isParentActive && effectiveCompId && s.companyId && s.companyId !== effectiveCompId) {
+        return false;
+      }
       const matchesSearch =
         (s.name || '').toLowerCase().includes(schemeSearch.toLowerCase()) ||
         (s.code || '').toLowerCase().includes(schemeSearch.toLowerCase()) ||
@@ -1658,7 +1666,7 @@ export const PricingManagementView: React.FC = () => {
         s.schemeTypeId === schemeTypeFilter;
       return matchesSearch && matchesType;
     });
-  }, [schemes, schemeSearch, schemeTypeFilter]);
+  }, [schemes, schemeSearch, schemeTypeFilter, isParentActive, activeCompanyId, activeCompany?.id]);
 
   const filteredModalItems = useMemo(() => {
     if (!rateListItemSearch.trim()) return rateListItems;
@@ -1673,16 +1681,20 @@ export const PricingManagementView: React.FC = () => {
   }, [rateListItems, rateListItemSearch]);
 
   const filteredMatrixProducts = useMemo(() => {
-    if (!productMatrixSearch.trim()) return allProducts;
+    const effectiveCompId = activeCompanyId || activeCompany?.id;
+    const candidateProducts = (!isParentActive && effectiveCompId)
+      ? allProducts.filter((p) => !p.companyId || p.companyId === effectiveCompId)
+      : allProducts;
+    if (!productMatrixSearch.trim()) return candidateProducts;
     const q = productMatrixSearch.toLowerCase().trim();
-    return allProducts.filter(
+    return candidateProducts.filter(
       (p) =>
         (p.productName || '').toLowerCase().includes(q) ||
         (p.productCode || '').toLowerCase().includes(q) ||
         (resolveProductCategory(p) || '').toLowerCase().includes(q) ||
         (p.mType || '').toLowerCase().includes(q)
     );
-  }, [allProducts, productMatrixSearch]);
+  }, [allProducts, productMatrixSearch, isParentActive, activeCompanyId, activeCompany?.id]);
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto' }}>
@@ -1974,18 +1986,18 @@ export const PricingManagementView: React.FC = () => {
                                 typeCode === 'CA'
                                   ? '#eff6ff'
                                   : typeCode === 'ABC'
-                                  ? '#fef3c7'
-                                  : typeCode === 'NNR'
-                                  ? '#f3e8ff'
-                                  : '#ecfdf5',
+                                    ? '#fef3c7'
+                                    : typeCode === 'NNR'
+                                      ? '#f3e8ff'
+                                      : '#ecfdf5',
                               color:
                                 typeCode === 'CA'
                                   ? '#1d4ed8'
                                   : typeCode === 'ABC'
-                                  ? '#b45309'
-                                  : typeCode === 'NNR'
-                                  ? '#7e22ce'
-                                  : '#047857',
+                                    ? '#b45309'
+                                    : typeCode === 'NNR'
+                                      ? '#7e22ce'
+                                      : '#047857',
                             }}
                           >
                             {typeCode}

@@ -3063,17 +3063,7 @@ export class MasterDataService {
         where: { id: dto.companyId },
         include: { childCompanies: { select: { id: true } } },
       });
-      const isParent = Boolean(
-        targetCompany?.isParent === true ||
-        targetCompany?.code === 'COMP-SHEHSWAR' ||
-        targetCompany?.companyType === 'PARENT_MANUFACTURING' ||
-        (targetCompany && (targetCompany.childCompanies?.length || 0) > 0)
-      );
-      if (!isParent) {
-        throw new BadRequestException(
-          `Finished Products cannot be created manually for child company '${targetCompany?.name || dto.companyId}'. Child companies receive Finished Products via Intercompany Transfer or Sale from Shehswar.`
-        );
-      }
+      // Both parent manufacturing companies and child marketing/distribution companies can register finished goods
     }
 
     let productCode = (dto.productCode || '').trim().toUpperCase();
@@ -3400,6 +3390,8 @@ export class MasterDataService {
         categoryName: rm.category?.name || 'Raw Material',
         categoryCode: rm.category?.code || null,
         categoryId: rm.categoryId || null,
+        companyId: rm.companyId || null,
+        companyName: rm.company?.name || null,
         baseUomName: rm.baseUom?.name || rm.uom?.name || rmUnit,
         baseUomSymbol: rmUnit,
         rate: baseCost,
@@ -3440,6 +3432,8 @@ export class MasterDataService {
         categoryName: pm.category?.name || 'Packing Material',
         categoryCode: pm.category?.code || null,
         categoryId: pm.categoryId || null,
+        companyId: pm.companyId || null,
+        companyName: pm.company?.name || null,
         baseUomName: pm.baseUom?.name || pm.uom?.name || pmUnit,
         baseUomSymbol: pmUnit,
         rate: pmCost,
@@ -3478,12 +3472,15 @@ export class MasterDataService {
         categoryName: fp.category?.name || fp.productType || 'Finished Goods',
         categoryCode: fp.category?.code || null,
         categoryId: fp.categoryId || null,
+        companyId: fp.companyId || null,
+        companyName: fp.company?.name || null,
         baseUomName: fp.baseUom?.name || fpUnit,
         baseUomSymbol: fpUnit,
         rate: fpPrice,
         standardCost: fpCost,
         sellingPrice: fpPrice,
         packSize: commercialFpPack,
+        ppc: fp.ppc ?? (fp.customFields as any)?.ppc ?? 1,
         grade: fp.grade || null,
         specifications: fp.productType ? `${fp.productType} · PPC: ${fp.ppc || 1}` : null,
         storageRequirements: null,
