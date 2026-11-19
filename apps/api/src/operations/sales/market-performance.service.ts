@@ -951,6 +951,9 @@ export class MarketPerformanceService {
       ordersCount: number;
       target: number;
       creditLimit: number;
+      currentBalance?: number;
+      usedCredit?: number;
+      pendingCredit?: number;
     }>();
 
     // 1. Gather all officer IDs associated with this territory
@@ -979,6 +982,7 @@ export class MarketPerformanceService {
         city: true,
         address: true,
         creditLimit: true,
+        currentBalance: true,
         assignedFieldOfficerId: true,
         territoryId: true,
         monthlySalesTarget: true,
@@ -1010,6 +1014,11 @@ export class MarketPerformanceService {
         ? `${territory.salesOfficer.firstName || ''} ${territory.salesOfficer.lastName || ''}`.trim()
         : 'Assigned';
 
+      const cLimit = Number(d.creditLimit || 0);
+      const cBal = Number(d.currentBalance || 0);
+      const usedCredit = Math.max(0, cBal);
+      const pendingCredit = Math.max(0, cLimit - cBal);
+
       dealerMetricsMap.set(d.id, {
         dealerId: d.id,
         dealerCode: d.code || '',
@@ -1021,7 +1030,10 @@ export class MarketPerformanceService {
         totalQuantity: 0,
         ordersCount: 0,
         target: effTarget,
-        creditLimit: Number(d.creditLimit || 0),
+        creditLimit: cLimit,
+        currentBalance: cBal,
+        usedCredit,
+        pendingCredit,
       });
     }
 
@@ -1465,6 +1477,8 @@ export class MarketPerformanceService {
       creditControl: {
         creditLimit,
         currentBalance,
+        usedCredit: Math.max(0, currentBalance),
+        pendingCredit: availableCredit,
         availableCredit,
         creditUtilizationPercent,
         isCreditLocked,

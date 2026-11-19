@@ -1064,8 +1064,8 @@ export const DealersView: React.FC<DealersViewProps> = ({ onNavigateToCreateOrde
     },
     {
       key: 'availableCredit',
-      header: 'Available',
-      width: '120px',
+      header: 'Pending Credit',
+      width: '125px',
       align: 'right',
       render: (d) => {
         const limit = Number(d.creditLimit || 0);

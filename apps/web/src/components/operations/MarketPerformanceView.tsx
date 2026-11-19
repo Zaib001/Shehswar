@@ -1696,6 +1696,8 @@ export const MarketPerformanceView: React.FC = () => {
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Sales Officer</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Target (PKR)</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Credit Limit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#b91c1c', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Used Credit</th>
+                        <th style={{ padding: '11px 16px', fontWeight: 700, color: '#15803d', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Pending Credit</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Actual Posted Sales</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Achievement</th>
                         <th style={{ padding: '11px 16px', fontWeight: 700, color: '#475569', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>Units Sold</th>
@@ -1706,14 +1708,18 @@ export const MarketPerformanceView: React.FC = () => {
                     <tbody>
                       {filteredDealers.length === 0 ? (
                         <tr>
-                          <td colSpan={10} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                          <td colSpan={12} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
                             <IconPackage size={32} style={{ color: '#94a3b8', margin: '0 auto 8px', display: 'block' }} />
                             <div style={{ fontWeight: 700, color: '#0f172a' }}>No Dealers Found</div>
                             <div style={{ fontSize: '12px', marginTop: '2px' }}>No dealer accounts mapped to this territory yet.</div>
                           </td>
                         </tr>
                       ) : (
-                        filteredDealers.map((d: any) => (
+                        filteredDealers.map((d: any) => {
+                          const usedCr = d.usedCredit !== undefined ? Number(d.usedCredit) : Math.max(0, Number(d.currentBalance ?? d.actualSales ?? 0));
+                          const pendCr = d.pendingCredit !== undefined ? Number(d.pendingCredit) : Math.max(0, Number(d.creditLimit || 0) - usedCr);
+
+                          return (
                           <tr
                             key={d.dealerId}
                             style={{
@@ -1749,6 +1755,12 @@ export const MarketPerformanceView: React.FC = () => {
                             <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>
                               {fmtPKR(d.creditLimit)}
                             </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#b91c1c', fontWeight: 700 }}>
+                              {fmtPKR(usedCr)}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', color: '#15803d', fontWeight: 700 }}>
+                              {fmtPKR(pendCr)}
+                            </td>
                             <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: '#2563eb', fontFamily: 'monospace' }}>
                               {fmtPKR(d.actualSales)}
                             </td>
@@ -1773,7 +1785,9 @@ export const MarketPerformanceView: React.FC = () => {
                                     phone: d.phone,
                                     city: d.city,
                                     creditLimit: d.creditLimit,
-                                    currentBalance: d.actualSales,
+                                    currentBalance: d.currentBalance ?? d.actualSales,
+                                    usedCredit: usedCr,
+                                    pendingCredit: pendCr,
                                   });
                                 }}
                                 style={{
@@ -1794,7 +1808,8 @@ export const MarketPerformanceView: React.FC = () => {
                               </Button>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1846,6 +1861,8 @@ export const MarketPerformanceView: React.FC = () => {
                           city: performanceData.dealer?.city || performanceData.dealer?.territory,
                           creditLimit: performanceData.creditControl?.creditLimit,
                           currentBalance: performanceData.creditControl?.currentBalance,
+                          usedCredit: performanceData.creditControl?.usedCredit ?? performanceData.creditControl?.currentBalance,
+                          pendingCredit: performanceData.creditControl?.pendingCredit ?? performanceData.creditControl?.availableCredit,
                         });
                       }}
                       style={{
@@ -1867,14 +1884,20 @@ export const MarketPerformanceView: React.FC = () => {
 
                     <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                       <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Approved Credit Limit</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#059669', fontFamily: 'monospace', marginTop: '2px' }}>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', fontFamily: 'monospace', marginTop: '2px' }}>
                         {fmtPKR(performanceData.creditControl?.creditLimit)}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                      <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Current Exposure</div>
-                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#dc2626', fontFamily: 'monospace', marginTop: '2px' }}>
-                        {fmtPKR(performanceData.creditControl?.currentBalance)}
+                    <div style={{ textAlign: 'right', padding: '8px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#b91c1c', textTransform: 'uppercase', fontWeight: 700 }}>Used Credit</div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#b91c1c', fontFamily: 'monospace', marginTop: '2px' }}>
+                        {fmtPKR(performanceData.creditControl?.usedCredit ?? performanceData.creditControl?.currentBalance)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', padding: '8px 14px', background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', color: '#15803d', textTransform: 'uppercase', fontWeight: 700 }}>Pending Credit</div>
+                      <div style={{ fontSize: '16px', fontWeight: 800, color: '#15803d', fontFamily: 'monospace', marginTop: '2px' }}>
+                        {fmtPKR(performanceData.creditControl?.pendingCredit ?? performanceData.creditControl?.availableCredit)}
                       </div>
                     </div>
                   </div>
@@ -1911,9 +1934,15 @@ export const MarketPerformanceView: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Available Credit</div>
-                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#059669', marginTop: '2px', fontFamily: 'monospace' }}>
-                      {fmtPKR(performanceData.creditControl?.availableCredit)}
+                    <div style={{ fontSize: '11px', color: '#b91c1c', fontWeight: 600 }}>Used Credit</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#b91c1c', marginTop: '2px', fontFamily: 'monospace' }}>
+                      {fmtPKR(performanceData.creditControl?.usedCredit ?? performanceData.creditControl?.currentBalance)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#15803d', fontWeight: 600 }}>Pending Credit</div>
+                    <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#15803d', marginTop: '2px', fontFamily: 'monospace' }}>
+                      {fmtPKR(performanceData.creditControl?.pendingCredit ?? performanceData.creditControl?.availableCredit)}
                     </div>
                   </div>
                 </div>

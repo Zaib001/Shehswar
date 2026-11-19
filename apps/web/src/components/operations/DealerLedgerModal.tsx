@@ -21,6 +21,8 @@ export interface DealerLedgerModalProps {
     address?: string;
     creditLimit?: number;
     currentBalance?: number;
+    usedCredit?: number;
+    pendingCredit?: number;
   } | null;
 }
 
@@ -134,8 +136,16 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
 }) => {
   const { showToast } = useToast();
   const [entries, setEntries] = useState<LedgerEntryRecord[]>([]);
-  const [currentBalance, setCurrentBalance] = useState<number>(0);
+  const [currentBalance, setCurrentBalance] = useState<number>(Number(dealer?.currentBalance || 0));
+  const [dealerCreditLimit, setDealerCreditLimit] = useState<number>(Number(dealer?.creditLimit || 0));
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (dealer) {
+      setDealerCreditLimit(Number(dealer.creditLimit || 0));
+      setCurrentBalance(Number(dealer.currentBalance || 0));
+    }
+  }, [dealer]);
   const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -165,6 +175,8 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
       const list = Array.isArray(data.entries) ? data.entries : [];
       setEntries(list);
       setCurrentBalance(Number(data.currentBalance ?? data.dealer?.currentBalance ?? dealer.currentBalance ?? 0));
+      const lim = Number(data.creditLimit ?? data.dealer?.creditLimit ?? dealer.creditLimit ?? 0);
+      if (lim > 0) setDealerCreditLimit(lim);
     } catch (err: any) {
       showToast({
         title: 'Error',
@@ -263,6 +275,10 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
 
   const handlePrintPdf = () => {
     if (!dealer) return;
+    const creditLimit = Number(dealerCreditLimit || dealer.creditLimit || 0);
+    const usedCredit = Math.max(0, currentBalance);
+    const pendingCredit = Math.max(0, creditLimit - usedCredit);
+
     exportDealerLedgerToPdf({
       dealer: {
         name: dealer.name,
@@ -270,8 +286,10 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
         phone: dealer.phone,
         city: dealer.city,
         address: dealer.address,
-        creditLimit: dealer.creditLimit,
+        creditLimit,
         currentBalance,
+        usedCredit,
+        pendingCredit,
       },
       startDate: startDate || undefined,
       endDate: endDate || undefined,
@@ -298,8 +316,11 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
 
   if (!dealer) return null;
 
-  const creditLimit = Number(dealer.creditLimit || 0);
-  const utilizationPct = creditLimit > 0 ? Math.min(100, Math.round((currentBalance / creditLimit) * 100)) : 0;
+  const creditLimit = Number(dealerCreditLimit || dealer.creditLimit || 0);
+  const usedCredit = Math.max(0, currentBalance);
+  const pendingCredit = Math.max(0, creditLimit - usedCredit);
+  const utilizationPct = creditLimit > 0 ? Math.min(100, Math.round((usedCredit / creditLimit) * 100)) : 0;
+  const remainingPct = Math.max(0, 100 - utilizationPct);
 
   return (
     <>
@@ -376,7 +397,8 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
           </div>
 
           {/* Executive Account Summary Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+            {/* Card 1: Approved Limit */}
             <div
               style={{
                 padding: '12px 14px',
@@ -385,22 +407,58 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 borderRadius: '8px',
               }}
             >
-              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
-                Dealer Contact
+              <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Approved Credit Limit
               </div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-                {dealer.name}
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '3px', fontFamily: 'monospace' }}>
+                PKR {creditLimit.toLocaleString()}
               </div>
               <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                {dealer.city ? dealer.city : ''} {dealer.phone ? `• Tel: ${dealer.phone}` : ''}
+                Authorized Facility
               </div>
-              {creditLimit > 0 && (
-                <div style={{ fontSize: '11px', color: utilizationPct > 80 ? '#b91c1c' : '#475569', marginTop: '3px', fontWeight: 600 }}>
-                  Credit Limit: PKR {creditLimit.toLocaleString()} ({utilizationPct}% used)
-                </div>
-              )}
             </div>
 
+            {/* Card 2: Used Credit */}
+            <div
+              style={{
+                padding: '12px 14px',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '8px',
+              }}
+            >
+              <div style={{ fontSize: '10.5px', color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Used Credit (Exposure)
+              </div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#b91c1c', marginTop: '3px', fontFamily: 'monospace' }}>
+                PKR {usedCredit.toLocaleString()}
+              </div>
+              <div style={{ fontSize: '11px', color: '#991b1b', marginTop: '2px', fontWeight: 600 }}>
+                {utilizationPct}% utilized
+              </div>
+            </div>
+
+            {/* Card 3: Pending Credit */}
+            <div
+              style={{
+                padding: '12px 14px',
+                backgroundColor: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                borderRadius: '8px',
+              }}
+            >
+              <div style={{ fontSize: '10.5px', color: '#15803d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Pending Credit (Available)
+              </div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#15803d', marginTop: '3px', fontFamily: 'monospace' }}>
+                PKR {pendingCredit.toLocaleString()}
+              </div>
+              <div style={{ fontSize: '11px', color: '#166534', marginTop: '2px', fontWeight: 600 }}>
+                {creditLimit > 0 ? `${remainingPct}% remaining` : 'No limit set'}
+              </div>
+            </div>
+
+            {/* Card 4: Total Debits */}
             <div
               style={{
                 padding: '12px 14px',
@@ -409,10 +467,10 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 borderRadius: '8px',
               }}
             >
-              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
+              <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Total Debits (Sales)
               </div>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '2px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginTop: '3px', fontFamily: 'monospace' }}>
                 PKR {totalDebits.toLocaleString()}
               </div>
               <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
@@ -420,6 +478,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
               </div>
             </div>
 
+            {/* Card 5: Total Credits */}
             <div
               style={{
                 padding: '12px 14px',
@@ -428,10 +487,10 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 borderRadius: '8px',
               }}
             >
-              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>
+              <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Total Credits (Receipts)
               </div>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: '#047857', marginTop: '2px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: '#047857', marginTop: '3px', fontFamily: 'monospace' }}>
                 PKR {totalCredits.toLocaleString()}
               </div>
               <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
@@ -439,6 +498,7 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
               </div>
             </div>
 
+            {/* Card 6: Net Closing Balance */}
             <div
               style={{
                 padding: '12px 14px',
@@ -447,15 +507,71 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
                 borderRadius: '8px',
               }}
             >
-              <div style={{ fontSize: '11px', color: '#475569', fontWeight: 700, textTransform: 'uppercase' }}>
+              <div style={{ fontSize: '10.5px', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Net Closing Balance
               </div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: currentBalance > 0 ? '#b91c1c' : '#047857', marginTop: '2px' }}>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: currentBalance > 0 ? '#b91c1c' : '#047857', marginTop: '3px', fontFamily: 'monospace' }}>
                 PKR {currentBalance.toLocaleString()} {currentBalance > 0 ? 'Dr' : 'Cr'}
               </div>
               <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                {currentBalance > 0 ? 'Outstanding Owed to Shehswar' : 'Settled / In Credit'}
+                {currentBalance > 0 ? 'Outstanding Receivable' : 'Settled / In Credit'}
               </div>
+            </div>
+          </div>
+
+          {/* Credit Status & Utilization Visual Bar */}
+          <div
+            style={{
+              padding: '9px 14px',
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11.5px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 700, color: '#0f172a' }}>Credit Utilization:</span>
+                <span>
+                  <strong style={{ color: '#b91c1c' }}>Used:</strong> PKR {usedCredit.toLocaleString()} ({utilizationPct}%)
+                </span>
+                <span style={{ color: '#cbd5e1' }}>•</span>
+                <span>
+                  <strong style={{ color: '#15803d' }}>Pending:</strong> PKR {pendingCredit.toLocaleString()} ({remainingPct}%)
+                </span>
+              </div>
+              <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#475569', fontSize: '11.5px' }}>
+                Total Limit: PKR {creditLimit.toLocaleString()}
+              </div>
+            </div>
+            <div
+              style={{
+                width: '100%',
+                height: '7px',
+                borderRadius: '4px',
+                backgroundColor: '#e2e8f0',
+                overflow: 'hidden',
+                display: 'flex',
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(100, utilizationPct)}%`,
+                  backgroundColor: utilizationPct >= 90 ? '#dc2626' : utilizationPct >= 75 ? '#f59e0b' : '#3b82f6',
+                  transition: 'width 0.3s ease',
+                }}
+                title={`Used Credit: PKR ${usedCredit.toLocaleString()} (${utilizationPct}%)`}
+              />
+              <div
+                style={{
+                  width: `${Math.max(0, remainingPct)}%`,
+                  backgroundColor: '#22c55e',
+                  transition: 'width 0.3s ease',
+                }}
+                title={`Pending Credit: PKR ${pendingCredit.toLocaleString()} (${remainingPct}%)`}
+              />
             </div>
           </div>
 

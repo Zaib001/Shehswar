@@ -2910,6 +2910,8 @@ export interface DealerLedgerExportData {
     address?: string;
     creditLimit?: number;
     currentBalance?: number;
+    usedCredit?: number;
+    pendingCredit?: number;
   };
   startDate?: string;
   endDate?: string;
@@ -2989,7 +2991,11 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
 
   const totalDebits = entries.reduce((sum, e) => sum + Number(e.debit || 0), 0);
   const totalCredits = entries.reduce((sum, e) => sum + Number(e.credit || 0), 0);
+  const creditLimitNum = Number(dealer.creditLimit || 0);
   const closingBalance = Number(dealer.currentBalance ?? (totalDebits - totalCredits));
+  const usedCreditNum = dealer.usedCredit !== undefined ? Number(dealer.usedCredit) : Math.max(0, closingBalance);
+  const pendingCreditNum = dealer.pendingCredit !== undefined ? Number(dealer.pendingCredit) : Math.max(0, creditLimitNum - usedCreditNum);
+  const utilPct = creditLimitNum > 0 ? Math.min(100, Math.round((usedCreditNum / creditLimitNum) * 100)) : 0;
   const closingBalFormatted = Math.abs(closingBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const closingBalSuffix = closingBalance >= 0 ? 'Dr (Receivable)' : 'Cr (Advance/Payable)';
 
@@ -3394,7 +3400,15 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
           </div>
           <div class="account-row">
             <span class="account-label">Approved Credit Limit:</span>
-            <span class="account-val mono">PKR ${Number(dealer.creditLimit || 0).toLocaleString()}</span>
+            <span class="account-val mono">PKR ${creditLimitNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+          <div class="account-row" style="color: #b91c1c;">
+            <span class="account-label" style="color: #b91c1c; font-weight: 700;">Used Credit (Exposure):</span>
+            <span class="account-val mono" style="color: #b91c1c; font-weight: 700;">PKR ${usedCreditNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${creditLimitNum > 0 ? ` (${utilPct}% used)` : ''}</span>
+          </div>
+          <div class="account-row" style="color: #047857;">
+            <span class="account-label" style="color: #047857; font-weight: 700;">Pending Credit (Available):</span>
+            <span class="account-val mono" style="color: #047857; font-weight: 700;">PKR ${pendingCreditNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
           <div class="account-row">
             <span class="account-label">Total Debits (Sales):</span>
@@ -5718,9 +5732,10 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
           <th style="width: 10%;">Code</th>
           <th style="width: 24%;">Dealer Name & Shop</th>
           <th style="width: 20%;">Market Hierarchy</th>
-          <th style="width: 16%;">Sales Officer</th>
-          <th class="text-right" style="width: 15%;">Credit Limit</th>
-          <th class="text-right" style="width: 15%;">Current Balance</th>
+          <th style="width: 15%;">Sales Officer</th>
+          <th class="text-right" style="width: 12%;">Credit Limit</th>
+          <th class="text-right" style="width: 12%;">Used Credit</th>
+          <th class="text-right" style="width: 12%;">Pending Credit</th>
         </tr>
       </thead>
       <tbody>
@@ -5728,6 +5743,8 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
     const terr = d.territory;
     const officer = d.assignedOfficer;
     const isOverLimit = Number(d.creditLimit || 0) > 0 && Number(d.currentBalance || 0) > Number(d.creditLimit || 0);
+    const usedCr = Math.max(0, Number(d.currentBalance || 0));
+    const pendCr = Math.max(0, Number(d.creditLimit || 0) - usedCr);
     return `
             <tr>
               <td class="mono" style="font-weight: 700; color: #0369a1;">${d.code}</td>
@@ -5748,9 +5765,12 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
                 </div>
               </td>
               <td class="text-right mono">PKR ${formatPKR(d.creditLimit)}</td>
-              <td class="text-right mono" style="font-weight: 800; color: ${isOverLimit ? '#b91c1c' : '#047857'};">
-                PKR ${formatPKR(d.currentBalance)}
+              <td class="text-right mono" style="font-weight: 800; color: ${isOverLimit ? '#b91c1c' : '#0f172a'};">
+                PKR ${formatPKR(usedCr)}
                 ${isOverLimit ? '<div style="font-size: 6pt; color: #b91c1c; font-weight: 700;">OVER LIMIT</div>' : ''}
+              </td>
+              <td class="text-right mono" style="font-weight: 800; color: #16a34a;">
+                PKR ${formatPKR(pendCr)}
               </td>
             </tr>
           `;
@@ -5759,6 +5779,7 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
           <td colspan="4" style="text-align: right; font-weight: 800;">PORTFOLIO TOTAL:</td>
           <td class="text-right mono" style="font-weight: 800;">PKR ${formatPKR(totalCreditLimit)}</td>
           <td class="text-right mono" style="font-weight: 800; color: #b91c1c;">PKR ${formatPKR(totalReceivables)}</td>
+          <td class="text-right mono" style="font-weight: 800; color: #16a34a;">PKR ${formatPKR(Math.max(0, totalCreditLimit - totalReceivables))}</td>
         </tr>
       </tbody>
     </table>

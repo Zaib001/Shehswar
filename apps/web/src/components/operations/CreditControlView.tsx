@@ -719,7 +719,7 @@ export const CreditControlView: React.FC<CreditControlViewProps> = ({ defaultTab
             <Card>
               <CardContent style={{ padding: '16px' }}>
                 <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                  AVAILABLE CREDIT
+                  PENDING / AVAILABLE CREDIT
                 </div>
                 <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: '#16A34A', marginTop: '4px' }}>
                   {formatPKR(dashboardData?.summary?.availableCredit ?? dashboardData?.kpis?.availableCredit)}
@@ -768,8 +768,8 @@ export const CreditControlView: React.FC<CreditControlViewProps> = ({ defaultTab
                         <th style={{ padding: '10px 12px' }}>Dealer</th>
                         <th style={{ padding: '10px 12px' }}>Market Path</th>
                         <th style={{ padding: '10px 12px', textAlign: 'right' }}>Credit Limit</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>Current Exposure</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>Available Credit</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>Used Credit</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right' }}>Pending Credit</th>
                         <th style={{ padding: '10px 12px', width: '140px' }}>Utilization</th>
                         <th style={{ padding: '10px 12px', textAlign: 'center' }}>Status</th>
                       </tr>
@@ -1291,7 +1291,7 @@ export const CreditControlView: React.FC<CreditControlViewProps> = ({ defaultTab
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>AVAILABLE CREDIT</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>PENDING CREDIT (AVAILABLE)</div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
                     {formatPKR(Math.max(0, Number(currentSelectedDealer.creditLimit || 0) - Number(currentSelectedDealer.currentBalance || 0)))}
                   </div>

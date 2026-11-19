@@ -328,6 +328,9 @@ export class DealerLedgerService {
         };
       }),
       currentBalance: Number(dealer.currentBalance ?? 0),
+      creditLimit: Number(dealer.creditLimit || 0),
+      usedCredit: Math.max(0, Number(dealer.currentBalance ?? 0)),
+      pendingCredit: Math.max(0, Number(dealer.creditLimit || 0) - Number(dealer.currentBalance ?? 0)),
     };
   }
 
