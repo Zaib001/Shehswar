@@ -43,8 +43,12 @@ export class PricingService {
   constructor(private readonly prisma: PrismaService) { }
 
   /**
-   * Helper to resolve all valid company IDs for the current company context
-   * (e.g. parent company sees parent + child companies; child company sees child + parent company)
+   * Helper to resolve all valid company IDs for the current company context.
+   *
+   * Isolation rules:
+   * - PARENT company (isParent=true): can see its own records + ALL child company records.
+   * - CHILD company: can ONLY see its own records. Never the parent or sibling companies.
+   *   (Enforced here AND by DataScopeGuard.)
    */
   private async resolveAllowedCompanyIds(companyId?: string): Promise<string[]> {
     if (!companyId || companyId === 'ALL') return [];
@@ -56,12 +60,12 @@ export class PricingService {
       if (!comp) return [companyId];
 
       const ids = [comp.id];
+      // Parent company can see all child companies' data
       if (comp.isParent && comp.childCompanies && comp.childCompanies.length > 0) {
         ids.push(...comp.childCompanies.map((c) => c.id));
       }
-      if (comp.parentCompanyId) {
-        ids.push(comp.parentCompanyId);
-      }
+      // Child companies are strictly isolated — do NOT add parentCompanyId here.
+      // Adding parentCompanyId would cause child companies to see parent rate lists / products.
       return Array.from(new Set(ids));
     } catch {
       return [companyId];
@@ -1654,6 +1658,15 @@ export class PricingService {
 
     // Retrieve all active Finished Products from master
     const effectiveCompanyId = companyId || scheme.companyId;
+
+    const compRecord = await this.prisma.company.findUnique({
+      where: { id: effectiveCompanyId },
+      select: { id: true, isParent: true, parentCompanyId: true, code: true },
+    });
+    const isChildCompany = Boolean(
+      compRecord && !compRecord.isParent && (compRecord.parentCompanyId || compRecord.code !== 'COMP-SHEHSWAR')
+    );
+
     const allProducts = await this.getActiveFinishedProductsForRateList(effectiveCompanyId);
 
     // Single Discount % field (Requirements 12, 13, 14, 20)
@@ -1690,9 +1703,15 @@ export class PricingService {
         };
       }
 
-      const basePrice = p.baseRate;
+      // Requirement 2: For child companies, do not show actual base rate from database.
+      // User will enter the base rate and then apply scheme discount.
+      const basePrice = isChildCompany ? 0 : p.baseRate;
       const discountPercent = schemeDiscountPct;
-      const schemeRate = discountPercent > 0 ? Math.round(basePrice * (1 - discountPercent / 100)) : basePrice;
+      const schemeRate = isChildCompany
+        ? 0
+        : discountPercent > 0
+        ? Math.round(basePrice * (1 - discountPercent / 100))
+        : basePrice;
       const rateType = schemeTypeCode === 'NNR' ? 'NET_NET' : discountPercent > 0 ? 'DISCOUNT' : 'DIRECT';
 
       return {
@@ -1704,7 +1723,7 @@ export class PricingService {
         discountValue: discountPercent,
         rateType,
         fixedNetRate: rateType === 'NET_NET' ? schemeRate : null,
-        minAllowedRate: Math.round(basePrice * 0.8),
+        minAllowedRate: isChildCompany ? 0 : Math.round(basePrice * 0.8),
         alreadySaved: false,
       };
     });

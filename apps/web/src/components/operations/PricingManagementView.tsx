@@ -46,6 +46,7 @@ import {
   IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportRateListToPdf } from '../../lib/pdf-export';
 import { AddFinishedProductModal } from '../master-data/AddFinishedProductModal';
@@ -248,6 +249,7 @@ export const getCategoryBadgeStyle = (category: string): React.CSSProperties => 
 
 export const PricingManagementView: React.FC = () => {
   const { showToast } = useToast();
+  const { isParentActive } = useCompany();
   const [activeTab, setActiveTab] = useState<PricingTab>('rate-lists');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -897,7 +899,7 @@ export const PricingManagementView: React.FC = () => {
       const itemsSource = activeVersion.items || rl.items || [];
       const mappedItems = itemsSource.map((it: any) => {
         const fp = it.finishedProduct || {};
-        const baseRate = Number(it.baseRate ?? fp.defaultSellingPrice ?? 0);
+        const baseRate = Number(it.baseRate ?? (!isParentActive ? 0 : (fp.defaultSellingPrice ?? 0)));
         const schemeRate = Number(it.schemeRate ?? it.fixedNetRate ?? baseRate);
         const discountPercent = Number(
           it.discountPercent ??
@@ -1011,11 +1013,16 @@ export const PricingManagementView: React.FC = () => {
       setBulkAdjustmentPct(schemeDiscount > 0 ? schemeDiscount : '');
 
       // Map loaded products to editable rate list items with automatic discount application!
+      const isChild = !isParentActive;
       const mappedItems = (products || []).map((p: any) => {
-        const baseRate = Number(p.baseSellingPrice || p.baseRate || 0);
+        // Requirement 2: When creating rate list for child company, don't show the actual base rate.
+        // User will add the base rate, and then scheme discount is applied.
+        const baseRate = isChild ? 0 : Number(p.baseSellingPrice || p.baseRate || 0);
         const itemDisc = Number(p.discountPercent || p.discountValue || 0);
         const effectiveDisc = itemDisc > 0 ? itemDisc : schemeDiscount;
-        const schemeRate = effectiveDisc > 0
+        const schemeRate = isChild
+          ? 0
+          : effectiveDisc > 0
           ? Math.round(baseRate * (1 - effectiveDisc / 100))
           : Number(p.schemeRate || baseRate);
         const dynamicCat = resolveProductCategory(p);
@@ -1042,7 +1049,7 @@ export const PricingManagementView: React.FC = () => {
           schemeRate,
           discountPercent: effectiveDisc,
           rateType: effectiveDisc > 0 ? 'DISCOUNT' : (p.rateType || 'DIRECT'),
-          minAllowedRate: Math.round(schemeRate * 0.8),
+          minAllowedRate: isChild ? 0 : Math.round(schemeRate * 0.8),
         };
       });
 
@@ -1050,7 +1057,9 @@ export const PricingManagementView: React.FC = () => {
 
       showToast({
         title: 'Finished Products Auto-Loaded',
-        message: schemeDiscount > 0
+        message: isChild
+          ? `Loaded ${mappedItems.length} products. Please add base rates to apply scheme rates.`
+          : schemeDiscount > 0
           ? `Loaded ${mappedItems.length} products with ${schemeDiscount}% scheme discount applied.`
           : `Loaded ${mappedItems.length} sellable finished products for '${scheme.name}'.`,
         type: 'success',
@@ -1131,6 +1140,35 @@ export const PricingManagementView: React.FC = () => {
           ...it,
           schemeRate: newSchemeRate,
           discountPercent: discountPct,
+          minAllowedRate: Math.round(newSchemeRate * 0.8),
+        };
+      })
+    );
+  };
+
+  /**
+   * Update base rate for a product in the grid.
+   * When base rate changes, re-apply the current scheme discount (if any) to recalculate schemeRate.
+   */
+  const handleItemBaseRateChange = (index: number, newBaseRate: number) => {
+    setRateListItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== index) return it;
+        const discPct = Number(
+          it.discountPercent > 0
+            ? it.discountPercent
+            : bulkAdjustmentPct !== ''
+            ? bulkAdjustmentPct
+            : 0
+        );
+        const newSchemeRate = discPct > 0
+          ? Math.round(newBaseRate * (1 - discPct / 100))
+          : newBaseRate;
+        return {
+          ...it,
+          baseRate: newBaseRate,
+          discountPercent: discPct,
+          schemeRate: newSchemeRate,
           minAllowedRate: Math.round(newSchemeRate * 0.8),
         };
       })
@@ -1289,6 +1327,18 @@ export const PricingManagementView: React.FC = () => {
       showToast({
         title: 'Products Required',
         message: 'No finished products found for this scheme.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    const zeroRateItems = rateListItems.filter(
+      (it) => (Number(it.baseRate) || 0) <= 0 && (Number(it.schemeRate) || 0) <= 0
+    );
+    if (!isParentActive && zeroRateItems.length > 0) {
+      showToast({
+        title: 'Missing Base Rates',
+        message: `Please add base rate for ${zeroRateItems.length} product(s) or remove them using the "−" button before saving.`,
         type: 'warning',
       });
       return;
@@ -3195,7 +3245,9 @@ export const PricingManagementView: React.FC = () => {
                       <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product Name & Category</th>
                       <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Batch #</th>
                       <th style={{ padding: '8px 12px', textAlign: 'left', width: '120px' }}>Pack Size</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '120px' }}>Base Price (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '130px' }}>
+                        Base Price (PKR) {!isParentActive && <span style={{ color: '#ef4444' }} title="Required for child company">*</span>}
+                      </th>
                       <th style={{ padding: '8px 12px', textAlign: 'right', width: '140px' }}>Scheme Rate (PKR)</th>
                     </tr>
                   </thead>
@@ -3340,8 +3392,50 @@ export const PricingManagementView: React.FC = () => {
                             {item.packSize || item.unit || 'Standard'}
                             {resolvePackSizeDisplay(item)}
                           </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#64748b' }}>
-                            {basePrice.toLocaleString()}
+                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder={!isParentActive ? "Add Base Rate" : "0"}
+                              value={item.baseRate > 0 ? item.baseRate : ''}
+                              style={{
+                                width: '120px',
+                                padding: '5px 8px',
+                                fontSize: '13px',
+                                fontWeight: 700,
+                                color: '#1e293b',
+                                textAlign: 'right',
+                                border: !isParentActive && (!item.baseRate || item.baseRate <= 0) ? '1.5px solid #fca5a5' : '1.5px solid #cbd5e1',
+                                borderRadius: '4px',
+                                outline: 'none',
+                                backgroundColor: '#fff',
+                              }}
+                              onFocus={(e) => {
+                                e.currentTarget.style.borderColor = '#059669';
+                                e.currentTarget.select();
+                              }}
+                              onBlur={(e) => {
+                                e.currentTarget.style.borderColor = !isParentActive && (!item.baseRate || item.baseRate <= 0) ? '#fca5a5' : '#cbd5e1';
+                              }}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                handleItemBaseRateChange(idx, val);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const nextInput = document.getElementById(`base-rate-input-${idx + 1}`);
+                                  if (nextInput) {
+                                    nextInput.focus();
+                                    (nextInput as HTMLInputElement).select();
+                                  } else if (rateInputRefs.current[idx]) {
+                                    rateInputRefs.current[idx]?.focus();
+                                    rateInputRefs.current[idx]?.select();
+                                  }
+                                }
+                              }}
+                              id={`base-rate-input-${idx}`}
+                            />
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                             <input
@@ -3483,7 +3577,7 @@ export const PricingManagementView: React.FC = () => {
                         const product = it.product || it.finishedProduct || {};
                         const activeBatch = product.batches?.find((b: any) => b.isActive) || product.batches?.[0];
                         const batchNumber = it.batchNumber || activeBatch?.batchNumber;
-                        const basePrice = Number(it.basePrice || it.baseRate || product.defaultSellingPrice || 0);
+                        const basePrice = Number(it.baseRate ?? it.basePrice ?? 0);
                         const schemeRate = Number(it.schemeRate ?? it.customPrice ?? it.baseRate ?? 0);
                         const discount = Number(it.discountPercent || 0);
 

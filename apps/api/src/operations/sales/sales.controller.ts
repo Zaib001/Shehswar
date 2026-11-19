@@ -416,7 +416,7 @@ export class SalesInvoicesController {
       (queryCompanyId && queryCompanyId !== 'ALL' ? queryCompanyId : undefined) ||
       (ctx?.companyId && ctx.companyId !== 'ALL' ? ctx.companyId : undefined) ||
       user.companyId;
-    return this.salesService.findOneInvoice(id, effectiveCompanyId);
+    return this.salesService.findOneInvoice(id, effectiveCompanyId, user);
   }
 
   @Post()

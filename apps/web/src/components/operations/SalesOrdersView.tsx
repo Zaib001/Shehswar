@@ -862,23 +862,43 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         taxAmount: 0,
         netAmount: order.totalAmount,
         notes: `Official Commercial Tax Invoice converted against Sales Order ${order.orderNumber}`,
-        dealer: order.dealer,
+        dealer: order.dealer ? {
+          ...order.dealer,
+          businessName: (order.dealer as any).businessName,
+          address: (order.dealer as any).address,
+          city: (order.dealer as any).city,
+          territory: (order.dealer as any).territory || (order as any).territory,
+        } : undefined,
+        territory: (order as any).territory,
+        territoryName: (order as any).territory?.name || (order.dealer as any)?.territory?.name,
+        commercialCondition: (order as any).commercialCondition || (order as any).appliedSchemeName,
         warehouse: warehouses.find((w) => w.id === order.warehouseId) || warehouses[0],
         salesOrder: {
           orderNumber: order.orderNumber,
           orderDate: order.orderDate,
+          territory: (order as any).territory,
           salesOfficer: order.salesOfficer,
         },
-        items: (order.items || []).map((it) => ({
-          productName: it.productName,
-          packing: it.packing || 'Commercial Pack',
-          quantity: it.quantity,
-          rate: it.unitPrice,
-          grossAmount: it.totalPrice,
-          discountAmount: 0,
-          taxAmount: 0,
-          netAmount: it.totalPrice,
-        })),
+        items: (order.items || []).map((it) => {
+          const prod = products.find((p: any) => p.id === it.finishedProductId);
+          const ppc = prod?.ppc || (it as any).finishedProduct?.ppc || null;
+          const schemeCode = (it as any).scheme?.code || (it as any).schemeCode || 'SS';
+          return {
+            productName: it.productName,
+            packing: it.packing || 'Commercial Pack',
+            quantity: it.quantity,
+            rate: it.unitPrice,
+            grossAmount: it.totalPrice,
+            discountAmount: it.discountAmount || 0,
+            discountPercent: it.discountPercent || 0,
+            taxAmount: 0,
+            netAmount: it.totalPrice,
+            ppc,
+            ctn: ppc && ppc > 0 ? Math.ceil(Number(it.quantity) / ppc) : 1,
+            schemeCode,
+            scheme: schemeCode,
+          };
+        }),
       };
 
       setActiveInvoice(synthInvoice);

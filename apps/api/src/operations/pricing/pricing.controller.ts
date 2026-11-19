@@ -154,8 +154,12 @@ export class PricingController {
   // ==========================================
 
   @Get('active-products')
-  async getActiveProducts(@CurrentUser() user: AuthUser) {
-    return this.pricingService.getActiveFinishedProductsForRateList(user.companyId);
+  async getActiveProducts(
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId = queryCompanyId || user.companyId;
+    return this.pricingService.getActiveFinishedProductsForRateList(effectiveCompanyId);
   }
 
   // ==========================================

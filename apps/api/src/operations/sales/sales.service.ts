@@ -1953,9 +1953,11 @@ export class SalesService {
     const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
     const where: any = {};
     if (companyId && companyId !== 'ALL' && companyId !== 'all') {
-      where.companyId = companyId;
+      const allowed = await this.resolveAllowedCompanyIds(companyId);
+      where.companyId = { in: allowed };
     } else if (!isSuper) {
-      where.companyId = actor?.companyId || companyId;
+      const allowed = await this.resolveAllowedCompanyIds(actor?.companyId || companyId);
+      where.companyId = { in: allowed };
     }
     if (filters?.dealerId) where.dealerId = filters.dealerId;
     if (filters?.warehouseId) where.warehouseId = filters.warehouseId;
@@ -1971,9 +1973,34 @@ export class SalesService {
       this.prisma.salesInvoice.findMany({
         where,
         include: {
-          dealer: { select: { id: true, name: true, code: true, address: true, city: true, phone: true } },
+          dealer: {
+            select: {
+              id: true,
+              name: true,
+              businessName: true,
+              code: true,
+              address: true,
+              city: true,
+              phone: true,
+              territory: { select: { id: true, name: true, code: true } },
+            },
+          },
           warehouse: { select: { id: true, name: true, code: true, location: true } },
-          items: true,
+          territory: { select: { id: true, name: true, code: true } },
+          items: {
+            include: {
+              finishedProduct: {
+                select: {
+                  id: true,
+                  productCode: true,
+                  productName: true,
+                  ppc: true,
+                  packingQuantity: true,
+                  packingUnit: true,
+                },
+              },
+            },
+          },
           salesReturns: {
             include: { items: true },
           },
@@ -1982,8 +2009,17 @@ export class SalesService {
               id: true,
               orderNumber: true,
               orderDate: true,
+              territory: { select: { id: true, name: true, code: true } },
               salesOfficer: {
                 select: { id: true, firstName: true, lastName: true, phone: true },
+              },
+              items: {
+                select: {
+                  finishedProductId: true,
+                  schemeId: true,
+                  commercialCondition: true,
+                  scheme: { select: { id: true, code: true, name: true } },
+                },
               },
             },
           },
@@ -1997,13 +2033,44 @@ export class SalesService {
     return { total, data: invoices.map((inv) => this.serializeInvoice(inv)) };
   }
 
-  async findOneInvoice(id: string, companyId: string) {
+  async findOneInvoice(id: string, companyId?: string, actor?: AuthUser) {
+    const isSuper = Boolean(actor && (actor.isSuperAdmin || actor.roles?.includes('ROLE_SUPER_ADMIN')));
+    let where: any = { id };
+    if (!isSuper && (companyId || actor?.companyId)) {
+      const allowed = await this.resolveAllowedCompanyIds(companyId || actor?.companyId);
+      where.companyId = { in: allowed };
+    }
     const invoice = await this.prisma.salesInvoice.findFirst({
-      where: { id, companyId },
+      where,
       include: {
-        dealer: true,
+        dealer: {
+          select: {
+            id: true,
+            name: true,
+            businessName: true,
+            code: true,
+            address: true,
+            city: true,
+            phone: true,
+            territory: { select: { id: true, name: true, code: true } },
+          },
+        },
         warehouse: true,
-        items: true,
+        territory: { select: { id: true, name: true, code: true } },
+        items: {
+          include: {
+            finishedProduct: {
+              select: {
+                id: true,
+                productCode: true,
+                productName: true,
+                ppc: true,
+                packingQuantity: true,
+                packingUnit: true,
+              },
+            },
+          },
+        },
         salesReturns: {
           include: { items: true },
         },
@@ -2012,8 +2079,17 @@ export class SalesService {
             id: true,
             orderNumber: true,
             orderDate: true,
+            territory: { select: { id: true, name: true, code: true } },
             salesOfficer: {
               select: { id: true, firstName: true, lastName: true, phone: true },
+            },
+            items: {
+              select: {
+                finishedProductId: true,
+                schemeId: true,
+                commercialCondition: true,
+                scheme: { select: { id: true, code: true, name: true } },
+              },
             },
           },
         },
@@ -3215,28 +3291,77 @@ export class SalesService {
 
   private serializeInvoice(inv: any) {
     const returnItems = (inv.salesReturns || []).flatMap((sr: any) => sr.items || []);
+    const orderItems = inv.salesOrder?.items || [];
+    const territoryName =
+      inv.territory?.name ||
+      inv.dealer?.territory?.name ||
+      inv.salesOrder?.territory?.name ||
+      inv.dealer?.city ||
+      null;
+
     return {
       ...inv,
+      territoryName,
+      dealer: inv.dealer
+        ? {
+            ...inv.dealer,
+            displayName: inv.dealer.businessName || inv.dealer.name,
+            territoryName: inv.dealer.territory?.name || territoryName,
+          }
+        : null,
       grossAmount: Number(inv.grossAmount),
       discountAmount: Number(inv.discountAmount),
       taxAmount: Number(inv.taxAmount),
       netAmount: Number(inv.netAmount),
       items: (inv.items || []).map((it: any) => {
         const returnedQty = returnItems
-          .filter((ri: any) =>
-            (ri.finishedProductId && ri.finishedProductId === it.finishedProductId) ||
-            (ri.productName && it.productName && ri.productName.trim().toLowerCase() === it.productName.trim().toLowerCase()),
+          .filter(
+            (ri: any) =>
+              (ri.finishedProductId && ri.finishedProductId === it.finishedProductId) ||
+              (ri.productName && it.productName && ri.productName.trim().toLowerCase() === it.productName.trim().toLowerCase()),
           )
           .reduce((sum: number, ri: any) => sum + Number(ri.quantity || 0), 0);
         const qty = Number(it.quantity);
+
+        const orderItem = orderItems.find((oi: any) => oi.finishedProductId === it.finishedProductId);
+        const rawScheme = orderItem?.scheme?.code || (it as any).schemeCode || (it as any).scheme || null;
+        let schemeCode = 'SS';
+        if (rawScheme && typeof rawScheme === 'string') {
+          const trimmed = rawScheme.trim();
+          if (trimmed.length <= 6) {
+            schemeCode = trimmed.toUpperCase();
+          } else {
+            const match = trimmed.match(/^([A-Za-z0-9-_]+)[\s\-:]/);
+            if (match && match[1] && match[1].length <= 6) {
+              schemeCode = match[1].toUpperCase();
+            } else {
+              schemeCode = trimmed.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 4).toUpperCase() || 'SS';
+            }
+          }
+        }
+
+        const ppc = it.finishedProduct?.ppc || orderItem?.finishedProduct?.ppc || null;
+        const ctn = ppc && ppc > 0 ? Math.ceil(qty / ppc) : (inv.cartons ? Math.ceil(inv.cartons / (inv.items?.length || 1)) : 1);
+
+        const unitRate = Number(it.rate);
+        const grossAmount = Number(it.grossAmount) || (qty * unitRate);
+        const discountAmount = Number(it.discountAmount) || 0;
+        const discountPercent = grossAmount > 0 ? Math.round((discountAmount / grossAmount) * 100 * 10) / 10 : 0;
+
         return {
           ...it,
           quantity: qty,
           returnedQuantity: returnedQty,
           remainingQuantity: Math.max(0, qty - returnedQty),
-          rate: Number(it.rate),
-          grossAmount: Number(it.grossAmount),
+          rate: unitRate,
+          grossAmount,
+          discountAmount,
+          discountPercent,
           netAmount: Number(it.netAmount),
+          ppc,
+          ctn,
+          schemeCode,
+          scheme: schemeCode,
         };
       }),
     };

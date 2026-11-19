@@ -423,42 +423,38 @@ export const SalesInvoicesView: React.FC<SalesInvoicesViewProps> = ({ onNavigate
     },
     {
       key: 'dealer',
-      header: 'Dealer',
-      render: (inv) => (
-        <div>
-          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inv.dealer?.name || 'Walk-in / Cash'}</div>
-          {inv.dealer?.city && (
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <IconMapPin size={11} /> {inv.dealer.city}
-            </div>
-          )}
-        </div>
-      ),
+      header: 'Dealer Shop',
+      render: (inv) => {
+        const shopName = inv.dealer?.businessName || inv.dealer?.name || 'Walk-in / Cash';
+        const territoryOrCity = inv.dealer?.territory?.name || inv.territoryName || inv.dealer?.city;
+        return (
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{shopName}</div>
+            {territoryOrCity && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <IconMapPin size={11} /> {territoryOrCity}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
-      key: 'salesOfficer',
-      header: 'Booked By (Mobile App)',
+      key: 'territory',
+      header: 'Area / Territory',
       render: (inv) => {
-        const officer = inv.salesOrder?.salesOfficer;
-        if (officer) {
-          return (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  backgroundColor: '#7c3aed',
-                }}
-              />
-              <span style={{ fontWeight: 600, color: '#6d28d9', fontSize: '12px' }}>
-                {officer.firstName} {officer.lastName}
-              </span>
-            </div>
-          );
-        }
-        return <span style={{ fontSize: '12px', color: '#9ca3af' }}>ERP Direct / Head Office</span>;
+        const territory =
+          inv.territory?.name ||
+          inv.dealer?.territory?.name ||
+          inv.salesOrder?.territory?.name ||
+          inv.territoryName ||
+          inv.dealer?.city ||
+          'Direct Territory';
+        return (
+          <span style={{ fontWeight: 600, color: '#1e3a8a', fontSize: '12.5px' }}>
+            {territory}
+          </span>
+        );
       },
     },
     {

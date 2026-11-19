@@ -48,6 +48,61 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
   const amountInWords = convertNumberToWordsPKR(net);
   const totalUnits = invoice.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
+  const dealerShopName = invoice.dealer?.businessName || invoice.dealer?.name || 'Authorized Dealer';
+  const dealerAddress = invoice.dealer?.address || '—';
+  const dealerTerritory =
+    invoice.dealer?.territory?.name ||
+    invoice.dealer?.territoryName ||
+    invoice.territory?.name ||
+    invoice.territoryName ||
+    invoice.salesOrder?.territory?.name ||
+    invoice.dealer?.city ||
+    'Pakistan';
+  const territoryDisplay =
+    invoice.territory?.name ||
+    invoice.territoryName ||
+    invoice.salesOrder?.territory?.name ||
+    invoice.dealer?.territory?.name ||
+    invoice.dealer?.territoryName ||
+    invoice.dealer?.city ||
+    'Head Office';
+
+  const getSchemeCode = (itemScheme?: string, itemCode?: string): string => {
+    if (itemCode && itemCode.trim()) return itemCode.trim().toUpperCase();
+    if (!itemScheme || !itemScheme.trim() || itemScheme === 'Standard') return 'SS';
+    const trimmed = itemScheme.trim();
+    if (trimmed.length <= 6) return trimmed.toUpperCase();
+    const match = trimmed.match(/^([A-Za-z0-9-_]+)[\s\-:]/);
+    if (match && match[1] && match[1].length <= 6) return match[1].toUpperCase();
+    return trimmed.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 4).toUpperCase() || 'SS';
+  };
+
+  const calculatedItems = invoice.items.map((item) => {
+    const qty = Number(item.quantity || 0);
+    const rate = Number(item.rate || 0);
+    const itemGross = Number(item.grossAmount) || (qty * rate);
+    const itemNet = Number(item.netAmount);
+    const itemDiscount = Number(item.discountAmount) || Math.max(0, itemGross - itemNet);
+    const discountPct = itemGross > 0 ? Math.round((itemDiscount / itemGross) * 100 * 10) / 10 : (item.discountPercent ? Number(item.discountPercent) : 0);
+    const ppc = item.ppc && item.ppc > 0 ? item.ppc : null;
+    const ctn = item.ctn ?? (ppc ? Math.ceil(qty / ppc) : 1);
+    const schemeCode = getSchemeCode(item.scheme, item.schemeCode);
+
+    return {
+      ...item,
+      qty,
+      rate,
+      gross: itemGross,
+      discount: itemDiscount,
+      discountPct,
+      net: itemNet,
+      ctn,
+      schemeCode,
+    };
+  });
+
+  const totalCartons = calculatedItems.reduce((sum, it) => sum + (it.ctn || 0), 0);
+
   const formattedDate = new Date(invoice.invoiceDate || new Date()).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -55,9 +110,6 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
   });
 
   const orderRef = invoice.salesOrder?.orderNumber || 'DIRECT-SALE';
-  const salesOfficerName = invoice.salesOrder?.salesOfficer
-    ? `${invoice.salesOrder.salesOfficer.firstName || ''} ${invoice.salesOrder.salesOfficer.lastName || ''}`.trim()
-    : 'Direct Commercial Booking';
 
   const titleBadge = isBasicDelivery
     ? 'DELIVERY CHALLAN & GATE PASS'
@@ -78,20 +130,20 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
         <div style={{ display: 'inline-flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
           <button
             type="button"
-            onClick={() => setSelectedFormat('BASIC_DELIVERY')}
+            onClick={() => setSelectedFormat('COMMERCIAL_FULL')}
             style={{
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: selectedFormat === 'BASIC_DELIVERY' ? 700 : 500,
-              background: selectedFormat === 'BASIC_DELIVERY' ? '#0f172a' : 'transparent',
-              color: selectedFormat === 'BASIC_DELIVERY' ? '#ffffff' : '#475569',
+              fontWeight: selectedFormat === 'COMMERCIAL_FULL' ? 700 : 500,
+              background: selectedFormat === 'COMMERCIAL_FULL' ? '#0f172a' : 'transparent',
+              color: selectedFormat === 'COMMERCIAL_FULL' ? '#ffffff' : '#475569',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
             }}
           >
-            Option 1: Delivery Challan
+            Option 1: Full Commercial Invoice
           </button>
           <button
             type="button"
@@ -112,20 +164,20 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedFormat('COMMERCIAL_FULL')}
+            onClick={() => setSelectedFormat('BASIC_DELIVERY')}
             style={{
               padding: '6px 14px',
               fontSize: '12px',
-              fontWeight: selectedFormat === 'COMMERCIAL_FULL' ? 700 : 500,
-              background: selectedFormat === 'COMMERCIAL_FULL' ? '#0f172a' : 'transparent',
-              color: selectedFormat === 'COMMERCIAL_FULL' ? '#ffffff' : '#475569',
+              fontWeight: selectedFormat === 'BASIC_DELIVERY' ? 700 : 500,
+              background: selectedFormat === 'BASIC_DELIVERY' ? '#0f172a' : 'transparent',
+              color: selectedFormat === 'BASIC_DELIVERY' ? '#ffffff' : '#475569',
               border: 'none',
               borderRadius: '6px',
               cursor: 'pointer',
               transition: 'all 0.15s ease',
             }}
           >
-            Option 3: Full Commercial Invoice
+            Option 3: Delivery Challan / Gate Pass
           </button>
         </div>
 
@@ -285,20 +337,24 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                 {isBasicDelivery ? 'CONSIGNEE / DISPATCHED TO' : 'CUSTOMER / BILLED TO'}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ color: '#64748b' }}>Dealer Name:</span>
-                <span style={{ fontWeight: 700, color: '#0f172a' }}>{invoice.dealer?.name || 'Authorized Dealer'}</span>
+                <span style={{ color: '#64748b' }}>Shop Name:</span>
+                <span style={{ fontWeight: 700, color: '#0f172a' }}>{dealerShopName}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ color: '#64748b' }}>Account Code:</span>
+                <span style={{ color: '#64748b' }}>Dealer Code:</span>
                 <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{invoice.dealer?.code || 'DLR-GEN'}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ color: '#64748b' }}>Phone:</span>
-                <span>{invoice.dealer?.phone || '—'}</span>
+                <span style={{ color: '#64748b' }}>Address:</span>
+                <span style={{ maxWidth: '65%', textAlign: 'right' }}>{dealerAddress}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                <span style={{ color: '#64748b' }}>Area / Territory:</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{dealerTerritory}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>City / Destination:</span>
-                <span>{invoice.dealer?.city || invoice.dealer?.address || 'Pakistan'}</span>
+                <span style={{ color: '#64748b' }}>Contact / Phone:</span>
+                <span>{invoice.dealer?.phone || '—'}</span>
               </div>
             </div>
 
@@ -331,106 +387,211 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                 <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{orderRef}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ color: '#64748b' }}>Booked By:</span>
-                <span style={{ fontWeight: 600 }}>{salesOfficerName}</span>
+                <span style={{ color: '#64748b' }}>Area / Territory:</span>
+                <span style={{ fontWeight: 600, color: '#0f172a' }}>{territoryDisplay}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
                 <span style={{ color: '#64748b' }}>Warehouse:</span>
                 <span>{invoice.warehouse?.name || 'Main Factory Warehouse'}</span>
               </div>
-              {!isBasicDelivery ? (
+              {isCommercialFull ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Commercial Condition:</span>
-                  <span style={{ fontWeight: 600, color: '#166534' }}>
+                  <span style={{ fontWeight: 700, color: '#166534' }}>
                     {invoice.commercialCondition || invoice.pricingPhase || 'Standard Cash'}
                   </span>
                 </div>
-              ) : (
+              ) : isBasicDelivery ? (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Gate Pass Mode:</span>
                   <span style={{ fontWeight: 600, color: '#0f172a' }}>Outward Delivery Note</span>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 
           {/* Line Items Table */}
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              marginBottom: '16px',
-              fontSize: '12.5px',
-              border: '1px solid #cbd5e1',
-            }}
-          >
-            <thead>
-              <tr
-                style={{
-                  background: '#0f172a',
-                  color: '#ffffff',
-                  textAlign: 'left',
-                }}
-              >
-                <th style={{ padding: '8px 10px', width: '4%', textAlign: 'center' }}>#</th>
-                <th style={{ padding: '8px 10px', width: isCommercialFull ? '32%' : '40%' }}>
-                  Product Description
-                </th>
-                <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Batch #</th>
-                {isCommercialFull && (
-                  <th style={{ padding: '8px 10px', width: '15%', textAlign: 'center' }}>Scheme / Condition</th>
-                )}
-                <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Packaging</th>
-                <th style={{ padding: '8px 10px', width: '9%', textAlign: 'right' }}>Qty</th>
-                {!isBasicDelivery && (
-                  <th style={{ padding: '8px 10px', width: '13%', textAlign: 'right' }}>Unit Rate (PKR)</th>
-                )}
-                {!isBasicDelivery && (
-                  <th style={{ padding: '8px 10px', width: '13%', textAlign: 'right' }}>Net Total (PKR)</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {invoice.items.map((item, idx) => (
-                <tr
-                  key={idx}
-                  style={{
-                    borderBottom: '1px solid #e2e8f0',
-                    background: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
-                  }}
-                >
-                  <td style={{ padding: '8px 10px', textAlign: 'center', color: '#64748b', fontFamily: 'monospace' }}>
-                    {idx + 1}
-                  </td>
-                  <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{item.productName}</td>
-                  <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
-                    {item.batchNumber || invoice.batchNumber || '-'}
-                  </td>
-                  {isCommercialFull && (
-                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#166534', fontWeight: 600 }}>
-                      {item.scheme || invoice.schemeDescription || 'Standard'}
-                    </td>
-                  )}
-                  <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569' }}>
-                    {item.packing || 'Standard Pack'}
-                  </td>
-                  <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
-                    {Number(item.quantity).toLocaleString()}
-                  </td>
-                  {!isBasicDelivery && (
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace' }}>
-                      PKR {Number(item.rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                  )}
-                  {!isBasicDelivery && (
-                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>
-                      PKR {Number(item.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                  )}
+          {isCommercialFull ? (
+            /* Option 1: Full Commercial Tax Invoice Table */
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                marginBottom: '16px',
+                fontSize: '12px',
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#0f172a', color: '#ffffff', textAlign: 'left' }}>
+                  <th style={{ padding: '8px 6px', width: '3%', textAlign: 'center' }}>#</th>
+                  <th style={{ padding: '8px 8px', width: '7%', textAlign: 'center' }}>Scheme</th>
+                  <th style={{ padding: '8px 8px', width: '23%' }}>Product Description</th>
+                  <th style={{ padding: '8px 8px', width: '10%', textAlign: 'center' }}>Batch #</th>
+                  <th style={{ padding: '8px 8px', width: '9%', textAlign: 'center' }}>Pack</th>
+                  <th style={{ padding: '8px 8px', width: '6%', textAlign: 'center' }}>CTN</th>
+                  <th style={{ padding: '8px 8px', width: '6%', textAlign: 'right' }}>Qty</th>
+                  <th style={{ padding: '8px 8px', width: '9%', textAlign: 'right' }}>Price (PKR)</th>
+                  <th style={{ padding: '8px 8px', width: '10%', textAlign: 'right' }}>Gross (PKR)</th>
+                  <th style={{ padding: '8px 8px', width: '9%', textAlign: 'right' }}>Discount</th>
+                  <th style={{ padding: '8px 8px', width: '10%', textAlign: 'right' }}>Net Amount</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {calculatedItems.map((item, idx) => (
+                  <tr
+                    key={idx}
+                    style={{
+                      borderBottom: '1px solid #e2e8f0',
+                      background: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
+                    }}
+                  >
+                    <td style={{ padding: '8px 6px', textAlign: 'center', color: '#64748b', fontFamily: 'monospace' }}>
+                      {idx + 1}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                      <span style={{ background: '#ecfdf5', color: '#065f46', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', fontSize: '11px', border: '1px solid #a7f3d0' }}>
+                        {item.schemeCode}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 8px', fontWeight: 600, color: '#0f172a' }}>{item.productName}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'center', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
+                      {item.batchNumber || invoice.batchNumber || '-'}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'center', color: '#475569' }}>
+                      {item.packing || 'Standard'}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'center', fontWeight: 700, color: '#1e3a8a', fontFamily: 'monospace' }}>
+                      {item.ctn}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
+                      {item.qty.toLocaleString()}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {item.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      {item.gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontFamily: 'monospace', color: item.discount > 0 ? '#dc2626' : '#64748b' }}>
+                      {item.discount > 0 ? `${item.discountPct}% (${item.discount.toLocaleString()})` : '0%'}
+                    </td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>
+                      {item.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : isStandardSales ? (
+            /* Option 2: Standard Sales Format Table */
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                marginBottom: '16px',
+                fontSize: '12.5px',
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#0f172a', color: '#ffffff', textAlign: 'left' }}>
+                  <th style={{ padding: '8px 10px', width: '4%', textAlign: 'center' }}>#</th>
+                  <th style={{ padding: '8px 10px', width: '34%' }}>Product Description</th>
+                  <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Batch #</th>
+                  <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Packaging</th>
+                  <th style={{ padding: '8px 10px', width: '8%', textAlign: 'center' }}>CTN</th>
+                  <th style={{ padding: '8px 10px', width: '8%', textAlign: 'right' }}>Qty</th>
+                  <th style={{ padding: '8px 10px', width: '10%', textAlign: 'right' }}>Rate (PKR)</th>
+                  <th style={{ padding: '8px 10px', width: '10%', textAlign: 'right' }}>Net Total (PKR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calculatedItems.map((item, idx) => (
+                  <tr
+                    key={idx}
+                    style={{
+                      borderBottom: '1px solid #e2e8f0',
+                      background: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
+                    }}
+                  >
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#64748b', fontFamily: 'monospace' }}>
+                      {idx + 1}
+                    </td>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{item.productName}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
+                      {item.batchNumber || invoice.batchNumber || '-'}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569' }}>
+                      {item.packing || 'Standard Pack'}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#1e3a8a', fontFamily: 'monospace' }}>
+                      {item.ctn}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
+                      {item.qty.toLocaleString()}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'monospace' }}>
+                      PKR {item.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'monospace' }}>
+                      PKR {item.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            /* Option 3: Delivery Challan & Gate Pass Table (Zero Financials) */
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                marginBottom: '16px',
+                fontSize: '12.5px',
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              <thead>
+                <tr style={{ background: '#0f172a', color: '#ffffff', textAlign: 'left' }}>
+                  <th style={{ padding: '8px 10px', width: '5%', textAlign: 'center' }}>#</th>
+                  <th style={{ padding: '8px 10px', width: '45%' }}>Product Description</th>
+                  <th style={{ padding: '8px 10px', width: '16%', textAlign: 'center' }}>Batch #</th>
+                  <th style={{ padding: '8px 10px', width: '14%', textAlign: 'center' }}>Packaging</th>
+                  <th style={{ padding: '8px 10px', width: '10%', textAlign: 'center' }}>CTN</th>
+                  <th style={{ padding: '8px 10px', width: '10%', textAlign: 'right' }}>Dispatched Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calculatedItems.map((item, idx) => (
+                  <tr
+                    key={idx}
+                    style={{
+                      borderBottom: '1px solid #e2e8f0',
+                      background: idx % 2 === 1 ? '#f8fafc' : '#ffffff',
+                    }}
+                  >
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#64748b', fontFamily: 'monospace' }}>
+                      {idx + 1}
+                    </td>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>{item.productName}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
+                      {item.batchNumber || invoice.batchNumber || '-'}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569' }}>
+                      {item.packing || 'Commercial Pack'}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: '#1e3a8a', fontFamily: 'monospace' }}>
+                      {item.ctn}
+                    </td>
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, fontFamily: 'monospace' }}>
+                      {item.qty.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           {/* Delivery Challan Non-Financial Summary vs Financial Summary */}
           {isBasicDelivery ? (
@@ -469,6 +630,10 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Total Distinct Line Items:</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{invoice.items.length} Products</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Total Cartons:</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1e3a8a' }}>{totalCartons} CTN</span>
                 </div>
                 <div
                   style={{
@@ -524,6 +689,12 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                   background: '#ffffff',
                 }}
               >
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 12px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                  <span style={{ color: '#64748b' }}>Total Dispatch Volume:</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>
+                    {totalUnits.toLocaleString()} Units • {totalCartons} CTN
+                  </span>
+                </div>
                 {isCommercialFull && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 12px', borderBottom: '1px solid #f1f5f9' }}>

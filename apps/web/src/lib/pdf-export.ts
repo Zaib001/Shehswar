@@ -1316,6 +1316,12 @@ export interface SalesInvoiceExportData {
   batchNumber?: string;
   cartons?: number;
   schemeDescription?: string;
+  territoryName?: string;
+  territory?: {
+    id?: string;
+    code?: string;
+    name: string;
+  };
   dealer?: {
     id?: string;
     code?: string;
@@ -1326,6 +1332,10 @@ export interface SalesInvoiceExportData {
     city?: string;
     address?: string;
     currentBalance?: number | string;
+    territory?: {
+      name?: string;
+    };
+    territoryName?: string;
   };
   warehouse?: {
     id?: string;
@@ -1336,6 +1346,9 @@ export interface SalesInvoiceExportData {
   salesOrder?: {
     orderNumber?: string;
     orderDate?: string;
+    territory?: {
+      name?: string;
+    };
     salesOfficer?: {
       firstName?: string;
       lastName?: string;
@@ -1348,10 +1361,14 @@ export interface SalesInvoiceExportData {
     packing?: string;
     batchNumber?: string;
     scheme?: string;
+    schemeCode?: string;
+    ppc?: number;
+    ctn?: number;
     quantity: number | string;
     rate: number | string;
     grossAmount?: number | string;
     discountAmount?: number | string;
+    discountPercent?: number | string;
     taxAmount?: number | string;
     netAmount: number | string;
   }>;
@@ -1415,15 +1432,70 @@ export const exportSalesInvoiceToPdf = (
   const amountInWords = convertNumberToWordsPKR(net);
   const totalUnits = invoice.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
+  const dealerShopName = invoice.dealer?.businessName || invoice.dealer?.name || 'Authorized Dealer';
+  const dealerAddress = invoice.dealer?.address || '—';
+  const dealerTerritory =
+    invoice.dealer?.territory?.name ||
+    invoice.dealer?.territoryName ||
+    invoice.territory?.name ||
+    invoice.territoryName ||
+    invoice.salesOrder?.territory?.name ||
+    invoice.dealer?.city ||
+    'Pakistan';
+  const territoryDisplay =
+    invoice.territory?.name ||
+    invoice.territoryName ||
+    invoice.salesOrder?.territory?.name ||
+    invoice.dealer?.territory?.name ||
+    invoice.dealer?.territoryName ||
+    invoice.dealer?.city ||
+    'Head Office';
+
+  // Helper to extract short scheme code (e.g. "SS")
+  const getSchemeCode = (itemScheme?: string, itemCode?: string): string => {
+    if (itemCode && itemCode.trim()) return itemCode.trim().toUpperCase();
+    if (!itemScheme || !itemScheme.trim() || itemScheme === 'Standard') return 'SS';
+    const trimmed = itemScheme.trim();
+    if (trimmed.length <= 6) return trimmed.toUpperCase();
+    const match = trimmed.match(/^([A-Za-z0-9-_]+)[\s\-:]/);
+    const firstGroup = match?.[1];
+    if (firstGroup && firstGroup.length <= 6) return firstGroup.toUpperCase();
+    return trimmed.split(/\s+/).map((w: string) => w[0]).join('').slice(0, 4).toUpperCase() || 'SS';
+  };
+
+  // Pre-calculate line items with CTN based on PPC, Gross, Discount, Net
+  const calculatedItems = invoice.items.map((item) => {
+    const qty = Number(item.quantity || 0);
+    const rate = Number(item.rate || 0);
+    const gross = Number(item.grossAmount) || (qty * rate);
+    const net = Number(item.netAmount);
+    const discount = Number(item.discountAmount) || Math.max(0, gross - net);
+    const discountPct = gross > 0 ? Math.round((discount / gross) * 100 * 10) / 10 : (item.discountPercent ? Number(item.discountPercent) : 0);
+    const ppc = item.ppc && item.ppc > 0 ? item.ppc : null;
+    const ctn = item.ctn ?? (ppc ? Math.ceil(qty / ppc) : 1);
+    const schemeCode = getSchemeCode(item.scheme, item.schemeCode);
+
+    return {
+      ...item,
+      qty,
+      rate,
+      gross,
+      discount,
+      discountPct,
+      net,
+      ctn,
+      schemeCode,
+    };
+  });
+
+  const totalCartons = calculatedItems.reduce((sum, it) => sum + (it.ctn || 0), 0);
+
   const formattedDate = new Date(invoice.invoiceDate || new Date()).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   });
   const orderRef = invoice.salesOrder?.orderNumber || 'DIRECT-SALE';
-  const salesOfficerName = invoice.salesOrder?.salesOfficer
-    ? `${invoice.salesOrder.salesOfficer.firstName || ''} ${invoice.salesOrder.salesOfficer.lastName || ''}`.trim()
-    : 'Direct Commercial Booking';
 
   const docTitleBadge = isBasicDelivery
     ? 'DELIVERY CHALLAN & GATE PASS'
@@ -1876,20 +1948,24 @@ export const exportSalesInvoiceToPdf = (
         <div class="meta-box">
           <div class="meta-box-title">${isBasicDelivery ? 'CONSIGNEE / DISPATCHED TO' : 'CUSTOMER / BILLED TO'}</div>
           <div class="meta-row">
-            <span class="meta-label">Dealer Name:</span>
-            <span class="meta-val" style="font-weight: 700;">${invoice.dealer?.name || 'Authorized Dealer'}</span>
+            <span class="meta-label">Shop Name:</span>
+            <span class="meta-val" style="font-weight: 700;">${dealerShopName}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">Dealer Code:</span>
             <span class="meta-val mono">${invoice.dealer?.code || 'DLR-GEN'}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Phone:</span>
-            <span class="meta-val">${invoice.dealer?.phone || '—'}</span>
+            <span class="meta-label">Address:</span>
+            <span class="meta-val">${dealerAddress}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">City / Destination:</span>
-            <span class="meta-val">${invoice.dealer?.city || invoice.dealer?.address || 'Pakistan'}</span>
+            <span class="meta-label">Area / Territory:</span>
+            <span class="meta-val" style="font-weight: 600;">${dealerTerritory}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Contact / Phone:</span>
+            <span class="meta-val">${invoice.dealer?.phone || '—'}</span>
           </div>
         </div>
 
@@ -1901,54 +1977,119 @@ export const exportSalesInvoiceToPdf = (
             <span class="meta-val mono">${orderRef}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Booked By:</span>
-            <span class="meta-val">${salesOfficerName}</span>
+            <span class="meta-label">Area / Territory:</span>
+            <span class="meta-val" style="font-weight: 600;">${territoryDisplay}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">Warehouse:</span>
             <span class="meta-val">${invoice.warehouse?.name || 'Main Factory Warehouse'}</span>
           </div>
-          ${!isBasicDelivery ? `
+          ${isCommercialFull ? `
           <div class="meta-row">
             <span class="meta-label">Commercial Condition:</span>
-            <span class="meta-val">${invoice.commercialCondition || invoice.pricingPhase || 'Standard Cash'}</span>
-          </div>` : `
+            <span class="meta-val" style="color: #166534; font-weight: 700;">${invoice.commercialCondition || invoice.pricingPhase || 'Standard Cash'}</span>
+          </div>` : isBasicDelivery ? `
           <div class="meta-row">
             <span class="meta-label">Gate Pass Mode:</span>
             <span class="meta-val">Outward Dispatch Note</span>
-          </div>`}
+          </div>` : ''}
         </div>
       </div>
 
       <!-- Line Items Table -->
+      ${isCommercialFull ? `
+      <!-- Option 1: Full Commercial Tax Invoice Table -->
       <table class="items-table">
         <thead>
           <tr>
-            <th style="width: 5%;" class="text-center">#</th>
-            <th style="width: ${isCommercialFull ? '30%' : '35%'};">Product Description</th>
-            <th style="width: 14%;" class="text-center">Batch #</th>
-            ${isCommercialFull ? `<th style="width: 14%;" class="text-center">Scheme / Condition</th>` : ''}
-            <th style="width: 12%;" class="text-center">Packaging</th>
-            <th style="width: 8%;" class="text-right">Qty</th>
-            ${!isBasicDelivery ? `<th style="width: 13%;" class="text-right">Rate (PKR)</th>` : ''}
-            ${!isBasicDelivery ? `<th style="width: 14%;" class="text-right">Net Total (PKR)</th>` : ''}
+            <th style="width: 3%;" class="text-center">#</th>
+            <th style="width: 7%;" class="text-center">Scheme</th>
+            <th style="width: 22%;">Product Description</th>
+            <th style="width: 10%;" class="text-center">Batch #</th>
+            <th style="width: 9%;" class="text-center">Pack</th>
+            <th style="width: 6%;" class="text-center">CTN</th>
+            <th style="width: 6%;" class="text-right">Qty</th>
+            <th style="width: 9%;" class="text-right">Price (PKR)</th>
+            <th style="width: 10%;" class="text-right">Gross (PKR)</th>
+            <th style="width: 9%;" class="text-right">Discount</th>
+            <th style="width: 9%;" class="text-right">Net Amount</th>
           </tr>
         </thead>
         <tbody>
-          ${invoice.items.map((item, idx) => `
+          ${calculatedItems.map((item, idx) => `
             <tr>
               <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
+              <td class="text-center"><span style="background: #ecfdf5; color: #065f46; font-weight: 700; padding: 2px 5px; border-radius: 3px; font-size: 7pt; border: 1px solid #a7f3d0;">${item.schemeCode}</span></td>
               <td style="font-weight: 600; color: #0f172a;">${item.productName}</td>
               <td class="text-center mono" style="color: #475569; font-weight: 600;">${item.batchNumber || invoice.batchNumber || '-'}</td>
-              ${isCommercialFull ? `<td class="text-center" style="color: #166534; font-weight: 600;">${item.scheme || invoice.schemeDescription || 'Standard'}</td>` : ''}
-              <td class="text-center" style="color: #475569;">${item.packing || 'Standard Pack'}</td>
-              <td class="text-right mono" style="font-weight: 600;">${Number(item.quantity).toLocaleString()}</td>
-              ${!isBasicDelivery ? `<td class="text-right mono">PKR ${Number(item.rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>` : ''}
-              ${!isBasicDelivery ? `<td class="text-right mono" style="font-weight: 700;">PKR ${Number(item.netAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>` : ''}
+              <td class="text-center" style="color: #475569;">${item.packing || 'Standard'}</td>
+              <td class="text-center mono" style="font-weight: 700; color: #1e3a8a;">${item.ctn}</td>
+              <td class="text-right mono" style="font-weight: 600;">${item.qty.toLocaleString()}</td>
+              <td class="text-right mono">${item.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              <td class="text-right mono">${item.gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              <td class="text-right mono" style="color: ${item.discount > 0 ? '#dc2626' : '#64748b'};">${item.discount > 0 ? `${item.discountPct}% (${item.discount.toLocaleString()})` : '0%'}</td>
+              <td class="text-right mono" style="font-weight: 700; color: #0f172a;">${item.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
+      ` : isStandardSales ? `
+      <!-- Option 2: Standard Commercial Sales Slip Table -->
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="width: 4%;" class="text-center">#</th>
+            <th style="width: 34%;">Product Description</th>
+            <th style="width: 14%;" class="text-center">Batch #</th>
+            <th style="width: 12%;" class="text-center">Packaging</th>
+            <th style="width: 8%;" class="text-center">CTN</th>
+            <th style="width: 8%;" class="text-right">Qty</th>
+            <th style="width: 10%;" class="text-right">Rate (PKR)</th>
+            <th style="width: 10%;" class="text-right">Net Total (PKR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${calculatedItems.map((item, idx) => `
+            <tr>
+              <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
+              <td style="font-weight: 600; color: #0f172a;">${item.productName}</td>
+              <td class="text-center mono" style="color: #475569; font-weight: 600;">${item.batchNumber || invoice.batchNumber || '-'}</td>
+              <td class="text-center" style="color: #475569;">${item.packing || 'Standard Pack'}</td>
+              <td class="text-center mono" style="font-weight: 700; color: #1e3a8a;">${item.ctn}</td>
+              <td class="text-right mono" style="font-weight: 600;">${item.qty.toLocaleString()}</td>
+              <td class="text-right mono">PKR ${item.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+              <td class="text-right mono" style="font-weight: 700;">PKR ${item.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      ` : `
+      <!-- Option 3: Delivery Challan & Gate Pass Table (Zero Financials) -->
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th style="width: 5%;" class="text-center">#</th>
+            <th style="width: 45%;">Product Description</th>
+            <th style="width: 16%;" class="text-center">Batch #</th>
+            <th style="width: 14%;" class="text-center">Packaging</th>
+            <th style="width: 10%;" class="text-center">CTN</th>
+            <th style="width: 10%;" class="text-right">Dispatched Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${calculatedItems.map((item, idx) => `
+            <tr>
+              <td class="text-center mono" style="color: #64748b;">${idx + 1}</td>
+              <td style="font-weight: 600; color: #0f172a;">${item.productName}</td>
+              <td class="text-center mono" style="color: #475569; font-weight: 600;">${item.batchNumber || invoice.batchNumber || '-'}</td>
+              <td class="text-center" style="color: #475569;">${item.packing || 'Commercial Pack'}</td>
+              <td class="text-center mono" style="font-weight: 700; color: #1e3a8a;">${item.ctn}</td>
+              <td class="text-right mono" style="font-weight: 600;">${item.qty.toLocaleString()}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      `}
 
       ${isBasicDelivery ? `
       <!-- Delivery Challan Summary (Zero Financials) -->
@@ -1964,6 +2105,10 @@ export const exportSalesInvoiceToPdf = (
           <div class="totals-row">
             <span style="color: #64748b;">Total Line Items:</span>
             <span class="mono" style="font-weight: 600;">${invoice.items.length} Products</span>
+          </div>
+          <div class="totals-row">
+            <span style="color: #64748b;">Total Cartons:</span>
+            <span class="mono" style="font-weight: 700; color: #1e3a8a;">${totalCartons} CTN</span>
           </div>
           <div class="totals-row grand-total">
             <span>TOTAL DISPATCHED UNITS:</span>
@@ -1983,6 +2128,10 @@ export const exportSalesInvoiceToPdf = (
         </div>
 
         <div class="totals-box">
+          <div class="totals-row" style="background: #f8fafc;">
+            <span style="color: #64748b;">Total Dispatch Volume:</span>
+            <span class="mono" style="font-weight: 700; color: #0f172a;">${totalUnits.toLocaleString()} Units • ${totalCartons} CTN</span>
+          </div>
           ${isCommercialFull ? `
           <div class="totals-row">
             <span style="color: #64748b;">Gross Total:</span>
@@ -5888,7 +6037,7 @@ export const exportRateListToPdf = (rateList: any) => {
       item.category ||
       '';
 
-    const basePrice = Number(item.baseRate || item.basePrice || item.baseSellingPrice || product.defaultSellingPrice || product.standardCost || 0);
+    const basePrice = Number(item.baseRate || item.basePrice || item.baseSellingPrice || 0);
     const schemeRate = Number(item.schemeRate ?? item.fixedNetRate ?? item.customPrice ?? item.baseRate ?? basePrice);
     const discount = Number(item.discountPercent || item.discountValue || 0);
     const rateType = item.rateType || (discount > 0 ? 'DISCOUNT' : 'DIRECT');
