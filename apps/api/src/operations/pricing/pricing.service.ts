@@ -341,6 +341,7 @@ export class PricingService {
       },
       select: {
         id: true,
+        companyId: true,
         productCode: true,
         productName: true,
         mType: true,
@@ -658,9 +659,9 @@ export class PricingService {
    * Create a new Rate List with Version 1 and items
    * Enforces Duplicate Rate Protection (Requirement 23)
    */
-  async createRateList(dto: CreateRateListDto, actor: AuthUser) {
+  async createRateList(dto: CreateRateListDto, actor: AuthUser, explicitCompanyId?: string) {
     const organizationId = actor.organizationId;
-    const companyId = actor.companyId;
+    const companyId = explicitCompanyId || dto.companyId || actor.companyId;
 
     // Check unique code
     const existingCode = await this.prisma.rateList.findFirst({
@@ -1668,6 +1669,9 @@ export class PricingService {
     );
 
     const allProducts = await this.getActiveFinishedProductsForRateList(effectiveCompanyId);
+    const candidateProducts = isChildCompany
+      ? allProducts.filter((p: any) => !p.companyId || p.companyId === effectiveCompanyId)
+      : allProducts;
 
     // Single Discount % field (Requirements 12, 13, 14, 20)
     const schemeDiscountPct =
@@ -1677,7 +1681,7 @@ export class PricingService {
       (scheme.additionalBookingPct ? Number(scheme.cashDiscountPct || 0) + Number(scheme.additionalBookingPct) : 0) ||
       0;
 
-    const generatedItems = allProducts.map((p) => {
+    const generatedItems = candidateProducts.map((p) => {
       const existing = existingItemsMap.get(p.finishedProductId);
 
       if (existing) {
@@ -1762,8 +1766,8 @@ export class PricingService {
   /**
    * Create a new Pricing Scheme (Requirements 1 - 19)
    */
-  async createPricingScheme(dto: CreatePricingSchemeDto, actor: AuthUser) {
-    const companyId = actor.companyId;
+  async createPricingScheme(dto: CreatePricingSchemeDto, actor: AuthUser, explicitCompanyId?: string) {
+    const companyId = explicitCompanyId || dto.companyId || actor.companyId;
     const organizationId = actor.organizationId;
 
     let schemeTypeCode = dto.schemeTypeCode || 'SR';

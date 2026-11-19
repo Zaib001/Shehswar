@@ -31,8 +31,10 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
+import { CurrentContext } from '../../core/decorators/current-context.decorator';
 import {
   AuthUser,
+  SecurityContext,
   CreateRateListDto,
   UpdateRateListDto,
   CreateRateListVersionDto,
@@ -55,6 +57,7 @@ export class PricingController {
   @Get('rate-lists')
   async getRateLists(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('category') category?: string,
     @Query('status') status?: string,
     @Query('isMobileVisible') isMobileVisible?: string,
@@ -63,7 +66,7 @@ export class PricingController {
     @Query('finishedProductId') finishedProductId?: string,
     @Query('phase') phase?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     if (finishedProductId || phase) {
       return this.pricingService.getLegacyRateLists(effectiveCompanyId, { finishedProductId, phase });
     }
@@ -78,9 +81,10 @@ export class PricingController {
   async getRateListById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getRateListById(id, effectiveCompanyId);
   }
 
@@ -88,12 +92,14 @@ export class PricingController {
   async createRateList(
     @Body() dto: CreateRateListDto | UpsertRateListDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
   ) {
+    const targetCompanyId = (dto as any).companyId || ctx?.companyId || user.companyId;
     // If legacy UpsertRateListDto was passed
     if ('finishedProductId' in dto && 'phase' in dto) {
       return this.pricingService.upsertLegacyRateList(dto as UpsertRateListDto, user);
     }
-    return this.pricingService.createRateList(dto as CreateRateListDto, user);
+    return this.pricingService.createRateList(dto as CreateRateListDto, user, targetCompanyId);
   }
 
   @Put('rate-lists/:id')
@@ -156,9 +162,10 @@ export class PricingController {
   @Get('active-products')
   async getActiveProducts(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getActiveFinishedProductsForRateList(effectiveCompanyId);
   }
 
@@ -203,13 +210,14 @@ export class PricingController {
   @Get('schemes')
   async getPricingSchemes(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('schemeType') schemeType?: string,
     @Query('status') status?: string,
     @Query('isMobileVisible') isMobileVisible?: string,
     @Query('paymentTerm') paymentTerm?: string,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getPricingSchemes(effectiveCompanyId, {
       schemeType,
       status,
@@ -221,9 +229,10 @@ export class PricingController {
   @Get('schemes/active')
   async getActiveSchemes(
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getActiveSchemes(effectiveCompanyId);
   }
 
@@ -231,9 +240,10 @@ export class PricingController {
   async getSchemeRateListProducts(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getRateListProductsForScheme(id, effectiveCompanyId);
   }
 
@@ -241,9 +251,10 @@ export class PricingController {
   async getPricingSchemeById(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
     @Query('companyId') queryCompanyId?: string,
   ) {
-    const effectiveCompanyId = queryCompanyId || user.companyId;
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
     return this.pricingService.getPricingSchemeById(id, effectiveCompanyId);
   }
 
@@ -251,8 +262,10 @@ export class PricingController {
   async createPricingScheme(
     @Body() dto: CreatePricingSchemeDto,
     @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
   ) {
-    return this.pricingService.createPricingScheme(dto, user);
+    const targetCompanyId = dto.companyId || ctx?.companyId || user.companyId;
+    return this.pricingService.createPricingScheme(dto, user, targetCompanyId);
   }
 
   @Put('schemes/:id')
@@ -277,7 +290,14 @@ export class PricingController {
   // ==========================================
 
   @Get('authority-limits')
-  async getAuthorityLimits(@CurrentUser() user: AuthUser) {
+  async getAuthorityLimits(
+    @CurrentUser() user: AuthUser,
+    @CurrentContext() ctx: SecurityContext,
+    @Query('companyId') queryCompanyId?: string,
+  ) {
+    const effectiveCompanyId = queryCompanyId || ctx?.companyId || user.companyId;
+    return this.pricingService.getAuthorityLimits(user.organizationId, effectiveCompanyId);
+  }
     return this.pricingService.getAuthorityLimits(user.organizationId, user.companyId);
   }
 

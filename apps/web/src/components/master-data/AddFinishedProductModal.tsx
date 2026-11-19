@@ -481,6 +481,14 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
                   ? `Modifying specifications, packaging, and commercial base pricing for ${productName || previewProductCode}.`
                   : 'Defines product identity, commercial packing size, PPC, and selling rates. Raw material recipes and manufacturing costs are segregated into the Costing Engine.'}
               </span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
+                <span style={{ fontSize: '11px', background: '#DCFCE7', color: '#166534', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #86EFAC' }}>
+                  PPC: {ppc || 1} Packs / Carton
+                </span>
+                <span style={{ fontSize: '11px', color: '#15803D' }}>
+                  (Configured in Section 2 &quot;Packaging Configuration & Selling Rates&quot; below)
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -784,16 +792,16 @@ export const AddFinishedProductModal: React.FC<AddFinishedProductModalProps> = (
               />
             </div>
 
-            <div>
+            <div style={{ backgroundColor: '#F0FDF4', padding: '10px 14px', borderRadius: '8px', border: '1.5px solid #86EFAC' }}>
               <Input
-                label="PPC (Pack Per Cotton / Carton) *"
+                label="📦 PPC (Pack Per Cotton / Carton) *"
                 type="number"
                 min={1}
                 step={1}
                 placeholder="e.g. 10, 12, 20"
                 value={ppc}
                 onChange={(e) => setPpc(e.target.value === '' ? '' : Number(e.target.value))}
-                helperText="Units packed in 1 master cotton / carton box"
+                helperText="Units packed in 1 master carton (used for auto CTN calculation in Invoices)"
               />
             </div>
 

@@ -413,6 +413,25 @@ export const FinishedProductsView: React.FC = () => {
             >
               {row.packingQuantity ? `${row.packingQuantity} ${row.packingUnit || 'Gram'}` : '—'}
             </span>
+            <span
+              style={{
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                color: '#047857',
+                background: '#ECFDF5',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                border: '1px solid #A7F3D0',
+                cursor: 'pointer',
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingProduct(row);
+              }}
+              title="Pack Per Cotton / Carton (PPC) — Click to Edit"
+            >
+              PPC: {row.ppc || row.customFields?.ppc || 1}
+            </span>
             {row.customFields?.packagingContainer && (
               <span
                 style={{
@@ -755,18 +774,16 @@ export const FinishedProductsView: React.FC = () => {
       align: 'right' as const,
       render: (row: FinishedProductItem) => (
         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
-          {isParentActive && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<IconEdit size={14} />}
-              onClick={() => setEditingProduct(row)}
-              title="Edit Finished Product (or Double-Click row)"
-              style={{ color: '#047857', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
-            >
-              Edit
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconEdit size={14} />}
+            onClick={() => setEditingProduct(row)}
+            title="Edit Finished Product & PPC (or Double-Click row)"
+            style={{ color: '#047857', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', fontSize: '0.75rem', height: '28px', padding: '0 8px' }}
+          >
+            Edit
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -1228,8 +1245,22 @@ export const FinishedProductsView: React.FC = () => {
                 <div style={{ marginTop: '8px', fontWeight: 600, color: '#0F172A' }}>
                   Pack Size: {viewingProduct.packingQuantity ? `${viewingProduct.packingQuantity} ${viewingProduct.packingUnit || 'Liter'}` : 'Not Specified'}
                 </div>
-                <div style={{ marginTop: '4px', color: '#475569' }}>
-                  PPC (Pack Per Cotton / Carton): <strong>{viewingProduct.ppc || 1} packs/carton</strong>
+                <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#475569' }}>
+                    PPC (Pack Per Cotton / Carton): <strong style={{ color: '#047857', fontSize: '13px' }}>{viewingProduct.ppc || 1} packs/carton</strong>
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const target = viewingProduct;
+                      setViewingProduct(null);
+                      setEditingProduct(target);
+                    }}
+                    style={{ color: '#047857', backgroundColor: '#ECFDF5', fontSize: '11px', height: '22px', padding: '0 8px', border: '1px solid #A7F3D0' }}
+                  >
+                    Edit PPC
+                  </Button>
                 </div>
                 <div style={{ marginTop: '4px', color: '#475569' }}>
                   Packaging Material: <strong>{viewingProduct.packagingMaterial?.materialName || 'None Assigned'}</strong>

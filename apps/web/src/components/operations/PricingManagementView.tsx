@@ -249,7 +249,7 @@ export const getCategoryBadgeStyle = (category: string): React.CSSProperties => 
 
 export const PricingManagementView: React.FC = () => {
   const { showToast } = useToast();
-  const { isParentActive } = useCompany();
+  const { isParentActive, activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<PricingTab>('rate-lists');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -420,14 +420,16 @@ export const PricingManagementView: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const companyParam = effectiveCompId ? `?companyId=${effectiveCompId}` : '';
       const [rateListsRes, schemesRes, schemeTypesRes, limitsRes, productsRes, dealersRes, paymentTypesRes] =
         await Promise.all([
-          ApiClient.get<any>('/api/v1/pricing/rate-lists'),
-          ApiClient.get<any>('/api/v1/pricing/schemes'),
+          ApiClient.get<any>(`/api/v1/pricing/rate-lists${companyParam}`),
+          ApiClient.get<any>(`/api/v1/pricing/schemes${companyParam}`),
           ApiClient.get<any>('/api/v1/pricing/scheme-types'),
-          ApiClient.get<any>('/api/v1/pricing/authority-limits'),
-          ApiClient.get<any>('/api/v1/pricing/active-products'),
-          ApiClient.get<any>('/api/v1/dealers'),
+          ApiClient.get<any>(`/api/v1/pricing/authority-limits${companyParam}`),
+          ApiClient.get<any>(`/api/v1/pricing/active-products${companyParam}`),
+          ApiClient.get<any>(`/api/v1/dealers${companyParam}`),
           ApiClient.get<any>('/api/v1/pricing/payment-types'),
         ]);
 
@@ -439,23 +441,37 @@ export const PricingManagementView: React.FC = () => {
       const dealersData = dealersRes.data?.data || dealersRes.data || [];
       const paymentTypesData = paymentTypesRes.data?.data || paymentTypesRes.data || [];
 
-      setRateLists(Array.isArray(rateListsData) ? rateListsData : []);
-      setSchemes(Array.isArray(schemesData) ? schemesData : []);
+      const rawRateLists: any[] = Array.isArray(rateListsData) ? rateListsData : [];
+      const rawSchemes: any[] = Array.isArray(schemesData) ? schemesData : [];
+      const rawProducts: any[] = Array.isArray(productsData) ? productsData : [];
+
+      const filteredRL = (!isParentActive && effectiveCompId)
+        ? rawRateLists.filter((rl) => !rl.companyId || rl.companyId === effectiveCompId)
+        : rawRateLists;
+      const filteredSC = (!isParentActive && effectiveCompId)
+        ? rawSchemes.filter((sc) => !sc.companyId || sc.companyId === effectiveCompId)
+        : rawSchemes;
+      const filteredPR = (!isParentActive && effectiveCompId)
+        ? rawProducts.filter((pr) => !pr.companyId || pr.companyId === effectiveCompId)
+        : rawProducts;
+
+      setRateLists(filteredRL);
+      setSchemes(filteredSC);
       setSchemeTypes(Array.isArray(schemeTypesData) ? schemeTypesData : []);
       setAuthorityLimits(Array.isArray(limitsData) ? limitsData : []);
-      setAllProducts(Array.isArray(productsData) ? productsData : []);
+      setAllProducts(filteredPR);
       setDealers(Array.isArray(dealersData) ? dealersData : []);
       setPaymentTypes(Array.isArray(paymentTypesData) ? paymentTypesData : []);
 
       // Pre-select simulator defaults
-      if (productsData.length > 0 && !simProductId) {
-        setSimProductId(productsData[0].finishedProductId || productsData[0].id);
+      if (filteredPR.length > 0 && !simProductId) {
+        setSimProductId(filteredPR[0].finishedProductId || filteredPR[0].id);
       }
       if (dealersData.length > 0 && !simDealerId) {
         setSimDealerId(dealersData[0].id);
       }
-      if (schemesData.length > 0 && !simSchemeId) {
-        setSimSchemeId(schemesData[0].id);
+      if (filteredSC.length > 0 && !simSchemeId) {
+        setSimSchemeId(filteredSC[0].id);
       }
     } catch (err: any) {
       showToast({
@@ -466,11 +482,11 @@ export const PricingManagementView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast, simProductId, simDealerId, simSchemeId]);
+  }, [showToast, simProductId, simDealerId, simSchemeId, activeCompanyId, activeCompany?.id, isParentActive]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, activeCompanyId, activeCompany?.id]);
 
   // ==========================================
   // SCHEME MASTER ACTIONS (Requirements 1 - 5)
@@ -687,6 +703,7 @@ export const PricingManagementView: React.FC = () => {
       paymentType: schemeForm.paymentType || 'CASH',
       paymentTypes: [schemeForm.paymentType || 'CASH'],
       status: schemeForm.status || 'ACTIVE',
+      companyId: activeCompanyId || activeCompany?.id || undefined,
       isMobileVisible: true,
       isMobileSelectable: true,
     };
@@ -814,6 +831,7 @@ export const PricingManagementView: React.FC = () => {
       description: '',
       category: 'SEASONAL',
       currency: 'PKR',
+      companyId: activeCompanyId || activeCompany?.id || undefined,
       isMobileVisible: true,
       isMobileSelectable: true,
       isInternalOnly: false,
@@ -968,7 +986,9 @@ export const PricingManagementView: React.FC = () => {
 
     setIsLoadingSchemeProducts(true);
     try {
-      const res = await ApiClient.get<any>(`/api/v1/pricing/schemes/${schemeId}/products`);
+      const effectiveCompId = activeCompanyId || activeCompany?.id;
+      const companyParam = effectiveCompId ? `?companyId=${effectiveCompId}` : '';
+      const res = await ApiClient.get<any>(`/api/v1/pricing/schemes/${schemeId}/products${companyParam}`);
       const { scheme, products } = res.data?.data || res.data;
 
       const shortCode = scheme.shortCode || scheme.code;
@@ -1014,7 +1034,10 @@ export const PricingManagementView: React.FC = () => {
 
       // Map loaded products to editable rate list items with automatic discount application!
       const isChild = !isParentActive;
-      const mappedItems = (products || []).map((p: any) => {
+      const childOnlyProducts = (isChild && effectiveCompId)
+        ? (products || []).filter((p: any) => !p.companyId || p.companyId === effectiveCompId)
+        : (products || []);
+      const mappedItems = childOnlyProducts.map((p: any) => {
         // Requirement 2: When creating rate list for child company, don't show the actual base rate.
         // User will add the base rate, and then scheme discount is applied.
         const baseRate = isChild ? 0 : Number(p.baseSellingPrice || p.baseRate || 0);
@@ -1247,14 +1270,18 @@ export const PricingManagementView: React.FC = () => {
    */
   const schemeComboResults = useMemo(() => {
     const q = schemeComboQuery.toLowerCase().trim();
-    if (!q) return schemes.slice(0, 50);
-    return schemes.filter(
+    const effectiveCompId = activeCompanyId || activeCompany?.id;
+    const candidateSchemes = (!isParentActive && effectiveCompId)
+      ? schemes.filter((s) => !s.companyId || s.companyId === effectiveCompId)
+      : schemes;
+    if (!q) return candidateSchemes.slice(0, 50);
+    return candidateSchemes.filter(
       (s) =>
         (s.name || '').toLowerCase().includes(q) ||
         (s.code || '').toLowerCase().includes(q) ||
         (s.shortCode || '').toLowerCase().includes(q)
     );
-  }, [schemes, schemeComboQuery]);
+  }, [schemes, schemeComboQuery, isParentActive, activeCompanyId, activeCompany?.id]);
 
   /**
    * Handle scheme combobox keyboard events (Arrow Up/Down, Enter, Escape)
@@ -1345,7 +1372,9 @@ export const PricingManagementView: React.FC = () => {
     }
 
     try {
+      const effectiveCompId = activeCompanyId || activeCompany?.id;
       const payload = {
+        companyId: effectiveCompId || undefined,
         schemeId: rateListForm.schemeId,
         schemeShortCode: rateListForm.schemeShortCode,
         schemeName: rateListForm.schemeName,
