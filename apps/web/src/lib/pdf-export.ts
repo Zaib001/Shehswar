@@ -2338,16 +2338,12 @@ export const exportPendingOrdersReportToPdf = (data: {
           <thead>
             <tr>
               <th style="width: 3%; text-align: center;">#</th>
-              <th style="width: 8%;">Province</th>
-              <th style="width: 9%;">Region</th>
-              <th style="width: 9%;">Zone</th>
-              <th style="width: 9%;">Territory</th>
-              <th style="width: 17%;">Dealer & Shop</th>
-              <th style="width: 14%;">Address</th>
-              <th style="width: 9%;">Order #</th>
-              <th style="width: 7%; text-align: center;">Date</th>
-              <th style="width: 9%; text-align: right;">Amount (PKR)</th>
-              <th style="width: 6%; text-align: center;">Ack</th>
+              <th style="width: 10%;">Order # / Date</th>
+              <th style="width: 11%;">Sales Officer</th>
+              <th style="width: 25%;">Dealer & Shop (Hierarchy & Address)</th>
+              <th style="width: 38%;">Product Details (Qty, Scheme, Rate, Discount, Net)</th>
+              <th style="width: 8%; text-align: right;">Total (PKR)</th>
+              <th style="width: 5%; text-align: center;">Ack</th>
             </tr>
           </thead>
           <tbody>
@@ -2356,25 +2352,78 @@ export const exportPendingOrdersReportToPdf = (data: {
               const terr = d?.territory;
               const zone = terr?.zone;
               const reg = zone?.region;
-              const prov = reg?.name?.includes('Sindh') ? 'Sindh' : (reg?.name?.includes('KPK') ? 'KPK' : (reg?.name?.includes('Baloch') ? 'Balochistan' : 'Punjab'));
+              const prov = (reg as any)?.province || (reg?.name?.includes('Sindh') ? 'Sindh' : (reg?.name?.includes('KPK') ? 'KPK' : (reg?.name?.includes('Baloch') ? 'Balochistan' : 'Punjab')));
               const isAck = Boolean(o.isAcknowledged);
-              const orderDateStr = new Date(o.orderDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+              const orderDateStr = new Date(o.orderDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+              const orderSO = o.salesOfficer
+                ? (`${o.salesOfficer.firstName || ''} ${o.salesOfficer.lastName || ''}`.trim() || o.salesOfficer.name || soName)
+                : soName;
+              const shopName = d?.businessName || (d as any)?.shopName;
+
               return `
                 <tr>
-                  <td style="text-align: center;" class="mono">${idx + 1}</td>
-                  <td>${prov}</td>
-                  <td>${reg?.name || '—'}</td>
-                  <td>${zone?.name || '—'}</td>
-                  <td>${terr?.name ? `${terr.name} (${terr.code || '—'})` : '—'}</td>
-                  <td>
-                    <strong>${d?.name || '—'}</strong>
-                    ${d?.businessName && d.businessName !== d.name ? `<div style="font-size: 7pt; color: #475569;">${d.businessName}</div>` : ''}
+                  <td style="text-align: center; vertical-align: top;" class="mono">${idx + 1}</td>
+                  <td style="vertical-align: top;">
+                    <div class="mono" style="font-weight: 700; color: #1d4ed8; font-size: 8.5pt;">${o.orderNumber}</div>
+                    <div style="font-size: 7pt; color: #64748b; margin-top: 2px;">${orderDateStr}</div>
                   </td>
-                  <td style="font-size: 7pt; color: #475569;">${d?.address || '—'}</td>
-                  <td class="mono" style="font-weight: 700; color: #1d4ed8;">${o.orderNumber}</td>
-                  <td style="text-align: center;" class="mono">${orderDateStr}</td>
-                  <td style="text-align: right;" class="mono" style="font-weight: 700;">PKR ${Number(o.totalAmount || 0).toLocaleString()}</td>
-                  <td style="text-align: center;">
+                  <td style="vertical-align: top;">
+                    <strong style="color: #0f172a; font-size: 8pt;">${orderSO}</strong>
+                    ${o.salesOfficer?.email ? `<div style="font-size: 6.5pt; color: #64748b;">${o.salesOfficer.email}</div>` : ''}
+                  </td>
+                  <td style="vertical-align: top;">
+                    <div style="font-weight: 700; font-size: 8pt; color: #0f172a;">
+                      ${d?.name || '—'} ${d?.code ? `<span style="font-weight: 500; color: #64748b; font-size: 7pt;">(${d.code})</span>` : ''}
+                    </div>
+                    ${shopName && shopName !== d?.name ? `<div style="font-size: 7.5pt; color: #0284c7; font-weight: 600;">Shop: ${shopName}</div>` : ''}
+                    ${d?.address ? `<div style="font-size: 7pt; color: #475569; margin-top: 1px;">📍 ${d.address}</div>` : ''}
+                    <div style="font-size: 6.5pt; color: #1e3a8a; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 3px; padding: 2px 5px; margin-top: 4px; display: inline-block; line-height: 1.3;">
+                      <strong>Hierarchy:</strong> ${prov} • ${reg?.name || 'Region'} • ${zone?.name || 'Zone'} • <strong>${terr?.name || 'Territory'}${terr?.code ? ` (${terr.code})` : ''}</strong>
+                    </div>
+                  </td>
+                  <td style="vertical-align: top; padding: 4px;">
+                    ${(o.items && o.items.length > 0) ? `
+                      <table style="width: 100%; border-collapse: collapse; font-size: 7pt;">
+                        <thead>
+                          <tr style="background: #f1f5f9; color: #334155; font-size: 6.5pt; border-bottom: 1px solid #cbd5e1;">
+                            <th style="padding: 2px 4px; text-align: left; background: #f1f5f9; color: #334155;">Product</th>
+                            <th style="padding: 2px 4px; text-align: center; background: #f1f5f9; color: #334155;">Qty</th>
+                            <th style="padding: 2px 4px; text-align: center; background: #f1f5f9; color: #334155;">Scheme</th>
+                            <th style="padding: 2px 4px; text-align: right; background: #f1f5f9; color: #334155;">Rate</th>
+                            <th style="padding: 2px 4px; text-align: center; background: #f1f5f9; color: #334155;">Disc</th>
+                            <th style="padding: 2px 4px; text-align: right; background: #f1f5f9; color: #334155;">Net</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${o.items.map((it: any) => {
+                            const pName = it.productName || it.finishedProduct?.productName || 'Product';
+                            const pack = it.packing || it.packSize || it.finishedProduct?.packing || '';
+                            const qty = Number(it.quantity) || 1;
+                            const scCode = it.scheme?.code || it.scheme?.name || it.schemeCode || o.appliedSchemeName || o.scheme?.code || '—';
+                            const base = Number(it.baseRate !== undefined && it.baseRate !== null ? it.baseRate : (it.unitPrice || 0));
+                            const discPct = Number(it.discountPercent || 0);
+                            const discAmt = Number(it.discountAmount || 0);
+                            const discLabel = discPct > 0 ? `${discPct}% (-${discAmt})` : (discAmt > 0 ? `-${discAmt}` : '—');
+                            const netLine = Number(it.totalPrice || ((base - discAmt) * qty));
+                            return `
+                              <tr style="border-bottom: 1px dotted #e2e8f0;">
+                                <td style="padding: 2px 4px; font-weight: 600;">${pName}${pack ? ` <span style="color:#64748b; font-size:6pt;">(${pack})</span>` : ''}</td>
+                                <td style="padding: 2px 4px; text-align: center; font-weight: 700; color: #0f172a;">${qty}</td>
+                                <td style="padding: 2px 4px; text-align: center;"><span style="background: #fef3c7; color: #92400e; font-weight: 700; padding: 1px 3px; border-radius: 2px;">${scCode}</span></td>
+                                <td style="padding: 2px 4px; text-align: right; color: #475569;">PKR ${base.toLocaleString()}</td>
+                                <td style="padding: 2px 4px; text-align: center; color: #15803d; font-weight: 600;">${discLabel}</td>
+                                <td style="padding: 2px 4px; text-align: right; font-weight: 700; color: #047857;">PKR ${netLine.toLocaleString()}</td>
+                              </tr>
+                            `;
+                          }).join('')}
+                        </tbody>
+                      </table>
+                    ` : `<span style="color: #94a3b8; font-style: italic; font-size: 7pt;">No line items detailed</span>`}
+                  </td>
+                  <td style="text-align: right; vertical-align: top; font-weight: 700; color: #047857;" class="mono">
+                    PKR ${Number(o.totalAmount || (o as any).netTotal || 0).toLocaleString()}
+                  </td>
+                  <td style="text-align: center; vertical-align: top;">
                     <span class="ack-badge ${isAck ? 'ack-rec' : 'ack-pend'}">${isAck ? '✓ Received' : 'Pending'}</span>
                   </td>
                 </tr>

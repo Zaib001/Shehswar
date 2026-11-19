@@ -4502,15 +4502,14 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                         <thead>
                           <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
-                            <th style={{ padding: '8px 12px' }}>Order # / Date</th>
-                            <th style={{ padding: '8px 12px' }}>Region / Zone</th>
-                            <th style={{ padding: '8px 12px' }}>Territory (Code)</th>
-                            <th style={{ padding: '8px 12px' }}>Dealer & Shop Name</th>
-                            <th style={{ padding: '8px 12px' }}>Address</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Amount (PKR)</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Ack</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Status</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'center' }}>Actions</th>
+                            <th style={{ padding: '8px 12px', width: '110px' }}>Order # / Date</th>
+                            <th style={{ padding: '8px 12px', width: '130px' }}>Sales Officer</th>
+                            <th style={{ padding: '8px 12px', width: '270px' }}>Dealer & Shop (Hierarchy)</th>
+                            <th style={{ padding: '8px 12px' }}>Product Details (Qty, Scheme, Rate, Discount)</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', width: '130px' }}>Total Amount</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center', width: '85px' }}>Ack</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center', width: '90px' }}>Status</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'center', width: '90px' }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4519,41 +4518,117 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                             const tCode = o.dealer?.territory?.code || (o as any).territoryCode;
                             const tName = o.dealer?.territory?.name || (o as any).territoryName || '—';
                             const zName = o.dealer?.territory?.zone?.name || (o as any).zoneName || '—';
-                            const rName = o.dealer?.territory?.zone?.region?.name || (o as any).regionName || '—';
+                            const reg = o.dealer?.territory?.zone?.region;
+                            const rName = reg?.name || (o as any).regionName || '—';
+                            const prov = (reg as any)?.province || (reg?.name?.includes('Sindh') ? 'Sindh' : (reg?.name?.includes('KPK') ? 'KPK' : (reg?.name?.includes('Baloch') ? 'Balochistan' : 'Punjab')));
                             const shop = o.dealer?.businessName || (o.dealer as any)?.shopName || '—';
                             const addr = o.dealer?.address || '—';
+                            const soName = o.salesOfficer?.name || `${o.salesOfficer?.firstName || ''} ${o.salesOfficer?.lastName || ''}`.trim() || grp.officerName || 'Direct';
 
                             return (
                               <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '10px 12px' }}>
-                                  <strong style={{ color: '#2563eb' }}>{o.orderNumber}</strong>
-                                  <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                  <strong style={{ color: '#2563eb', fontSize: '13px' }}>{o.orderNumber}</strong>
+                                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                                     {o.orderDate ? new Date(o.orderDate).toLocaleDateString() : '—'}
                                   </div>
                                 </td>
-                                <td style={{ padding: '10px 12px' }}>
-                                  <div>{rName}</div>
-                                  <div style={{ fontSize: '11px', color: '#64748b' }}>{zName}</div>
-                                </td>
-                                <td style={{ padding: '10px 12px' }}>
-                                  <div style={{ fontWeight: 600 }}>{tName}</div>
-                                  {tCode && (
-                                    <span style={{ fontSize: '10.5px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
-                                      {tCode}
-                                    </span>
+                                <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{soName}</div>
+                                  {o.salesOfficer?.email && (
+                                    <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '1px' }}>{o.salesOfficer.email}</div>
                                   )}
                                 </td>
-                                <td style={{ padding: '10px 12px' }}>
-                                  <div style={{ fontWeight: 700, color: '#0f172a' }}>{o.dealer?.name || '—'}</div>
-                                  <div style={{ fontSize: '11.5px', color: '#0284c7' }}>Shop: {shop}</div>
+                                <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                                  <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>
+                                    {o.dealer?.name || '—'} {o.dealer?.code && <span style={{ color: '#64748b', fontWeight: 500, fontSize: '11px' }}>({o.dealer.code})</span>}
+                                  </div>
+                                  {shop && shop !== o.dealer?.name && (
+                                    <div style={{ fontSize: '12px', color: '#0284c7', fontWeight: 600, marginTop: '2px' }}>
+                                      Shop: {shop}
+                                    </div>
+                                  )}
+                                  {addr && (
+                                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                      📍 {addr}
+                                    </div>
+                                  )}
+                                  <div
+                                    style={{
+                                      marginTop: '6px',
+                                      padding: '4px 8px',
+                                      borderRadius: '6px',
+                                      backgroundColor: '#eff6ff',
+                                      border: '1px solid #bfdbfe',
+                                      fontSize: '11px',
+                                      color: '#1e40af',
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    <strong>Market:</strong> {prov} • {rName} • {zName} • <strong>{tName}{tCode ? ` (${tCode})` : ''}</strong>
+                                  </div>
                                 </td>
-                                <td style={{ padding: '10px 12px', maxWidth: '200px', fontSize: '11.5px', color: '#475569' }}>
-                                  {addr}
+                                <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                                  {o.items && o.items.length > 0 ? (
+                                    <div style={{ borderRadius: '6px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                                        <thead>
+                                          <tr style={{ backgroundColor: '#f8fafc', color: '#475569', borderBottom: '1px solid #e2e8f0', textAlign: 'left', fontSize: '10.5px' }}>
+                                            <th style={{ padding: '4px 8px' }}>Product</th>
+                                            <th style={{ padding: '4px 8px', textAlign: 'center' }}>Qty</th>
+                                            <th style={{ padding: '4px 8px', textAlign: 'center' }}>Scheme</th>
+                                            <th style={{ padding: '4px 8px', textAlign: 'right' }}>Rate</th>
+                                            <th style={{ padding: '4px 8px', textAlign: 'center' }}>Disc</th>
+                                            <th style={{ padding: '4px 8px', textAlign: 'right' }}>Net</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {o.items.map((it: any, itIdx: number) => {
+                                            const pName = it.productName || it.finishedProduct?.productName || 'Product';
+                                            const pack = it.packing || it.packSize || it.finishedProduct?.packing || '';
+                                            const qty = Number(it.quantity) || 1;
+                                            const scCode = it.scheme?.code || it.scheme?.name || (it as any).schemeCode || o.appliedSchemeName || (o as any).scheme?.code || '—';
+                                            const base = Number(it.baseRate !== undefined && it.baseRate !== null ? it.baseRate : (it.unitPrice || 0));
+                                            const discPct = Number(it.discountPercent || 0);
+                                            const discAmt = Number(it.discountAmount || 0);
+                                            const discLabel = discPct > 0 ? `${discPct}% (-PKR ${discAmt.toLocaleString()})` : (discAmt > 0 ? `-PKR ${discAmt.toLocaleString()}` : '—');
+                                            const netLine = Number(it.totalPrice || ((base - discAmt) * qty));
+                                            return (
+                                              <tr key={itIdx} style={{ borderBottom: itIdx === o.items!.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '4px 8px', fontWeight: 600, color: '#1e293b' }}>
+                                                  {pName}{pack ? <span style={{ color: '#64748b', fontSize: '10px', fontWeight: 400 }}> ({pack})</span> : ''}
+                                                </td>
+                                                <td style={{ padding: '4px 8px', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                                                  {qty}
+                                                </td>
+                                                <td style={{ padding: '4px 8px', textAlign: 'center' }}>
+                                                  <span style={{ backgroundColor: '#fef3c7', color: '#92400e', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', fontSize: '10px', border: '1px solid #fde68a' }}>
+                                                    {scCode}
+                                                  </span>
+                                                </td>
+                                                <td style={{ padding: '4px 8px', textAlign: 'right', color: '#475569' }}>
+                                                  PKR {base.toLocaleString()}
+                                                </td>
+                                                <td style={{ padding: '4px 8px', textAlign: 'center', color: discAmt > 0 ? '#15803d' : '#94a3b8', fontWeight: 600, fontSize: '10.5px' }}>
+                                                  {discLabel}
+                                                </td>
+                                                <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 700, color: '#047857' }}>
+                                                  PKR {netLine.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '11px' }}>No line items detailed</span>
+                                  )}
                                 </td>
-                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857' }}>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#047857', fontSize: '13.5px', verticalAlign: 'top' }}>
                                   PKR {Number((o as any).netTotal || o.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </td>
-                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'top' }}>
                                   <button
                                     type="button"
                                     onClick={() => toggleOrderAcknowledgement(o.id, !isAck)}
@@ -4561,7 +4636,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                                     style={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      padding: '3px 8px',
+                                      padding: '4px 8px',
                                       borderRadius: '6px',
                                       fontSize: '11px',
                                       fontWeight: 700,
@@ -4574,7 +4649,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                                     {isAck ? '✓ Received' : '⏳ Pending'}
                                   </button>
                                 </td>
-                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <td style={{ padding: '10px 12px', textAlign: 'center', verticalAlign: 'top' }}>
                                   <StatusBadge status={o.status} />
                                 </td>
                                 <td style={{ padding: '10px 12px', textAlign: 'center' }}>
