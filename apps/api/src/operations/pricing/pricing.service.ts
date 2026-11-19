@@ -801,6 +801,17 @@ export class PricingService {
             };
           }),
         });
+
+        // Update product master defaultSellingPrice with the new base price added in the rate list
+        for (const it of dto.items) {
+          const baseRate = Number(it.baseRate || 0);
+          if (it.finishedProductId && baseRate > 0) {
+            await tx.finishedProduct.updateMany({
+              where: { id: it.finishedProductId },
+              data: { defaultSellingPrice: baseRate },
+            });
+          }
+        }
       }
 
       this.logger.log(`Rate list created: ${rateList.code} (${rateList.name}) for scheme ${schemeName || 'None'} by ${actor.email}`);
@@ -943,6 +954,17 @@ export class PricingService {
                 };
               }),
             });
+
+            // Update product master defaultSellingPrice with the new base price added in the rate list
+            for (const it of dto.items) {
+              const baseRate = Number(it.baseRate || 0);
+              if (it.finishedProductId && baseRate > 0) {
+                await tx.finishedProduct.updateMany({
+                  where: { id: it.finishedProductId },
+                  data: { defaultSellingPrice: baseRate },
+                });
+              }
+            }
           }
         }
       }
@@ -1048,6 +1070,17 @@ export class PricingService {
             };
           }),
         });
+
+        // Update product master defaultSellingPrice with the new base price added in the rate list version
+        for (const it of dto.items) {
+          const baseRate = Number(it.baseRate || 0);
+          if (it.finishedProductId && baseRate > 0) {
+            await tx.finishedProduct.updateMany({
+              where: { id: it.finishedProductId },
+              data: { defaultSellingPrice: baseRate },
+            });
+          }
+        }
       }
 
       this.logger.log(`Created Version ${nextVersionNumber} for Rate List ${rateList.code}`);
@@ -2300,8 +2333,8 @@ export class PricingService {
       }
     }
 
-    // Fallback rate list search if none found yet
-    if (!resolvedRateList || !resolvedVersion) {
+    // Fallback rate list search ONLY if a scheme or rate list was explicitly requested
+    if ((!resolvedRateList || !resolvedVersion) && (dto.requestedSchemeId || targetRateListId)) {
       const candidateRateLists = await this.prisma.rateList.findMany({
         where: {
           ...(allowedCompanyIds.length > 0 ? { companyId: { in: allowedCompanyIds } } : { companyId }),
