@@ -26,10 +26,6 @@ import {
   IconBuilding,
   IconFinance,
   IconCreditCard,
-  IconTrendingUp,
-  IconTrendingDown,
-  IconAlertTriangle,
-  IconCheck,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { useCompany } from '../../context/company-context';
@@ -442,6 +438,34 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
     } else if (preset === 'ALL') {
       setLedgerFromDate('');
       setLedgerToDate('');
+    }
+  };
+
+  // Handle preset date switches for Reports
+  const applyReportPreset = (preset: 'ALL' | 'TODAY' | 'MONTH' | 'LAST_MONTH' | 'YEAR' | 'CUSTOM') => {
+    setReportPeriod(preset);
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+
+    if (preset === 'TODAY') {
+      setReportFromDate(todayStr);
+      setReportToDate(todayStr);
+    } else if (preset === 'MONTH') {
+      const first = new Date(today.getFullYear(), today.getMonth(), 1);
+      setReportFromDate(first.toISOString().slice(0, 10));
+      setReportToDate(todayStr);
+    } else if (preset === 'LAST_MONTH') {
+      const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const last = new Date(today.getFullYear(), today.getMonth(), 0);
+      setReportFromDate(first.toISOString().slice(0, 10));
+      setReportToDate(last.toISOString().slice(0, 10));
+    } else if (preset === 'YEAR') {
+      const first = new Date(today.getFullYear(), 0, 1);
+      setReportFromDate(first.toISOString().slice(0, 10));
+      setReportToDate(todayStr);
+    } else if (preset === 'ALL') {
+      setReportFromDate('');
+      setReportToDate('');
     }
   };
 
@@ -2129,7 +2153,27 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(['ALL', 'TODAY', 'MONTH', 'LAST_MONTH', 'YEAR'] as const).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => applyReportPreset(preset)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: '1px solid',
+                        borderColor: reportPeriod === preset ? '#0284c7' : '#e2e8f0',
+                        backgroundColor: reportPeriod === preset ? '#e0f2fe' : '#ffffff',
+                        color: reportPeriod === preset ? '#0369a1' : '#475569',
+                      }}
+                    >
+                      {preset === 'ALL' ? 'All Time' : preset === 'TODAY' ? 'Today' : preset === 'MONTH' ? 'This Month' : preset === 'LAST_MONTH' ? 'Last Month' : 'This Year'}
+                    </button>
+                  ))}
                   <Button size="sm" variant="outline" onClick={handlePrint}>
                     <IconPrinter size={14} /> Print / Export PDF
                   </Button>
