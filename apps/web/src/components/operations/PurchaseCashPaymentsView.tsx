@@ -152,7 +152,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   const [vendors, setVendors] = useState<any[]>([]);
   const [dealers, setDealers] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
 
   // Filters & Reporting
   const [datePreset, setDatePreset] = useState<'ALL' | 'TODAY' | 'MONTH' | 'LAST_MONTH' | 'YEAR' | 'CUSTOM'>('MONTH');
@@ -210,8 +209,14 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   useEffect(() => {
     if (!isModalOpen) return;
     const timer = setTimeout(() => {
-      paymentDateInputRef.current?.focus();
-      paymentDateInputRef.current?.select?.();
+      const vEl = document.getElementById('cp-voucher-no');
+      if (vEl instanceof HTMLInputElement) {
+        vEl.focus();
+        vEl.select();
+      } else {
+        paymentDateInputRef.current?.focus();
+        paymentDateInputRef.current?.select?.();
+      }
     }, 70);
     return () => clearTimeout(timer);
   }, [isModalOpen]);
@@ -350,13 +355,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   useEffect(() => {
     const fetchEntities = async () => {
       try {
-        const [vRes, dRes, empList, poRes, compRes] = await Promise.all([
+        const [vRes, dRes, empList, compRes] = await Promise.all([
           ApiClient.get<any>('/api/v1/procurement/vendors?limit=1000')
             .catch(() => ApiClient.get<any>('/api/v1/vendors'))
             .catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/dealers').catch(() => ({ data: [] })),
           fetchEmployeesList(),
-          ApiClient.get<any>('/api/v1/operations/purchase-orders').catch(() => ({ data: [] })),
           ApiClient.get<any>('/api/v1/master-data/companies?all=true').catch(() => ({ data: [] })),
         ]);
 
@@ -372,12 +376,9 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           code: d.code || '',
           name: d.name || d.dealerName || 'Dealer',
         }));
-        const poList = unpackArray(poRes);
-
         setVendors(vList);
         setDealers(dList);
         setEmployees(empList);
-        setPurchaseOrders(poList);
 
         // Fetch dynamic 4-tier expense & liability hierarchy
         const qH = (compList[0]?.id || companyCtx?.activeCompanyId) ? `?companyId=${compList[0]?.id || companyCtx?.activeCompanyId}` : '';
@@ -397,63 +398,151 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     fetchEntities();
   }, [fetchEmployeesList, companyCtx?.activeCompanyId, selectedCompanyId]);
 
-  // Dynamic Expense Hierarchy Selectors
-  const currentDivisionGroup = useMemo(() => {
-    return expenseHierarchy.find((g: any) => g.division === formDivision);
-  }, [expenseHierarchy, formDivision]);
+  // Dynamic Expense Hierarchy Selectors across all divisions
+  const allAvailableHeads = useMemo(() => {
+    const list: Array<{
+      id: string;
+      code: string;
+      name: string;
+      mainDivision: 'SALES_EXPENSE' | 'GENERAL_EXPENSE' | 'MISCELLANEOUS_EXPENSE' | 'LIABILITY';
+      divisionLabel: string;
+      subCategories: any[];
+      items: any[];
+    }> = [];
 
-  const availableHeads = useMemo(() => {
-    return currentDivisionGroup?.heads || [];
-  }, [currentDivisionGroup]);
+    const groups = Array.isArray(expenseHierarchy) ? expenseHierarchy : [];
+    groups.forEach((g: any) => {
+      const div = (g.division || g.divisionKey || 'GENERAL_EXPENSE') as
+        | 'SALES_EXPENSE'
+        | 'GENERAL_EXPENSE'
+        | 'MISCELLANEOUS_EXPENSE'
+        | 'LIABILITY';
+      const divLabel =
+        g.label ||
+        (div === 'SALES_EXPENSE'
+          ? 'Sales'
+          : div === 'GENERAL_EXPENSE'
+          ? 'General'
+          : div === 'MISCELLANEOUS_EXPENSE'
+          ? 'Misc'
+          : div === 'LIABILITY'
+          ? 'Liability'
+          : div);
+      (g.heads || []).forEach((h: any) => {
+        list.push({
+          id: h.id,
+          code: h.code || '',
+          name: h.name,
+          mainDivision: (h.mainDivision || div) as any,
+          divisionLabel: divLabel,
+          subCategories: h.subCategories || [],
+          items: h.items || [],
+        });
+      });
+    });
+
+    return list;
+  }, [expenseHierarchy]);
 
   const selectedHeadObj = useMemo(() => {
-    return availableHeads.find((h: any) => h.id === formHeadId);
-  }, [availableHeads, formHeadId]);
+    if (formHeadId) {
+      return allAvailableHeads.find((h) => h.id === formHeadId) || null;
+    }
+    return allAvailableHeads.find((h) => h.name.toLowerCase() === formHead.toLowerCase()) || null;
+  }, [allAvailableHeads, formHeadId, formHead]);
 
-  const availableSubCats = useMemo(() => {
-    return selectedHeadObj?.subCategories || [];
+  const availableItemsForSelectedHead = useMemo(() => {
+    if (!selectedHeadObj) return [];
+    const itemsList: Array<{
+      id: string;
+      name: string;
+      code?: string;
+      subCatId?: string;
+      subCatName?: string;
+      isSubCat?: boolean;
+    }> = [];
+
+    // 1. Items directly under head
+    if (Array.isArray(selectedHeadObj.items)) {
+      selectedHeadObj.items.forEach((it: any) => {
+        itemsList.push({ id: it.id, name: it.name, code: it.code });
+      });
+    }
+
+    // 2. Items under subcategories
+    if (Array.isArray(selectedHeadObj.subCategories)) {
+      selectedHeadObj.subCategories.forEach((sc: any) => {
+        if (Array.isArray(sc.items) && sc.items.length > 0) {
+          sc.items.forEach((it: any) => {
+            itemsList.push({
+              id: it.id,
+              name: `${it.name}${sc.name ? ` (${sc.name})` : ''}`,
+              code: it.code,
+              subCatId: sc.id,
+              subCatName: sc.name,
+            });
+          });
+        } else {
+          // Subcategory itself can be selected as the target account
+          itemsList.push({
+            id: `sc_${sc.id}`,
+            name: `[Sub-Category] ${sc.name}`,
+            code: sc.code,
+            subCatId: sc.id,
+            subCatName: sc.name,
+            isSubCat: true,
+          });
+        }
+      });
+    }
+
+    return itemsList;
   }, [selectedHeadObj]);
 
-  const selectedSubCatObj = useMemo(() => {
-    return availableSubCats.find((sc: any) => sc.id === formSubCatId);
-  }, [availableSubCats, formSubCatId]);
+  const expenseHeadOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string }> = [];
 
-  const availableItems = useMemo(() => {
-    if (selectedSubCatObj && Array.isArray(selectedSubCatObj.items) && selectedSubCatObj.items.length > 0) {
-      return selectedSubCatObj.items;
+    if (allAvailableHeads.length > 0) {
+      allAvailableHeads.forEach((h) => {
+        opts.push({
+          value: h.id,
+          label: `[${h.divisionLabel}] ${h.name}${h.code ? ` (${h.code})` : ''}`,
+        });
+      });
     }
-    if (selectedHeadObj && Array.isArray(selectedHeadObj.items) && selectedHeadObj.items.length > 0) {
-      return selectedHeadObj.items;
-    }
-    return [];
-  }, [selectedSubCatObj, selectedHeadObj]);
 
-  const handleDivisionChange = (div: 'SALES_EXPENSE' | 'GENERAL_EXPENSE' | 'MISCELLANEOUS_EXPENSE' | 'LIABILITY') => {
-    setFormDivision(div);
-    const divGroup = expenseHierarchy.find((g: any) => g.division === div);
-    const heads = divGroup?.heads || [];
-    if (heads.length > 0) {
-      setFormHeadId(heads[0].id);
-      setFormHead(heads[0].name);
-      setFormSubCatId('');
-      setFormItemId('');
-      setFormCustomItem('');
-    } else {
-      setFormHeadId('');
-      setFormSubCatId('');
-      setFormItemId('');
-      setFormCustomItem('');
-    }
-  };
+    // Common standard heads if not present in custom hierarchy
+    const standardHeads = ['Purchase', 'Vehicle Expense', 'Building Expense', 'Dealer Refund', 'General Liability', 'Other'];
+    standardHeads.forEach((sh) => {
+      if (!allAvailableHeads.some((h) => h.name.toLowerCase() === sh.toLowerCase())) {
+        opts.push({
+          value: sh,
+          label: sh === 'Other' ? '+ Other / Custom Head...' : `[General] ${sh}`,
+        });
+      }
+    });
 
-  const handleHeadSelect = (headIdOrName: string) => {
-    const matched = availableHeads.find((h: any) => h.id === headIdOrName);
+    return opts;
+  }, [allAvailableHeads]);
+
+  const handleSelectHead = (val: string) => {
+    const matched = allAvailableHeads.find((h) => h.id === val || h.name === val);
     if (matched) {
       setFormHeadId(matched.id);
       setFormHead(matched.name);
+      setFormDivision(matched.mainDivision);
     } else {
       setFormHeadId('');
-      setFormHead(headIdOrName);
+      setFormHead(val);
+      if (val === 'Purchase') {
+        setFormDivision('GENERAL_EXPENSE');
+      } else if (val === 'Vehicle Expense') {
+        setFormDivision('SALES_EXPENSE');
+      } else if (val === 'General Liability') {
+        setFormDivision('LIABILITY');
+      } else {
+        setFormDivision('GENERAL_EXPENSE');
+      }
     }
     setFormSubCatId('');
     setFormItemId('');
@@ -471,7 +560,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       const res = await ApiClient.get<any>(`/api/v1/financial-transactions/next-voucher${q}`);
       setNextVoucherNo(res.data?.voucherNumber || 'CP-00001');
     } catch {
-      setNextVoucherNo('CP-AUTO');
+      setNextVoucherNo('CP-00001');
     }
 
     // Refresh hierarchy in background if not already loaded
@@ -483,23 +572,23 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         const hData = Array.isArray(raw) ? raw : (Array.isArray(raw?.divisions) ? raw.divisions : []);
         if (hData.length > 0) {
           setExpenseHierarchy(hData);
-          const genGroup = hData.find((g: any) => g.division === 'GENERAL_EXPENSE' || g.divisionKey === 'GENERAL_EXPENSE') || hData[0];
-          setFormDivision(genGroup.division || genGroup.divisionKey);
-          if (genGroup.heads?.length > 0) {
-            setFormHeadId(genGroup.heads[0].id);
-            setFormHead(genGroup.heads[0].name);
+          const firstGroup = hData.find((g: any) => g.division === 'GENERAL_EXPENSE' || g.divisionKey === 'GENERAL_EXPENSE') || hData[0];
+          if (firstGroup?.heads?.length > 0) {
+            setFormHeadId(firstGroup.heads[0].id);
+            setFormHead(firstGroup.heads[0].name);
+            setFormDivision(firstGroup.heads[0].mainDivision || firstGroup.division || 'GENERAL_EXPENSE');
           }
         }
       } catch {
         // silent
       }
     } else {
-      const genGroup = expenseHierarchy.find((g: any) => g.division === 'GENERAL_EXPENSE') || expenseHierarchy[0];
-      if (genGroup) {
-        setFormDivision(genGroup.division);
-        if (genGroup.heads?.length > 0) {
-          setFormHeadId(genGroup.heads[0].id);
-          setFormHead(genGroup.heads[0].name);
+      const firstGroup = expenseHierarchy.find((g: any) => g.division === 'GENERAL_EXPENSE') || expenseHierarchy[0];
+      if (firstGroup) {
+        setFormDivision(firstGroup.division);
+        if (firstGroup.heads?.length > 0) {
+          setFormHeadId(firstGroup.heads[0].id);
+          setFormHead(firstGroup.heads[0].name);
         }
       }
     }
@@ -582,7 +671,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         setFormPartyId(activeVendors[0].id);
         setFormPartyName(activeVendors[0].name || activeVendors[0].code || '');
       }
-      setFormHead('Purchase');
+      const matchedHead = allAvailableHeads.find((h) => h.name.toLowerCase().includes('purchase') || h.name.toLowerCase().includes('procurement'));
+      if (matchedHead) {
+        setFormHeadId(matchedHead.id);
+        setFormHead(matchedHead.name);
+        setFormDivision(matchedHead.mainDivision);
+      } else {
+        setFormHeadId('');
+        setFormHead('Purchase');
+        setFormDivision('GENERAL_EXPENSE');
+      }
     } else if (type === 'EMPLOYEE') {
       let activeEmployees = employees;
       if (activeEmployees.length === 0) {
@@ -599,7 +697,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         setFormPartyId(activeEmployees[0].id);
         setFormPartyName(activeEmployees[0].fullName || activeEmployees[0].name || activeEmployees[0].employeeCode || '');
       }
-      setFormHead('Vehicle Expense');
+      const matchedHead = allAvailableHeads.find((h) => h.name.toLowerCase().includes('fuel') || h.name.toLowerCase().includes('vehicle') || h.name.toLowerCase().includes('salary'));
+      if (matchedHead) {
+        setFormHeadId(matchedHead.id);
+        setFormHead(matchedHead.name);
+        setFormDivision(matchedHead.mainDivision);
+      } else {
+        setFormHeadId('');
+        setFormHead('Vehicle Expense');
+        setFormDivision('SALES_EXPENSE');
+      }
     } else if (type === 'DEALER') {
       let activeDealers = dealers;
       if (activeDealers.length === 0) {
@@ -622,26 +729,27 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         setFormPartyId(activeDealers[0].id);
         setFormPartyName(activeDealers[0].name || activeDealers[0].code || '');
       }
-      setFormHead('Dealer Refund');
+      const matchedHead = allAvailableHeads.find((h) => h.name.toLowerCase().includes('dealer') || h.name.toLowerCase().includes('refund'));
+      if (matchedHead) {
+        setFormHeadId(matchedHead.id);
+        setFormHead(matchedHead.name);
+        setFormDivision(matchedHead.mainDivision);
+      } else {
+        setFormHeadId('');
+        setFormHead('Dealer Refund');
+        setFormDivision('GENERAL_EXPENSE');
+      }
     } else {
-      setFormHead('General Liability');
-    }
-  };
-
-  // Optional Link to Purchase Order
-  const handleLinkPo = (poNumber: string) => {
-    setFormReferenceNumber(poNumber);
-    const matchedPo = purchaseOrders.find((p) => p.poNumber === poNumber);
-    if (matchedPo) {
-      if (matchedPo.vendorId || matchedPo.vendor?.id) {
-        setFormPartyType('VENDOR');
-        setFormPartyId(matchedPo.vendorId || matchedPo.vendor.id);
-        setFormPartyName(matchedPo.vendor?.name || '');
+      const matchedHead = allAvailableHeads.find((h) => h.mainDivision === 'LIABILITY' || h.name.toLowerCase().includes('liabilit'));
+      if (matchedHead) {
+        setFormHeadId(matchedHead.id);
+        setFormHead(matchedHead.name);
+        setFormDivision(matchedHead.mainDivision);
+      } else {
+        setFormHeadId('');
+        setFormHead('General Liability');
+        setFormDivision('LIABILITY');
       }
-      if (matchedPo.totalAmount && !formCashPaid) {
-        setFormCashPaid(String(matchedPo.totalAmount));
-      }
-      setFormDescription((prev) => prev || `Cash payment against Purchase Order ${poNumber}`);
     }
   };
 
@@ -649,6 +757,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   const handleSavePayment = async () => {
     if (!effectiveCompanyId) {
       showToast({ title: 'Validation', message: 'Operating Company is required. Please select an operating company.', type: 'error' });
+      return;
+    }
+
+    const trimmedVoucher = nextVoucherNo.trim();
+    if (!trimmedVoucher) {
+      showToast({ title: 'Validation', message: 'Voucher Number is required', type: 'error' });
       return;
     }
 
@@ -673,16 +787,17 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       return;
     }
 
-    const effectiveSubCatName = selectedSubCatObj?.name || undefined;
+    const effectiveSubCatName =
+      (selectedHeadObj?.subCategories || []).find((sc: any) => sc.id === formSubCatId)?.name || undefined;
     const effectiveItemName =
-      (formItemId && formItemId !== '__CUSTOM__' ? availableItems.find((it: any) => it.id === formItemId)?.name : null) ||
+      (formItemId && formItemId !== '__CUSTOM__' ? availableItemsForSelectedHead.find((it: any) => it.id === formItemId)?.name : null) ||
       (formCustomItem.trim() || undefined);
 
     setIsSaving(true);
     try {
       const payload = {
         companyId: effectiveCompanyId,
-        voucherNumber: nextVoucherNo !== 'CP-AUTO' ? nextVoucherNo : undefined,
+        voucherNumber: trimmedVoucher,
         transactionDate: formDate,
         partyType: formPartyType,
         partyId: formPartyId || undefined,
@@ -701,16 +816,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         remarks: formDescription.trim() || undefined,
       };
 
-      const savedVoucher = nextVoucherNo;
+      const savedVoucher = trimmedVoucher;
       await ApiClient.post('/api/v1/financial-transactions/cash-payment', payload);
 
       showToast({
         title: 'Success',
-        message: `✓ Cash Payment ${savedVoucher} (PKR ${amountNum.toLocaleString()}) recorded successfully. Ready for the next payment.`,
+        message: `✓ Cash Payment ${savedVoucher} (PKR ${amountNum.toLocaleString()}) recorded successfully. Form ready for next entry.`,
         type: 'success',
       });
 
-      // Do NOT close modal - reset transaction fields for next continuous entry
+      // DO NOT close modal - reset transaction fields for next continuous entry
       setFormCashPaid('');
       setFormDescription('');
       setFormReferenceNumber('');
@@ -726,18 +841,41 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       try {
         const q = effectiveCompanyId ? `?companyId=${effectiveCompanyId}&type=CASH_PAYMENT` : '?type=CASH_PAYMENT';
         const nextRes = await ApiClient.get<any>(`/api/v1/financial-transactions/next-voucher${q}`);
-        setNextVoucherNo(nextRes.data?.voucherNumber || 'CP-AUTO');
+        if (nextRes.data?.voucherNumber) {
+          setNextVoucherNo(nextRes.data.voucherNumber);
+        } else {
+          setNextVoucherNo((prev) => {
+            const m = prev.match(/^(.*?)(\d+)$/);
+            if (m && m[1] !== undefined && m[2] !== undefined) {
+              const num = parseInt(m[2], 10) + 1;
+              return `${m[1]}${String(num).padStart(m[2].length, '0')}`;
+            }
+            return prev;
+          });
+        }
       } catch {
-        setNextVoucherNo('CP-AUTO');
+        setNextVoucherNo((prev) => {
+          const m = prev.match(/^(.*?)(\d+)$/);
+          if (m && m[1] !== undefined && m[2] !== undefined) {
+            const num = parseInt(m[2], 10) + 1;
+            return `${m[1]}${String(num).padStart(m[2].length, '0')}`;
+          }
+          return prev;
+        });
       }
 
       // Refresh list & summary report in background
       loadData();
 
-      // Automatically return focus to Payment Date for rapid continuous entry without mouse
+      // Automatically return focus to Voucher No. or Cash Paid for rapid continuous entry without mouse
       setTimeout(() => {
-        paymentDateInputRef.current?.focus();
-        paymentDateInputRef.current?.select?.();
+        const vInput = document.getElementById('cp-voucher-no');
+        if (vInput) {
+          vInput.focus();
+          (vInput as HTMLInputElement).select?.();
+        } else {
+          paymentDateInputRef.current?.focus();
+        }
       }, 100);
     } catch (err: any) {
       showToast({ title: 'Error', message: err?.message || 'Failed to record cash payment', type: 'error' });
@@ -1225,7 +1363,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
         >
-          {/* Top Banner Notice */}
+          {/* Top Banner Notice: Shows Company fetched from header context + Strictly Cash */}
           <div
             style={{
               padding: '10px 14px',
@@ -1237,44 +1375,45 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px',
             }}
           >
-            <div>
-              <strong>Strictly Cash Only:</strong> Updates Cash Account (101000) and Vendor/Dealer Ledger immediately upon saving.
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                🏢 Company: {effectiveCompanyName}
+              </span>
+              <span style={{ color: '#86efac' }}>|</span>
+              <span>Strictly Cash: Immediate GL &amp; Ledger updates</span>
             </div>
-            <div style={{ fontWeight: 800, fontFamily: 'monospace' }}>
+            <div style={{ fontWeight: 800, fontFamily: 'monospace', color: '#0369a1' }}>
               Voucher: {nextVoucherNo}
             </div>
           </div>
 
-          {/* Form Grid */}
+          {/* Form Grid: Streamlined 3-Row Dynamic Layout */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '14px' }}>
-            {/* Operating Company */}
+            {/* ROW 1: Voucher No. (Manual) | Payment Date | Cash Paid (PKR) */}
             <div style={{ gridColumn: 'span 4' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Operating Company *
+                Voucher No. *
               </label>
-              {companies.length > 1 ? (
-                <Select
-                  id="cp-company-select"
-                  value={effectiveCompanyId}
-                  onChange={(e) => {
-                    setSelectedCompanyId(e.target.value);
+              <Input
+                id="cp-voucher-no"
+                value={nextVoucherNo}
+                onChange={(e) => setNextVoucherNo(e.target.value)}
+                placeholder="e.g. CP-00001"
+                required
+                style={{ fontWeight: 700, color: '#0369a1' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
                     focusElement('cp-payment-date');
-                  }}
-                  options={companies.map((c) => ({ value: c.id, label: `${c.name} (${c.code})` }))}
-                />
-              ) : (
-                <Input
-                  value={effectiveCompanyName}
-                  readOnly
-                  tabIndex={-1}
-                  style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 600 }}
-                />
-              )}
+                  }
+                }}
+              />
             </div>
 
-            {/* Date */}
             <div style={{ gridColumn: 'span 4' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 Payment Date *
@@ -1288,198 +1427,99 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    focusElement('cp-party-type');
+                    focusElement('cp-cash-paid');
                   }
                 }}
                 required
               />
             </div>
 
-            {/* Voucher Number (AUTO) */}
             <div style={{ gridColumn: 'span 4' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Voucher No. (AUTO) *
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, color: '#166534', marginBottom: '4px' }}>
+                Cash Paid (PKR) *
               </label>
               <Input
-                value={nextVoucherNo}
-                readOnly
-                tabIndex={-1}
-                style={{ backgroundColor: '#f1f5f9', cursor: 'not-allowed', fontWeight: 700, color: '#0369a1' }}
-              />
-            </div>
-
-            {/* Paid To Type */}
-            <div style={{ gridColumn: 'span 4' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Paid To Category *
-              </label>
-              <Select
-                id="cp-party-type"
-                value={formPartyType}
-                onChange={(e) => {
-                  const newType = e.target.value as any;
-                  handlePartyTypeChange(newType);
-                  focusElement(newType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
+                id="cp-cash-paid"
+                type="number"
+                placeholder="e.g. 25000"
+                value={formCashPaid}
+                onChange={(e) => setFormCashPaid(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    focusElement('cp-head');
+                  }
                 }}
-                options={[
-                  { value: 'VENDOR', label: 'Vendor (Supplier)' },
-                  { value: 'EMPLOYEE', label: 'Employee' },
-                  { value: 'DEALER', label: 'Dealer (Customer)' },
-                  { value: 'OTHER', label: 'Other Payee' },
-                ]}
+                required
+                style={{ fontSize: '15px', fontWeight: 700, color: '#14532d' }}
               />
-            </div>
-
-            {/* Paid To Party Selector */}
-            <div style={{ gridColumn: 'span 8' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Paid To Party *
-              </label>
-              {formPartyType === 'VENDOR' ? (
-                <Select
-                  id="cp-party-id"
-                  value={formPartyId}
-                  onChange={(e) => {
-                    handlePartyIdChange(e.target.value);
-                    focusElement('cp-head');
-                  }}
-                  options={[
-                    { value: '', label: '-- Select Vendor --' },
-                    ...vendors.map((v) => ({ value: v.id, label: `${v.code ? `[${v.code}] ` : ''}${v.name || 'Vendor'}` })),
-                  ]}
-                />
-              ) : formPartyType === 'DEALER' ? (
-                <Select
-                  id="cp-party-id"
-                  value={formPartyId}
-                  onChange={(e) => {
-                    handlePartyIdChange(e.target.value);
-                    focusElement('cp-head');
-                  }}
-                  options={[
-                    { value: '', label: '-- Select Dealer --' },
-                    ...dealers.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name || 'Dealer'}` })),
-                  ]}
-                />
-              ) : formPartyType === 'EMPLOYEE' ? (
-                <Select
-                  id="cp-party-id"
-                  value={formPartyId}
-                  onChange={(e) => {
-                    handlePartyIdChange(e.target.value);
-                    focusElement('cp-head');
-                  }}
-                  options={[
-                    { value: '', label: employees.length === 0 ? '-- No Employees Found --' : '-- Select Employee --' },
-                    ...employees.map((em) => ({
-                      value: em.id,
-                      label: `${em.employeeCode ? `[${em.employeeCode}] ` : ''}${em.fullName || em.name || 'Employee'}${em.position ? ` (${em.position})` : ''}`,
-                    })),
-                  ]}
-                />
-              ) : (
-                <Input
-                  id="cp-party-name"
-                  placeholder="Enter Payee Name / Company / Person..."
-                  value={formPartyName}
-                  onChange={(e) => setFormPartyName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      focusElement('cp-head');
-                    }
-                  }}
-                  required
-                />
+              {parseFloat(formCashPaid) > 0 && (
+                <div style={{ fontSize: '11px', fontWeight: 600, color: '#15803d', marginTop: '2px' }}>
+                  PKR {parseFloat(formCashPaid).toLocaleString()}
+                </div>
               )}
             </div>
 
-            {/* Main Division / Category */}
-            <div style={{ gridColumn: 'span 4' }}>
+            {/* ROW 2: Expense Head (Dynamic across divisions) | Expense Account / Item (Dynamic) */}
+            <div style={{ gridColumn: 'span 6' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Main Division / Group *
-              </label>
-              <Select
-                id="cp-division"
-                value={formDivision}
-                onChange={(e) => {
-                  const div = e.target.value as any;
-                  handleDivisionChange(div);
-                }}
-                options={[
-                  { value: 'GENERAL_EXPENSE', label: 'General / Head Office' },
-                  { value: 'SALES_EXPENSE', label: 'Sales & Field Expenses' },
-                  { value: 'MISCELLANEOUS_EXPENSE', label: 'Miscellaneous' },
-                  { value: 'LIABILITY', label: 'Liabilities (Segregated)' },
-                ]}
-              />
-            </div>
-
-            {/* Expense / Payment Head */}
-            <div style={{ gridColumn: 'span 4' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Expense / Liability Head *
+                Expense Head *
               </label>
               <Select
                 id="cp-head"
                 value={formHeadId || formHead}
                 onChange={(e) => {
-                  handleHeadSelect(e.target.value);
+                  handleSelectHead(e.target.value);
+                  focusElement('cp-item');
                 }}
-                options={
-                  availableHeads.length > 0
-                    ? availableHeads.map((h: any) => ({
-                        value: h.id,
-                        label: `[${h.code}] ${h.name}`,
-                      }))
-                    : DEFAULT_HEADS.map((h) => ({ value: h, label: h }))
-                }
+                options={expenseHeadOptions}
               />
+              {formHead === 'Other' && !formHeadId && (
+                <div style={{ marginTop: '6px' }}>
+                  <Input
+                    placeholder="Type custom head name..."
+                    value={customHead}
+                    onChange={(e) => setCustomHead(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Sub-Category */}
-            <div style={{ gridColumn: 'span 4' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Sub-Category (Optional)
-              </label>
-              <Select
-                id="cp-subcat"
-                value={formSubCatId}
-                onChange={(e) => {
-                  setFormSubCatId(e.target.value);
-                  setFormItemId('');
-                  setFormCustomItem('');
-                }}
-                options={[
-                  { value: '', label: '-- None (Direct under Head) --' },
-                  ...availableSubCats.map((sc: any) => ({
-                    value: sc.id,
-                    label: `[${sc.code}] ${sc.name}`,
-                  })),
-                ]}
-              />
-            </div>
-
-            {/* Expense Item / Account */}
             <div style={{ gridColumn: 'span 6' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Expense Item / Account (e.g. PTCL Office, Vehicle ABC-123)
+                Expense Account / Item (Optional)
               </label>
-              {availableItems.length > 0 ? (
+              {availableItemsForSelectedHead.length > 0 ? (
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <div style={{ flex: 1 }}>
                     <Select
                       id="cp-item"
-                      value={formItemId}
+                      value={formItemId === '__CUSTOM__' ? '__CUSTOM__' : (formItemId || (formSubCatId ? `sc_${formSubCatId}` : ''))}
                       onChange={(e) => {
-                        setFormItemId(e.target.value);
-                        if (e.target.value !== '__CUSTOM__') setFormCustomItem('');
+                        const val = e.target.value;
+                        if (val === '__CUSTOM__') {
+                          setFormItemId('__CUSTOM__');
+                          setFormSubCatId('');
+                        } else if (val.startsWith('sc_')) {
+                          setFormItemId('');
+                          setFormSubCatId(val.replace('sc_', ''));
+                          setFormCustomItem('');
+                        } else if (val) {
+                          const matched = availableItemsForSelectedHead.find((it) => it.id === val);
+                          setFormItemId(val);
+                          setFormSubCatId(matched?.subCatId || '');
+                          setFormCustomItem('');
+                        } else {
+                          setFormItemId('');
+                          setFormSubCatId('');
+                          setFormCustomItem('');
+                        }
                       }}
                       options={[
-                        { value: '', label: '-- Select Item / Account --' },
-                        ...availableItems.map((it: any) => ({
+                        { value: '', label: '-- None (Direct under Head) --' },
+                        ...availableItemsForSelectedHead.map((it) => ({
                           value: it.id,
-                          label: `[${it.code}] ${it.name}`,
+                          label: `${it.code ? `[${it.code}] ` : ''}${it.name}`,
                         })),
                         { value: '__CUSTOM__', label: '+ Enter Custom Item...' },
                       ]}
@@ -1497,71 +1537,123 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 </div>
               ) : (
                 <Input
-                  id="cp-custom-item"
-                  placeholder="e.g. PTCL Head Office, Vehicle ABC-123..."
+                  id="cp-item"
+                  placeholder="e.g. PTCL Office, Vehicle ABC-123..."
                   value={formCustomItem}
                   onChange={(e) => setFormCustomItem(e.target.value)}
                 />
               )}
             </div>
 
-            {/* Cash Paid (PKR) */}
+            {/* ROW 3: Paid To (Payee with category selector) | Description / Remarks */}
             <div style={{ gridColumn: 'span 6' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, color: '#166534', marginBottom: '4px' }}>
-                Cash Paid (PKR) *
-              </label>
-              <Input
-                id="cp-cash-paid"
-                type="number"
-                placeholder="e.g. 50000"
-                value={formCashPaid}
-                onChange={(e) => setFormCashPaid(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    focusElement('cp-description');
-                  }
-                }}
-                required
-                style={{ fontSize: '16px', fontWeight: 700, color: '#14532d' }}
-              />
-              {parseFloat(formCashPaid) > 0 && (
-                <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#15803d', marginTop: '4px' }}>
-                  PKR {parseFloat(formCashPaid).toLocaleString()}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155', margin: 0 }}>
+                  Paid To (Payee) *
+                </label>
+                {/* Segmented Category Buttons */}
+                <div style={{ display: 'inline-flex', padding: '2px', backgroundColor: '#f1f5f9', borderRadius: '6px', gap: '2px' }}>
+                  {(
+                    [
+                      { type: 'VENDOR', label: 'Vendor' },
+                      { type: 'EMPLOYEE', label: 'Staff' },
+                      { type: 'DEALER', label: 'Dealer' },
+                      { type: 'OTHER', label: 'Other' },
+                    ] as const
+                  ).map((cat) => {
+                    const isActive = formPartyType === cat.type;
+                    return (
+                      <button
+                        key={cat.type}
+                        type="button"
+                        onClick={() => handlePartyTypeChange(cat.type)}
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: '11px',
+                          fontWeight: isActive ? 700 : 500,
+                          color: isActive ? '#0284c7' : '#64748b',
+                          backgroundColor: isActive ? '#ffffff' : 'transparent',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {cat.label}
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
+
+              {formPartyType === 'VENDOR' ? (
+                <Select
+                  id="cp-party-id"
+                  value={formPartyId}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-description');
+                  }}
+                  options={[
+                    { value: '', label: '-- Select Vendor --' },
+                    ...vendors.map((v) => ({ value: v.id, label: `${v.code ? `[${v.code}] ` : ''}${v.name || 'Vendor'}` })),
+                  ]}
+                />
+              ) : formPartyType === 'DEALER' ? (
+                <Select
+                  id="cp-party-id"
+                  value={formPartyId}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-description');
+                  }}
+                  options={[
+                    { value: '', label: '-- Select Dealer --' },
+                    ...dealers.map((d) => ({ value: d.id, label: `${d.code ? `[${d.code}] ` : ''}${d.name || 'Dealer'}` })),
+                  ]}
+                />
+              ) : formPartyType === 'EMPLOYEE' ? (
+                <Select
+                  id="cp-party-id"
+                  value={formPartyId}
+                  onChange={(e) => {
+                    handlePartyIdChange(e.target.value);
+                    focusElement('cp-description');
+                  }}
+                  options={[
+                    { value: '', label: employees.length === 0 ? '-- No Employees Found --' : '-- Select Employee / Staff --' },
+                    ...employees.map((em) => ({
+                      value: em.id,
+                      label: `${em.employeeCode ? `[${em.employeeCode}] ` : ''}${em.fullName || em.name || 'Employee'}${em.position ? ` (${em.position})` : ''}`,
+                    })),
+                  ]}
+                />
+              ) : (
+                <Input
+                  id="cp-party-name"
+                  placeholder="Enter Payee Name / Company / Person..."
+                  value={formPartyName}
+                  onChange={(e) => setFormPartyName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      focusElement('cp-description');
+                    }
+                  }}
+                  required
+                />
               )}
             </div>
 
-            {/* Optional Purchase Order / Invoice Link */}
-            <div style={{ gridColumn: 'span 6' }}>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Link to Purchase Order / Invoice (Optional)
-              </label>
-              <Select
-                id="cp-po-link"
-                value={formReferenceNumber}
-                onChange={(e) => {
-                  handleLinkPo(e.target.value);
-                  focusElement('cp-description');
-                }}
-                options={[
-                  { value: '', label: '-- Manual Entry (No PO Link) --' },
-                  ...purchaseOrders.slice(0, 50).map((po) => ({
-                    value: po.poNumber,
-                    label: `${po.poNumber} — ${po.vendor?.name || 'Vendor'} (PKR ${Number(po.totalAmount || 0).toLocaleString()})`,
-                  })),
-                ]}
-              />
-            </div>
-
             {/* Description / Remarks */}
-            <div style={{ gridColumn: 'span 12' }}>
+            <div style={{ gridColumn: 'span 6' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
                 Description / Remarks
               </label>
               <Input
                 id="cp-description"
-                placeholder="Why was the cash paid? e.g. Paid for raw material order, Car oil replacement... (Press Enter to Save)"
+                placeholder="Reason for payment... (Press Enter to Save)"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
                 onKeyDown={(e) => {
@@ -1621,7 +1713,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 disabled={isSaving}
                 icon={<IconCheck size={16} />}
               >
-                {isSaving ? 'Posting Transaction...' : 'Save Cash Payment (Ctrl+Enter)'}
+                {isSaving ? 'Posting Transaction...' : 'Save & Next (Ctrl+Enter)'}
               </Button>
             </div>
           </div>

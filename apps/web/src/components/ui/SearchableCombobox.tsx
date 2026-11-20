@@ -105,7 +105,11 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   // Sync input text with selected value when closed or value changes externally
   useEffect(() => {
     if (!isOpen) {
-      setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
+      if (!value) {
+        setQuery('');
+      } else {
+        setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
+      }
     }
   }, [value, selectedOption, isOpen]);
 
@@ -147,7 +151,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   // Filter options based on typed query
   const filteredOptions = useMemo(() => {
     const selectedLabel = selectedOption ? safeFormatValue(selectedOption.label) : '';
-    if (!query || (selectedOption && query === selectedLabel && !isOpen)) {
+    if (!query || (selectedOption && query === selectedLabel)) {
       return options;
     }
     const q = query.toLowerCase().trim();
@@ -159,7 +163,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
       const searchTermsMatch = safeFormatValue(opt.searchTerms).toLowerCase().includes(q);
       return labelMatch || subtextMatch || valMatch || badgeMatch || searchTermsMatch;
     });
-  }, [options, query, selectedOption, isOpen]);
+  }, [options, query, selectedOption]);
 
   // Total items including inline Add button (if provided)
   const totalItems = filteredOptions.length + (onAddNew ? 1 : 0);

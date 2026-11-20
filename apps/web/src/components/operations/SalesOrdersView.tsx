@@ -3690,18 +3690,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         </td>
 
                         {/* Product-Specific Commercial Scheme */}
-                        <td style={{ padding: '10px 12px', minWidth: '130px' }}>
-                          <SearchableCombobox
+                        <td style={{ padding: '10px 12px', minWidth: '140px' }}>
+                          <Select
                             id={`field-item-scheme-${idx}`}
-                            placeholder="-- Scheme --"
+                            placeholder="-- Select Scheme --"
                             value={item.schemeId || ''}
                             options={[
                               { value: '', label: '-- No Scheme --' },
                               ...schemeOptions,
                             ]}
-                            onChange={(val) => updateItem(idx, 'schemeId', val)}
-                            nextFocusId={`field-item-product-${idx}`}
-                            compact={true}
+                            onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value !== undefined ? e.target.value : e)}
+                            isSearchable={true}
                           />
                         </td>
 
