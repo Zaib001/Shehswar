@@ -43,6 +43,7 @@ import { ProvisionalReceiptsController } from './provisional-receipts/provisiona
 import { EmployeeCostController } from './employee-cost/employee-cost.controller';
 import { BatchesController } from './batches/batches.controller';
 import { LedgerDrilldownController } from './ledger/ledger-drilldown.controller';
+import { ExpenseManagementController } from './finance/expense-management.controller';
 
 // Services
 import { InventoryService } from './inventory/inventory.service';
@@ -67,6 +68,7 @@ import { FinancialTransactionsService } from './finance/financial-transactions.s
 import { ProvisionalReceiptsService } from './provisional-receipts/provisional-receipts.service';
 import { EmployeeCostService } from './employee-cost/employee-cost.service';
 import { BatchesService } from './batches/batches.service';
+import { ExpenseManagementService } from './finance/expense-management.service';
 
 @Module({
   imports: [CoreModule, PlatformModule],
@@ -98,6 +100,7 @@ import { BatchesService } from './batches/batches.service';
     EmployeeCostController,
     BatchesController,
     LedgerDrilldownController,
+    ExpenseManagementController,
   ],
   providers: [
     InventoryService,
@@ -122,6 +125,7 @@ import { BatchesService } from './batches/batches.service';
     ProvisionalReceiptsService,
     EmployeeCostService,
     BatchesService,
+    ExpenseManagementService,
   ],
   exports: [
     InventoryService,
@@ -138,6 +142,7 @@ import { BatchesService } from './batches/batches.service';
     SalesService,
     GatePassService,
     FinanceService,
+    ExpenseManagementService,
     CreditControlService,
     ControlAuditService,
     ConsolidatedReportingService,

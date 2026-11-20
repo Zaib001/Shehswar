@@ -22,6 +22,7 @@ export * from './ConsolidatedReportingView';
 export * from './VehiclesView';
 export * from './FinancialTransactionsView';
 export * from './ProvisionalReceiptsView';
+export * from './ExpenseManagementView';
 export * from './EmployeeCostView';
 export * from './PercentageCreditView';
 export * from './AddBatchModal';

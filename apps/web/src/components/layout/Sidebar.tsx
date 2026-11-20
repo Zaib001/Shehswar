@@ -224,6 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         children: [
           { id: 'finance', label: 'Financial Control & P&L / BS' },
           { id: 'financial-transactions', label: 'Cash & Bank Vouchers' },
+          { id: 'expense-management', label: 'Expense & Liability Management' },
           { id: 'provisional-receipts', label: 'Provisional Receipts (PR)' },
         ],
       },

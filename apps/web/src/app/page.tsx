@@ -135,6 +135,7 @@ import {
   VehiclesView,
   FinancialTransactionsView,
   ProvisionalReceiptsView,
+  ExpenseManagementView,
 } from '../components/operations';
 import { ExecutiveDashboard } from '../components/dashboard';
 
@@ -230,6 +231,7 @@ function isRoutePermittedForUser(route: string, user: any): { permitted: boolean
     case 'gate-passes':
     case 'finance':
     case 'financial-transactions':
+    case 'expense-management':
     case 'provisional-receipts':
     case 'vehicles':
     case 'credit-control':
@@ -672,6 +674,7 @@ export default function ShowroomPage() {
           {currentRoute === 'gate-passes' && <GatePassesView key={activeCompanyId} />}
           {currentRoute === 'finance' && <FinanceView key={activeCompanyId} />}
           {currentRoute === 'financial-transactions' && <FinancialTransactionsView key={activeCompanyId} />}
+          {currentRoute === 'expense-management' && <ExpenseManagementView key={activeCompanyId} />}
           {currentRoute === 'provisional-receipts' && <ProvisionalReceiptsView key={activeCompanyId} />}
           {currentRoute === 'vehicles' && <VehiclesView key={activeCompanyId} />}
           {currentRoute === 'credit-control' && <CreditControlView key={activeCompanyId} defaultTab="dashboard" />}

@@ -28,6 +28,13 @@ export interface CreateFinancialTransactionDto {
   partyId?: string;
   partyName?: string;
   head?: string;             // Payment Head (Purchase, Car Repairing, Vehicle Expense, Building Expense, Dealer Refund, General Liability, Other)
+  mainDivision?: 'SALES_EXPENSE' | 'GENERAL_EXPENSE' | 'MISCELLANEOUS_EXPENSE' | 'LIABILITY' | string;
+  expenseHeadId?: string;
+  expenseSubCategoryId?: string;
+  expenseItemId?: string;
+  headName?: string;
+  subCategoryName?: string;
+  expenseItemName?: string;
   amount: number;
   paymentMethod: 'CASH' | 'BANK' | 'CHEQUE' | 'ONLINE' | 'DD' | 'OTHER';
   accountId?: string;        // Cash or Bank account (defaults to 101000 or 102000)
@@ -193,8 +200,29 @@ export class FinancialTransactionsService {
             },
           ];
 
-      const formattedRemarks = dto.head
-        ? `[Head: ${dto.head}] ${dto.remarks || ''}`.trim()
+      let resolvedHeadName = dto.headName || dto.head || null;
+      let resolvedSubCatName = dto.subCategoryName || null;
+      let resolvedItemName = dto.expenseItemName || null;
+      let resolvedDivision = dto.mainDivision || null;
+
+      if (dto.expenseHeadId) {
+        const h = await tx.expenseHead.findUnique({ where: { id: dto.expenseHeadId } });
+        if (h) {
+          resolvedHeadName = h.name;
+          if (!resolvedDivision) resolvedDivision = h.mainDivision;
+        }
+      }
+      if (dto.expenseSubCategoryId) {
+        const sc = await tx.expenseSubCategory.findUnique({ where: { id: dto.expenseSubCategoryId } });
+        if (sc) resolvedSubCatName = sc.name;
+      }
+      if (dto.expenseItemId) {
+        const it = await tx.expenseItem.findUnique({ where: { id: dto.expenseItemId } });
+        if (it) resolvedItemName = it.name;
+      }
+
+      const formattedRemarks = resolvedHeadName
+        ? `[Head: ${resolvedHeadName}${resolvedSubCatName ? ` -> ${resolvedSubCatName}` : ''}${resolvedItemName ? ` -> ${resolvedItemName}` : ''}] ${dto.remarks || ''}`.trim()
         : (dto.remarks || null);
 
       const recordId = uuidv7();
@@ -205,7 +233,7 @@ export class FinancialTransactionsService {
         sourceId: recordId,
         referenceType: dto.transactionType,
         referenceNumber: voucherNumber,
-        description: `[${dto.transactionType}] ${dto.head ? `[Head: ${dto.head}] ` : ''}${dto.partyName ? `Party: ${dto.partyName}. ` : ''}${dto.remarks || ''}`,
+        description: `[${dto.transactionType}] ${resolvedHeadName ? `[Head: ${resolvedHeadName}] ` : ''}${dto.partyName ? `Party: ${dto.partyName}. ` : ''}${dto.remarks || ''}`,
         entryDate: txDate,
         createdById: userId,
         lines: journalLines,
@@ -250,6 +278,13 @@ export class FinancialTransactionsService {
           partyType: dto.partyType || null,
           partyId: dto.partyId || null,
           partyName: dto.partyName || null,
+          mainDivision: resolvedDivision,
+          expenseHeadId: dto.expenseHeadId || null,
+          expenseSubCategoryId: dto.expenseSubCategoryId || null,
+          expenseItemId: dto.expenseItemId || null,
+          headName: resolvedHeadName,
+          subCategoryName: resolvedSubCatName,
+          expenseItemName: resolvedItemName,
           amount,
           paymentMethod: dto.paymentMethod || (isBank ? 'BANK' : 'CASH'),
           accountId: cashOrBankAccount.id,
@@ -269,6 +304,9 @@ export class FinancialTransactionsService {
           contraAccount: true,
           company: { select: { id: true, code: true, name: true } },
           bankAccount: true,
+          expenseHead: true,
+          expenseSubCategory: true,
+          expenseItem: true,
         },
       });
 
@@ -520,8 +558,8 @@ export class FinancialTransactionsService {
     });
 
     const parsedRecords = records.map((r) => {
-      let head = 'Other';
-      if (r.remarks) {
+      let head = r.headName || 'Other';
+      if (head === 'Other' && r.remarks) {
         const m = r.remarks.match(/\[Head:\s*([^\]]+)\]/i);
         if (m && m[1]?.trim()) head = m[1].trim();
       }

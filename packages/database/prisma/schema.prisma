@@ -106,6 +106,9 @@ model Organization {
   employeeExpenseAudits   EmployeeExpenseAudit[]
   bankAccounts            BankAccount[]
   ProductBatch            ProductBatch[]
+  expenseHeads            ExpenseHead[]
+  expenseSubCategories    ExpenseSubCategory[]
+  expenseItems            ExpenseItem[]
 
   @@index([tenantId])
   @@map("organizations")
@@ -202,6 +205,9 @@ model Company {
   employeeExpenseAudits   EmployeeExpenseAudit[]
   bankAccounts            BankAccount[]
   ProductBatch            ProductBatch[]
+  expenseHeads            ExpenseHead[]
+  expenseSubCategories    ExpenseSubCategory[]
+  expenseItems            ExpenseItem[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -3463,20 +3469,34 @@ model FinancialTransaction {
   status          String   @default("POSTED") @db.VarChar(50) // DRAFT, POSTED, REVERSED
   journalEntryId  String?  @db.Uuid
   bankAccountId   String?  @db.Uuid
+  mainDivision    String?  @db.VarChar(50) // SALES_EXPENSE, GENERAL_EXPENSE, MISCELLANEOUS_EXPENSE, LIABILITY
+  expenseHeadId   String?  @db.Uuid
+  expenseSubCategoryId String? @db.Uuid
+  expenseItemId   String?  @db.Uuid
+  headName        String?  @db.VarChar(150)
+  subCategoryName String?  @db.VarChar(150)
+  expenseItemName String?  @db.VarChar(150)
   createdById     String?  @db.VarChar(100)
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @db.Timestamptz(6)
 
-  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  company       Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  account       Account      @relation("FinancialTxAccount", fields: [accountId], references: [id], onDelete: Restrict)
-  contraAccount Account      @relation("FinancialTxContraAccount", fields: [contraAccountId], references: [id], onDelete: Restrict)
-  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  account            Account             @relation("FinancialTxAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  contraAccount      Account             @relation("FinancialTxContraAccount", fields: [contraAccountId], references: [id], onDelete: Restrict)
+  bankAccount        BankAccount?        @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  expenseHead        ExpenseHead?        @relation(fields: [expenseHeadId], references: [id], onDelete: SetNull)
+  expenseSubCategory ExpenseSubCategory? @relation(fields: [expenseSubCategoryId], references: [id], onDelete: SetNull)
+  expenseItem        ExpenseItem?        @relation(fields: [expenseItemId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, voucherNumber])
   @@index([organizationId])
   @@index([companyId, transactionDate])
   @@index([transactionType])
+  @@index([expenseHeadId])
+  @@index([expenseSubCategoryId])
+  @@index([expenseItemId])
+  @@index([mainDivision])
   @@map("financial_transactions")
 }
 
@@ -3700,4 +3720,88 @@ model BankAccount {
   @@index([organizationId])
   @@index([companyId, bankName])
   @@map("bank_accounts")
+}
+
+// ==========================================
+// 20. EXPENSE MANAGEMENT HIERARCHY
+// (Head -> Sub-Category -> Expense Item)
+// Main Divisions: SALES_EXPENSE, GENERAL_EXPENSE, MISCELLANEOUS_EXPENSE, LIABILITY
+// ==========================================
+
+model ExpenseHead {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  companyId      String   @db.Uuid
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(150)
+  mainDivision   String   @db.VarChar(50) // SALES_EXPENSE, GENERAL_EXPENSE, MISCELLANEOUS_EXPENSE, LIABILITY
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  glAccountId    String?  @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  subCategories         ExpenseSubCategory[]
+  items                 ExpenseItem[]
+  financialTransactions FinancialTransaction[]
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([companyId, mainDivision])
+  @@index([companyId, isActive])
+  @@map("expense_heads")
+}
+
+model ExpenseSubCategory {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  companyId      String   @db.Uuid
+  expenseHeadId  String   @db.Uuid
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(150)
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  expenseHead           ExpenseHead            @relation(fields: [expenseHeadId], references: [id], onDelete: Cascade)
+  items                 ExpenseItem[]
+  financialTransactions FinancialTransaction[]
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([expenseHeadId])
+  @@index([companyId, isActive])
+  @@map("expense_sub_categories")
+}
+
+model ExpenseItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  companyId      String   @db.Uuid
+  expenseHeadId  String   @db.Uuid
+  subCategoryId  String?  @db.Uuid
+  code           String   @db.VarChar(50)
+  name           String   @db.VarChar(150)
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  company               Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  expenseHead           ExpenseHead            @relation(fields: [expenseHeadId], references: [id], onDelete: Cascade)
+  subCategory           ExpenseSubCategory?    @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+  financialTransactions FinancialTransaction[]
+
+  @@unique([companyId, code])
+  @@index([organizationId])
+  @@index([expenseHeadId])
+  @@index([subCategoryId])
+  @@index([companyId, isActive])
+  @@map("expense_items")
 }

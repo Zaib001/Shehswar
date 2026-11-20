@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Card,
   CardHeader,
@@ -44,6 +44,13 @@ export interface CashPaymentRecord {
   remarks?: string | null;
   attachmentUrl?: string | null;
   head: string;
+  mainDivision?: string | null;
+  expenseHeadId?: string | null;
+  expenseSubCategoryId?: string | null;
+  expenseItemId?: string | null;
+  headName?: string | null;
+  subCategoryName?: string | null;
+  expenseItemName?: string | null;
   account?: { id: string; accountCode: string; accountName: string };
   contraAccount?: { id: string; accountCode: string; accountName: string };
   company?: { id: string; code: string; name: string };
@@ -174,6 +181,14 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
   const [formCashPaid, setFormCashPaid] = useState<string>('');
   const [formDescription, setFormDescription] = useState<string>('');
   const [formReferenceNumber, setFormReferenceNumber] = useState<string>('');
+
+  // 4-Tier Expense & Liability Structure Integration
+  const [expenseHierarchy, setExpenseHierarchy] = useState<any[]>([]);
+  const [formDivision, setFormDivision] = useState<'SALES_EXPENSE' | 'GENERAL_EXPENSE' | 'MISCELLANEOUS_EXPENSE' | 'LIABILITY'>('GENERAL_EXPENSE');
+  const [formHeadId, setFormHeadId] = useState<string>('');
+  const [formSubCatId, setFormSubCatId] = useState<string>('');
+  const [formItemId, setFormItemId] = useState<string>('');
+  const [formCustomItem, setFormCustomItem] = useState<string>('');
 
   // Keyboard Navigation Refs
   const paymentDateInputRef = useRef<HTMLInputElement>(null);
@@ -363,12 +378,86 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         setDealers(dList);
         setEmployees(empList);
         setPurchaseOrders(poList);
+
+        // Fetch dynamic 4-tier expense & liability hierarchy
+        const qH = (compList[0]?.id || companyCtx?.activeCompanyId) ? `?companyId=${compList[0]?.id || companyCtx?.activeCompanyId}` : '';
+        ApiClient.get<any>(`/api/v1/expense-management/hierarchy${qH}`)
+          .then((hRes) => {
+            const hData = hRes.data?.data || hRes.data || [];
+            if (Array.isArray(hData) && hData.length > 0) {
+              setExpenseHierarchy(hData);
+            }
+          })
+          .catch(() => {});
       } catch {
         // silent fail
       }
     };
     fetchEntities();
   }, [fetchEmployeesList, companyCtx?.activeCompanyId, selectedCompanyId]);
+
+  // Dynamic Expense Hierarchy Selectors
+  const currentDivisionGroup = useMemo(() => {
+    return expenseHierarchy.find((g: any) => g.division === formDivision);
+  }, [expenseHierarchy, formDivision]);
+
+  const availableHeads = useMemo(() => {
+    return currentDivisionGroup?.heads || [];
+  }, [currentDivisionGroup]);
+
+  const selectedHeadObj = useMemo(() => {
+    return availableHeads.find((h: any) => h.id === formHeadId);
+  }, [availableHeads, formHeadId]);
+
+  const availableSubCats = useMemo(() => {
+    return selectedHeadObj?.subCategories || [];
+  }, [selectedHeadObj]);
+
+  const selectedSubCatObj = useMemo(() => {
+    return availableSubCats.find((sc: any) => sc.id === formSubCatId);
+  }, [availableSubCats, formSubCatId]);
+
+  const availableItems = useMemo(() => {
+    if (selectedSubCatObj && Array.isArray(selectedSubCatObj.items) && selectedSubCatObj.items.length > 0) {
+      return selectedSubCatObj.items;
+    }
+    if (selectedHeadObj && Array.isArray(selectedHeadObj.items) && selectedHeadObj.items.length > 0) {
+      return selectedHeadObj.items;
+    }
+    return [];
+  }, [selectedSubCatObj, selectedHeadObj]);
+
+  const handleDivisionChange = (div: 'SALES_EXPENSE' | 'GENERAL_EXPENSE' | 'MISCELLANEOUS_EXPENSE' | 'LIABILITY') => {
+    setFormDivision(div);
+    const divGroup = expenseHierarchy.find((g: any) => g.division === div);
+    const heads = divGroup?.heads || [];
+    if (heads.length > 0) {
+      setFormHeadId(heads[0].id);
+      setFormHead(heads[0].name);
+      setFormSubCatId('');
+      setFormItemId('');
+      setFormCustomItem('');
+    } else {
+      setFormHeadId('');
+      setFormSubCatId('');
+      setFormItemId('');
+      setFormCustomItem('');
+    }
+  };
+
+  const handleHeadSelect = (headIdOrName: string) => {
+    const matched = availableHeads.find((h: any) => h.id === headIdOrName);
+    if (matched) {
+      setFormHeadId(matched.id);
+      setFormHead(matched.name);
+    } else {
+      setFormHeadId('');
+      setFormHead(headIdOrName);
+    }
+    setFormSubCatId('');
+    setFormItemId('');
+    setFormCustomItem('');
+  };
 
   useEffect(() => {
     loadData();
@@ -382,6 +471,35 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       setNextVoucherNo(res.data?.voucherNumber || 'CP-00001');
     } catch {
       setNextVoucherNo('CP-AUTO');
+    }
+
+    // Refresh hierarchy in background if not already loaded
+    if (expenseHierarchy.length === 0) {
+      try {
+        const qH = effectiveCompanyId ? `?companyId=${effectiveCompanyId}` : '';
+        const hRes = await ApiClient.get<any>(`/api/v1/expense-management/hierarchy${qH}`);
+        const hData = hRes.data?.data || hRes.data || [];
+        if (Array.isArray(hData) && hData.length > 0) {
+          setExpenseHierarchy(hData);
+          const genGroup = hData.find((g: any) => g.division === 'GENERAL_EXPENSE') || hData[0];
+          setFormDivision(genGroup.division);
+          if (genGroup.heads?.length > 0) {
+            setFormHeadId(genGroup.heads[0].id);
+            setFormHead(genGroup.heads[0].name);
+          }
+        }
+      } catch {
+        // silent
+      }
+    } else {
+      const genGroup = expenseHierarchy.find((g: any) => g.division === 'GENERAL_EXPENSE') || expenseHierarchy[0];
+      if (genGroup) {
+        setFormDivision(genGroup.division);
+        if (genGroup.heads?.length > 0) {
+          setFormHeadId(genGroup.heads[0].id);
+          setFormHead(genGroup.heads[0].name);
+        }
+      }
     }
 
     let activeVendors = vendors;
@@ -411,11 +529,13 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     setFormPartyType('VENDOR');
     setFormPartyId(activeVendors[0]?.id || '');
     setFormPartyName(activeVendors[0]?.name || '');
-    setFormHead('Purchase');
     setCustomHead('');
     setFormCashPaid('');
     setFormDescription('');
     setFormReferenceNumber('');
+    setFormSubCatId('');
+    setFormItemId('');
+    setFormCustomItem('');
     setIsModalOpen(true);
   };
 
@@ -545,11 +665,16 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       return;
     }
 
-    const effectiveHead = (formHead === 'Other' && customHead.trim()) ? customHead.trim() : formHead;
+    const effectiveHead = selectedHeadObj?.name || ((formHead === 'Other' && customHead.trim()) ? customHead.trim() : formHead);
     if (!effectiveHead) {
       showToast({ title: 'Validation', message: 'Please select or enter a Payment Head', type: 'error' });
       return;
     }
+
+    const effectiveSubCatName = selectedSubCatObj?.name || undefined;
+    const effectiveItemName =
+      (formItemId && formItemId !== '__CUSTOM__' ? availableItems.find((it: any) => it.id === formItemId)?.name : null) ||
+      (formCustomItem.trim() || undefined);
 
     setIsSaving(true);
     try {
@@ -560,7 +685,14 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         partyType: formPartyType,
         partyId: formPartyId || undefined,
         partyName: effectivePartyName,
+        mainDivision: formDivision,
+        expenseHeadId: formHeadId || undefined,
+        expenseSubCategoryId: formSubCatId || undefined,
+        expenseItemId: formItemId && formItemId !== '__CUSTOM__' ? formItemId : undefined,
         head: effectiveHead,
+        headName: effectiveHead,
+        subCategoryName: effectiveSubCatName,
+        expenseItemName: effectiveItemName,
         amount: amountNum,
         paymentMethod: 'CASH',
         referenceNumber: formReferenceNumber.trim() || undefined,
@@ -581,6 +713,9 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       setFormDescription('');
       setFormReferenceNumber('');
       setCustomHead('');
+      setFormSubCatId('');
+      setFormItemId('');
+      setFormCustomItem('');
       if (formPartyType === 'OTHER') {
         setFormPartyName('');
       }
@@ -958,19 +1093,43 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                         )}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
-                        <Badge
-                          variant={
-                            p.head === 'Purchase'
-                              ? 'primary'
-                              : p.head === 'Dealer Refund'
-                                ? 'warning'
-                                : p.head.includes('Expense') || p.head.includes('Car')
-                                  ? 'info'
-                                  : 'default'
-                          }
-                        >
-                          {p.head}
-                        </Badge>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Badge
+                              variant={
+                                p.mainDivision === 'SALES_EXPENSE'
+                                  ? 'success'
+                                  : p.mainDivision === 'GENERAL_EXPENSE'
+                                    ? 'info'
+                                    : p.mainDivision === 'LIABILITY'
+                                      ? 'warning'
+                                      : p.head === 'Purchase'
+                                        ? 'primary'
+                                        : 'default'
+                              }
+                            >
+                              {p.headName || p.head}
+                            </Badge>
+                            {p.mainDivision && (
+                              <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>
+                                {p.mainDivision === 'SALES_EXPENSE'
+                                  ? 'Sales'
+                                  : p.mainDivision === 'GENERAL_EXPENSE'
+                                    ? 'General'
+                                    : p.mainDivision === 'LIABILITY'
+                                      ? 'Liability'
+                                      : 'Misc'}
+                              </span>
+                            )}
+                          </div>
+                          {(p.subCategoryName || p.expenseItemName) && (
+                            <div style={{ fontSize: '11px', color: '#4f46e5', fontWeight: 500 }}>
+                              ↳ {p.subCategoryName ? p.subCategoryName : ''}
+                              {p.subCategoryName && p.expenseItemName ? ' — ' : ''}
+                              {p.expenseItemName ? p.expenseItemName : ''}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 12px', color: '#475569', maxWidth: '250px' }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1233,48 +1392,116 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
               )}
             </div>
 
-            {/* Payment Head */}
-            <div style={{ gridColumn: 'span 6' }}>
+            {/* Main Division / Category */}
+            <div style={{ gridColumn: 'span 4' }}>
               <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                Payment Head *
+                Main Division / Group *
               </label>
               <Select
-                id="cp-head"
-                value={formHead}
+                id="cp-division"
+                value={formDivision}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  setFormHead(val);
-                  if (val === 'Other') {
-                    focusElement('cp-custom-head');
-                  } else {
-                    focusElement('cp-cash-paid');
-                  }
+                  const div = e.target.value as any;
+                  handleDivisionChange(div);
                 }}
-                options={DEFAULT_HEADS.map((h) => ({ value: h, label: h }))}
+                options={[
+                  { value: 'GENERAL_EXPENSE', label: 'General / Head Office' },
+                  { value: 'SALES_EXPENSE', label: 'Sales & Field Expenses' },
+                  { value: 'MISCELLANEOUS_EXPENSE', label: 'Miscellaneous' },
+                  { value: 'LIABILITY', label: 'Liabilities (Segregated)' },
+                ]}
               />
             </div>
 
-            {/* Custom Head if 'Other' */}
-            {formHead === 'Other' && (
-              <div style={{ gridColumn: 'span 12' }}>
-                <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                  Specify Custom Head / Reason *
-                </label>
+            {/* Expense / Payment Head */}
+            <div style={{ gridColumn: 'span 4' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                Expense / Liability Head *
+              </label>
+              <Select
+                id="cp-head"
+                value={formHeadId || formHead}
+                onChange={(e) => {
+                  handleHeadSelect(e.target.value);
+                }}
+                options={
+                  availableHeads.length > 0
+                    ? availableHeads.map((h: any) => ({
+                        value: h.id,
+                        label: `[${h.code}] ${h.name}`,
+                      }))
+                    : DEFAULT_HEADS.map((h) => ({ value: h, label: h }))
+                }
+              />
+            </div>
+
+            {/* Sub-Category */}
+            <div style={{ gridColumn: 'span 4' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                Sub-Category (Optional)
+              </label>
+              <Select
+                id="cp-subcat"
+                value={formSubCatId}
+                onChange={(e) => {
+                  setFormSubCatId(e.target.value);
+                  setFormItemId('');
+                  setFormCustomItem('');
+                }}
+                options={[
+                  { value: '', label: '-- None (Direct under Head) --' },
+                  ...availableSubCats.map((sc: any) => ({
+                    value: sc.id,
+                    label: `[${sc.code}] ${sc.name}`,
+                  })),
+                ]}
+              />
+            </div>
+
+            {/* Expense Item / Account */}
+            <div style={{ gridColumn: 'span 6' }}>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
+                Expense Item / Account (e.g. PTCL Office, Vehicle ABC-123)
+              </label>
+              {availableItems.length > 0 ? (
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <div style={{ flex: 1 }}>
+                    <Select
+                      id="cp-item"
+                      value={formItemId}
+                      onChange={(e) => {
+                        setFormItemId(e.target.value);
+                        if (e.target.value !== '__CUSTOM__') setFormCustomItem('');
+                      }}
+                      options={[
+                        { value: '', label: '-- Select Item / Account --' },
+                        ...availableItems.map((it: any) => ({
+                          value: it.id,
+                          label: `[${it.code}] ${it.name}`,
+                        })),
+                        { value: '__CUSTOM__', label: '+ Enter Custom Item...' },
+                      ]}
+                    />
+                  </div>
+                  {formItemId === '__CUSTOM__' && (
+                    <div style={{ flex: 1 }}>
+                      <Input
+                        placeholder="Type item name..."
+                        value={formCustomItem}
+                        onChange={(e) => setFormCustomItem(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <Input
-                  id="cp-custom-head"
-                  placeholder="e.g. Office Rent, Legal Retainer, Stationary..."
-                  value={customHead}
-                  onChange={(e) => setCustomHead(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      focusElement('cp-cash-paid');
-                    }
-                  }}
-                  required
+                  id="cp-custom-item"
+                  placeholder="e.g. PTCL Head Office, Vehicle ABC-123..."
+                  value={formCustomItem}
+                  onChange={(e) => setFormCustomItem(e.target.value)}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Cash Paid (PKR) */}
             <div style={{ gridColumn: 'span 6' }}>
