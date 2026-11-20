@@ -114,23 +114,47 @@ export class FinancialTransactionsService {
         dto.accountId || defaultCashOrBankCode,
       );
 
-      // Resolve contra account based on explicit contraAccountId/code, or head, or default
+      // Resolve contra account based on explicit contraAccountId/code, or head, or mainDivision, or default
       let defaultContra = '601000';
       if (dto.transactionType === 'CASH_RECEIPT' || dto.transactionType === 'BANK_RECEIPT') {
         defaultContra = '103000';
+      } else if (dto.expenseHeadId) {
+        const expHead = await (tx as any).expenseHead.findUnique({
+          where: { id: dto.expenseHeadId },
+        }).catch(() => null);
+        if (expHead?.glAccountId) {
+          defaultContra = expHead.glAccountId;
+        } else if (expHead?.mainDivision === 'SALES_EXPENSE') {
+          defaultContra = '602000';
+        } else if (expHead?.mainDivision === 'LIABILITY') {
+          defaultContra = '201000';
+        } else if (expHead?.mainDivision === 'MISCELLANEOUS_EXPENSE') {
+          defaultContra = '609000';
+        } else {
+          defaultContra = '601000';
+        }
+      } else if (dto.mainDivision === 'SALES_EXPENSE') {
+        defaultContra = '602000';
+      } else if (dto.mainDivision === 'LIABILITY') {
+        defaultContra = '201000';
+      } else if (dto.mainDivision === 'MISCELLANEOUS_EXPENSE') {
+        defaultContra = '609000';
       } else if (dto.head) {
         const headLower = dto.head.toLowerCase();
         if (headLower.includes('purchase')) defaultContra = '201000';
         else if (headLower.includes('refund')) defaultContra = '103000';
-        else if (headLower.includes('car') || headLower.includes('vehicle')) defaultContra = '602000';
-        else if (headLower.includes('building')) defaultContra = '603000';
-        else if (headLower.includes('liability')) defaultContra = '202000';
-        else if (headLower.includes('salary') || headLower.includes('payroll')) defaultContra = '601000';
+        else if (headLower.includes('car') || headLower.includes('vehicle') || headLower.includes('fuel')) defaultContra = '606000';
+        else if (headLower.includes('building') || headLower.includes('maintenance')) defaultContra = '603000';
+        else if (headLower.includes('internet') || headLower.includes('utility') || headLower.includes('electric') || headLower.includes('ptcl')) defaultContra = '605000';
+        else if (headLower.includes('liability')) defaultContra = '201000';
+        else if (headLower.includes('salary') || headLower.includes('payroll')) defaultContra = '607000';
         else defaultContra = '609000';
       } else if (dto.partyType === 'VENDOR') {
         defaultContra = '201000';
       } else if (dto.partyType === 'DEALER') {
         defaultContra = '103000';
+      } else if (dto.partyType === 'EMPLOYEE') {
+        defaultContra = '607000';
       }
 
       const contraIdentifier = dto.contraAccountId || dto.contraAccountCode || defaultContra;

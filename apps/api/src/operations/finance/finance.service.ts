@@ -6,7 +6,7 @@
  * - General Ledger, Balance Sheet, Profit & Loss directly derived from posted transactions
  * - Reconciles with Dealer Ledger, Vendor Ledger, and Stock Ledger
  */
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Prisma } from '@shehswar/database';
 import { DocumentNumberingService } from '../../platform/document-numbering/document-numbering.service';
@@ -89,6 +89,7 @@ export class FinanceService {
     { code: '203000', name: 'Salaries & Wages Payable', type: 'LIABILITY', category: 'CURRENT_LIABILITY', isSystem: true },
     { code: '606000', name: 'Vehicle & Fuel Expenses', type: 'EXPENSE', category: 'OPERATING_EXPENSE', isSystem: true },
     { code: '607000', name: 'Salaries & Staff Expenses', type: 'EXPENSE', category: 'OPERATING_EXPENSE', isSystem: true },
+    { code: '609000', name: 'Miscellaneous & Other Operating Expenses', type: 'EXPENSE', category: 'OPERATING_EXPENSE', isSystem: true },
   ];
 
   constructor(
@@ -147,6 +148,7 @@ export class FinanceService {
       '4000': '401000',
       '5000': '501000',
       '6000': '601000',
+      '6090': '609000',
     };
     const targetCode = CODE_ALIASES[codeOrId] || codeOrId;
 
@@ -181,7 +183,39 @@ export class FinanceService {
           },
         });
       } else {
-        throw new NotFoundException(`Accounting account not found for '${codeOrId}'`);
+        // Resilient auto-provisioning for any unseeded operating account
+        let fallbackType: 'EXPENSE' | 'LIABILITY' | 'ASSET' | 'REVENUE' | 'EQUITY' = 'EXPENSE';
+        let fallbackCategory = 'OPERATING_EXPENSE';
+        let fallbackName = `Account ${targetCode}`;
+
+        if (targetCode.startsWith('6') || targetCode.startsWith('5')) {
+          fallbackType = 'EXPENSE';
+          fallbackCategory = 'OPERATING_EXPENSE';
+          fallbackName = targetCode === '609000' ? 'Miscellaneous & Operating Expenses' : 'Operating Expenses';
+        } else if (targetCode.startsWith('2')) {
+          fallbackType = 'LIABILITY';
+          fallbackCategory = 'CURRENT_LIABILITY';
+          fallbackName = 'Accounts Payable / Liability';
+        } else if (targetCode.startsWith('1')) {
+          fallbackType = 'ASSET';
+          fallbackCategory = 'CURRENT_ASSET';
+          fallbackName = 'Current Asset';
+        }
+
+        account = await tx.account.create({
+          data: {
+            id: uuidv7(),
+            organizationId,
+            companyId,
+            accountCode: targetCode,
+            accountName: fallbackName,
+            accountType: fallbackType,
+            category: fallbackCategory,
+            isSystem: false,
+            isActive: true,
+            currentBalance: 0,
+          },
+        });
       }
     }
 
