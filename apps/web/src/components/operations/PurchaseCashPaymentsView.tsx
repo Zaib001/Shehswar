@@ -772,18 +772,9 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       return;
     }
 
-    const effectivePartyName =
-      formPartyType === 'OTHER'
-        ? formPartyName.trim()
-        : (formPartyName || (formPartyType === 'EMPLOYEE' ? employees.find((e) => e.id === formPartyId)?.fullName : formPartyName) || '');
-    if (!effectivePartyName && !formPartyId) {
-      showToast({ title: 'Validation', message: 'Please select or enter the payee (Paid To)', type: 'error' });
-      return;
-    }
-
     const effectiveHead = selectedHeadObj?.name || ((formHead === 'Other' && customHead.trim()) ? customHead.trim() : formHead);
     if (!effectiveHead) {
-      showToast({ title: 'Validation', message: 'Please select or enter a Payment Head', type: 'error' });
+      showToast({ title: 'Validation', message: 'Please select or enter an Expense Head', type: 'error' });
       return;
     }
 
@@ -792,6 +783,22 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
     const effectiveItemName =
       (formItemId && formItemId !== '__CUSTOM__' ? availableItemsForSelectedHead.find((it: any) => it.id === formItemId)?.name : null) ||
       (formCustomItem.trim() || undefined);
+
+    // Dynamic Payee Resolution:
+    // If 'Other' is chosen for general cash expenses, payee is optional and seamlessly
+    // defaults to the selected Expense Account / Item or Expense Head (e.g. 'StormFiber Office', 'PTCL', 'Fuel')
+    let effectivePartyName = '';
+    if (formPartyType === 'OTHER') {
+      effectivePartyName = formPartyName.trim() || effectiveItemName || effectiveHead || 'Cash Expense';
+    } else if (formPartyType === 'VENDOR') {
+      effectivePartyName = formPartyName || vendors.find((v) => v.id === formPartyId)?.name || effectiveItemName || effectiveHead || 'Vendor';
+    } else if (formPartyType === 'EMPLOYEE') {
+      effectivePartyName = formPartyName || employees.find((e) => e.id === formPartyId)?.fullName || effectiveItemName || effectiveHead || 'Employee';
+    } else if (formPartyType === 'DEALER') {
+      effectivePartyName = formPartyName || dealers.find((d) => d.id === formPartyId)?.name || effectiveItemName || effectiveHead || 'Dealer';
+    } else {
+      effectivePartyName = formPartyName.trim() || effectiveItemName || effectiveHead || 'Cash Expense';
+    }
 
     setIsSaving(true);
     try {
@@ -1549,7 +1556,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
             <div style={{ gridColumn: 'span 6' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                 <label style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155', margin: 0 }}>
-                  Paid To (Payee) *
+                  Paid To {formPartyType === 'OTHER' ? '(Optional for Expenses)' : '(Payee)'}
                 </label>
                 {/* Segmented Category Buttons */}
                 <div style={{ display: 'inline-flex', padding: '2px', backgroundColor: '#f1f5f9', borderRadius: '6px', gap: '2px' }}>
@@ -1632,7 +1639,7 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
               ) : (
                 <Input
                   id="cp-party-name"
-                  placeholder="Enter Payee Name / Company / Person..."
+                  placeholder="Optional: e.g. Person / Shop (leave blank to use Expense Head/Item)"
                   value={formPartyName}
                   onChange={(e) => setFormPartyName(e.target.value)}
                   onKeyDown={(e) => {
@@ -1641,7 +1648,6 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                       focusElement('cp-description');
                     }
                   }}
-                  required
                 />
               )}
             </div>
