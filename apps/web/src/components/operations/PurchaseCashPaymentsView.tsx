@@ -383,8 +383,9 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
         const qH = (compList[0]?.id || companyCtx?.activeCompanyId) ? `?companyId=${compList[0]?.id || companyCtx?.activeCompanyId}` : '';
         ApiClient.get<any>(`/api/v1/expense-management/hierarchy${qH}`)
           .then((hRes) => {
-            const hData = hRes.data?.data || hRes.data || [];
-            if (Array.isArray(hData) && hData.length > 0) {
+            const raw = hRes.data?.data ?? hRes.data?.divisions ?? hRes.data ?? [];
+            const hData = Array.isArray(raw) ? raw : (Array.isArray(raw?.divisions) ? raw.divisions : []);
+            if (hData.length > 0) {
               setExpenseHierarchy(hData);
             }
           })
@@ -478,11 +479,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
       try {
         const qH = effectiveCompanyId ? `?companyId=${effectiveCompanyId}` : '';
         const hRes = await ApiClient.get<any>(`/api/v1/expense-management/hierarchy${qH}`);
-        const hData = hRes.data?.data || hRes.data || [];
-        if (Array.isArray(hData) && hData.length > 0) {
+        const raw = hRes.data?.data ?? hRes.data?.divisions ?? hRes.data ?? [];
+        const hData = Array.isArray(raw) ? raw : (Array.isArray(raw?.divisions) ? raw.divisions : []);
+        if (hData.length > 0) {
           setExpenseHierarchy(hData);
-          const genGroup = hData.find((g: any) => g.division === 'GENERAL_EXPENSE') || hData[0];
-          setFormDivision(genGroup.division);
+          const genGroup = hData.find((g: any) => g.division === 'GENERAL_EXPENSE' || g.divisionKey === 'GENERAL_EXPENSE') || hData[0];
+          setFormDivision(genGroup.division || genGroup.divisionKey);
           if (genGroup.heads?.length > 0) {
             setFormHeadId(genGroup.heads[0].id);
             setFormHead(genGroup.heads[0].name);

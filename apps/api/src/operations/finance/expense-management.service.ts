@@ -331,30 +331,34 @@ export class ExpenseManagementService {
 
     const grouped: {
       [key: string]: {
+        division: string;
         divisionKey: string;
         label: string;
         description: string;
         type: string;
+        isLiability: boolean;
         headsCount: number;
         subCategoriesCount: number;
         itemsCount: number;
         heads: any[];
       };
     } = {
-      SALES_EXPENSE: { divisionKey: 'SALES_EXPENSE', label: 'Sales Expenses', description: 'Fuel, sales staff salary, vehicle maintenance, travel, and field operations', type: 'EXPENSE', headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
-      GENERAL_EXPENSE: { divisionKey: 'GENERAL_EXPENSE', label: 'General / Head Office Expenses', description: 'Internet, electricity, office equipment, repairs, utilities, and general administration', type: 'EXPENSE', headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
-      MISCELLANEOUS_EXPENSE: { divisionKey: 'MISCELLANEOUS_EXPENSE', label: 'Miscellaneous Expenses', description: 'Small operational expenses, refreshments, postage, and unplanned operational costs', type: 'EXPENSE', headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
-      LIABILITY: { divisionKey: 'LIABILITY', label: 'Liabilities', description: 'Strictly separate from expenses: Short-term, long-term, leasing, and tax liabilities', type: 'LIABILITY', headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
+      SALES_EXPENSE: { division: 'SALES_EXPENSE', divisionKey: 'SALES_EXPENSE', label: 'Sales Expenses', description: 'Fuel, sales staff salary, vehicle maintenance, travel, and field operations', type: 'EXPENSE', isLiability: false, headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
+      GENERAL_EXPENSE: { division: 'GENERAL_EXPENSE', divisionKey: 'GENERAL_EXPENSE', label: 'General / Head Office Expenses', description: 'Internet, electricity, office equipment, repairs, utilities, and general administration', type: 'EXPENSE', isLiability: false, headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
+      MISCELLANEOUS_EXPENSE: { division: 'MISCELLANEOUS_EXPENSE', divisionKey: 'MISCELLANEOUS_EXPENSE', label: 'Miscellaneous Expenses', description: 'Small operational expenses, refreshments, postage, and unplanned operational costs', type: 'EXPENSE', isLiability: false, headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
+      LIABILITY: { division: 'LIABILITY', divisionKey: 'LIABILITY', label: 'Liabilities', description: 'Strictly separate from expenses: Short-term, long-term, leasing, and tax liabilities', type: 'LIABILITY', isLiability: true, headsCount: 0, subCategoriesCount: 0, itemsCount: 0, heads: [] },
     };
 
     for (const head of heads) {
       const div = head.mainDivision || 'GENERAL_EXPENSE';
       if (!grouped[div]) {
         grouped[div] = {
+          division: div,
           divisionKey: div,
           label: div,
           description: '',
-          type: 'EXPENSE',
+          type: div === 'LIABILITY' ? 'LIABILITY' : 'EXPENSE',
+          isLiability: div === 'LIABILITY',
           headsCount: 0,
           subCategoriesCount: 0,
           itemsCount: 0,
@@ -367,11 +371,7 @@ export class ExpenseManagementService {
       grouped[div].itemsCount += head.items.length;
     }
 
-    return {
-      company: { id: company.id, code: company.code, name: company.name },
-      totalHeads: heads.length,
-      divisions: Object.values(grouped),
-    };
+    return Object.values(grouped);
   }
 
   /**

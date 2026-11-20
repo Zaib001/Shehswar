@@ -277,14 +277,20 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
     try {
       const q = effectiveCompanyId ? `?companyId=${effectiveCompanyId}` : '';
       const res = await ApiClient.get<any>(`/api/v1/expense-management/hierarchy${q}`);
-      const data = res.data?.data || res.data || [];
-      setHierarchyData(data);
+      const raw = res.data?.data ?? res.data?.divisions ?? res.data ?? [];
+      const list: DivisionGroup[] = Array.isArray(raw)
+        ? raw
+        : Array.isArray(raw?.divisions)
+        ? raw.divisions
+        : [];
+      setHierarchyData(list);
     } catch (err: any) {
       showToast({
         title: 'Error Loading Expense Structure',
         message: err?.message || 'Failed to retrieve expense hierarchy',
         type: 'error',
       });
+      setHierarchyData([]);
     } finally {
       setIsLoadingHierarchy(false);
     }
@@ -386,8 +392,13 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
   // Flat list of all heads for selectors
   const allHeads = useMemo(() => {
     const list: ExpenseHeadRecord[] = [];
-    hierarchyData.forEach((group) => {
-      if (Array.isArray(group.heads)) {
+    const groups = Array.isArray(hierarchyData)
+      ? hierarchyData
+      : Array.isArray((hierarchyData as any)?.divisions)
+      ? (hierarchyData as any).divisions
+      : [];
+    groups.forEach((group: any) => {
+      if (Array.isArray(group?.heads)) {
         list.push(...group.heads);
       }
     });
@@ -942,27 +953,32 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
             <TableSkeleton rows={8} />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {hierarchyData
-                .filter((group) => divisionFilter === 'ALL' || group.division === divisionFilter)
+              {(Array.isArray(hierarchyData) ? hierarchyData : [])
+                .filter((group) => {
+                  const div = group.division || (group as any).divisionKey;
+                  return divisionFilter === 'ALL' || div === divisionFilter;
+                })
                 .map((group) => {
-                  const divMeta = MAIN_DIVISIONS.find((d) => d.key === group.division) || MAIN_DIVISIONS[0];
-                  const isExpanded = !!expandedNodes[group.division];
+                  const divKey = (group.division || (group as any).divisionKey || 'GENERAL_EXPENSE') as any;
+                  const divMeta = MAIN_DIVISIONS.find((d) => d.key === divKey) || MAIN_DIVISIONS[0];
+                  const isExpanded = !!expandedNodes[divKey];
 
                   // Filter heads by search query
-                  const filteredHeads = group.heads.filter((head) => {
+                  const headsList = Array.isArray(group.heads) ? group.heads : [];
+                  const filteredHeads = headsList.filter((head) => {
                     if (!hierarchySearch.trim()) return true;
                     const q = hierarchySearch.toLowerCase();
-                    if (head.name.toLowerCase().includes(q) || head.code.toLowerCase().includes(q)) return true;
-                    if (head.subCategories.some((sc) => sc.name.toLowerCase().includes(q) || sc.code.toLowerCase().includes(q))) return true;
-                    if (head.items.some((it) => it.name.toLowerCase().includes(q) || it.code.toLowerCase().includes(q))) return true;
+                    if (head.name?.toLowerCase().includes(q) || head.code?.toLowerCase().includes(q)) return true;
+                    if (head.subCategories?.some((sc: any) => sc.name?.toLowerCase().includes(q) || sc.code?.toLowerCase().includes(q))) return true;
+                    if (head.items?.some((it: any) => it.name?.toLowerCase().includes(q) || it.code?.toLowerCase().includes(q))) return true;
                     return false;
                   });
 
                   return (
-                    <Card key={group.division} style={{ border: `1px solid ${divMeta.badgeBorder}`, overflow: 'hidden' }}>
+                    <Card key={divKey} style={{ border: `1px solid ${divMeta.badgeBorder}`, overflow: 'hidden' }}>
                       {/* Division Header Banner */}
                       <div
-                        onClick={() => toggleNode(group.division)}
+                        onClick={() => toggleNode(divKey)}
                         style={{
                           padding: '14px 20px',
                           backgroundColor: divMeta.badgeBg,
@@ -983,7 +999,7 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
                               <span style={{ fontSize: '16px', fontWeight: 800, color: divMeta.textColor }}>
                                 {group.label}
                               </span>
-                              {group.isLiability && (
+                              {(group.isLiability || (group as any).type === 'LIABILITY' || divKey === 'LIABILITY') && (
                                 <Badge style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
                                   Balance Sheet Liability
                                 </Badge>
@@ -1003,7 +1019,7 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleOpenLedgerFor({ division: group.division })}
+                            onClick={() => handleOpenLedgerFor({ division: divKey })}
                             style={{
                               backgroundColor: '#ffffff',
                               borderColor: '#cbd5e1',
@@ -1018,7 +1034,7 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleOpenNewHead(group.division)}
+                            onClick={() => handleOpenNewHead(divKey)}
                             style={{
                               backgroundColor: '#ffffff',
                               borderColor: divMeta.badgeBorder,
