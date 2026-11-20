@@ -151,4 +151,45 @@ export class ExpenseManagementController {
       period,
     });
   }
+
+  @Get('ledger')
+  @ApiOperation({ summary: 'Get Expense Ledger with running balances, opening balance, and item breakdown' })
+  async getLedger(
+    @Query('companyId') companyId?: string,
+    @Query('mainDivision') mainDivision?: string,
+    @Query('headId') headId?: string,
+    @Query('subCategoryId') subCategoryId?: string,
+    @Query('itemId') itemId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('period') period?: 'ALL' | 'TODAY' | 'MONTH' | 'LAST_MONTH' | 'YEAR' | 'CUSTOM',
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('search') search?: string,
+    @Req() req?: any,
+  ) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getExpenseLedger({
+      companyId: resolvedCompanyId,
+      mainDivision,
+      headId,
+      subCategoryId,
+      itemId,
+      fromDate,
+      toDate,
+      period,
+      paymentMethod,
+      search,
+    }, resolvedCompanyId);
+  }
+
+  @Get('cash-pr-summary')
+  @ApiOperation({ summary: 'Get Cash Movement & Provisional Receipt (PR) integration summary' })
+  async getCashPrSummary(
+    @Query('companyId') companyId?: string,
+    @Req() req?: any,
+  ) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getCashAndPrIntegrationSummary(resolvedCompanyId);
+  }
 }
+

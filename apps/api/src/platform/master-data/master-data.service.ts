@@ -4918,8 +4918,15 @@ export class MasterDataService {
     if (!zone) throw new NotFoundException('Zone not found');
 
     let code = (dto.code || '').trim().toUpperCase();
-    if (!code || code === 'AUTO' || code.startsWith('TER-') || code.startsWith('TERR-')) {
+    if (!code || code === 'AUTO') {
       code = await this.generateTerritoryCode(dto.name);
+    }
+
+    const existing = await this.prisma.territory.findFirst({
+      where: { code },
+    });
+    if (existing) {
+      throw new BadRequestException(`Territory with code "${code}" already exists`);
     }
 
     const managerId = await this.resolveManagerUserId(
@@ -4985,9 +4992,24 @@ export class MasterDataService {
       )) || undefined;
     }
 
+    let codeToUpdate: string | undefined = undefined;
+    if (dto.code && dto.code.trim()) {
+      const codeTrimmed = dto.code.trim().toUpperCase();
+      if (codeTrimmed !== previous.code) {
+        const existing = await this.prisma.territory.findFirst({
+          where: { code: codeTrimmed, id: { not: id } },
+        });
+        if (existing) {
+          throw new BadRequestException(`Territory with code "${codeTrimmed}" already exists`);
+        }
+        codeToUpdate = codeTrimmed;
+      }
+    }
+
     const updated = await this.prisma.territory.update({
       where: { id },
       data: {
+        ...(codeToUpdate ? { code: codeToUpdate } : {}),
         name: dto.name,
         managerId: managerId !== undefined ? (managerId || null) : undefined,
         isActive: dto.isActive,

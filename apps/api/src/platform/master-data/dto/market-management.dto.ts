@@ -126,6 +126,10 @@ export class CreateTerritoryDto {
 export class UpdateTerritoryDto {
   @IsString()
   @IsOptional()
+  code?: string;
+
+  @IsString()
+  @IsOptional()
   name?: string;
 
   @IsUUID()

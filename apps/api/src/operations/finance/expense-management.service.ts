@@ -69,6 +69,19 @@ export interface ExpenseReportFilters {
   period?: 'DAILY' | 'MONTHLY' | 'YEARLY' | 'CUSTOM';
 }
 
+export interface ExpenseLedgerFilters {
+  companyId?: string;
+  mainDivision?: string;
+  headId?: string;
+  subCategoryId?: string;
+  itemId?: string;
+  fromDate?: string;
+  toDate?: string;
+  period?: 'ALL' | 'TODAY' | 'MONTH' | 'LAST_MONTH' | 'YEAR' | 'CUSTOM';
+  paymentMethod?: string;
+  search?: string;
+}
+
 @Injectable()
 export class ExpenseManagementService {
   constructor(private readonly prisma: PrismaService) {}
@@ -859,4 +872,334 @@ export class ExpenseManagementService {
       transactions: parsedTransactions,
     };
   }
+
+  /**
+   * Universal Expense Ledger:
+   * - Calculates opening balance, running balances, debits, credits
+   * - Scoped by company (child company isolation)
+   * - Filters by Division, Head, Sub-Category, Item, Date, and Payment Method
+   * - Provides item-wise breakdown summary for Heads
+   */
+  async getExpenseLedger(filters: ExpenseLedgerFilters, reqCompanyId?: string) {
+    const company = await this.resolveCompany(filters.companyId || reqCompanyId);
+
+    // Entity lookup to provide rich ledger headers
+    let targetDivision: string | null = filters.mainDivision && filters.mainDivision !== 'ALL' ? filters.mainDivision : null;
+    let targetHead: any = null;
+    let targetSubCat: any = null;
+    let targetItem: any = null;
+
+    if (filters.itemId && filters.itemId !== 'ALL') {
+      targetItem = await this.prisma.expenseItem.findUnique({
+        where: { id: filters.itemId },
+        include: { expenseHead: true, subCategory: true },
+      });
+      if (targetItem) {
+        targetHead = targetItem.expenseHead;
+        targetSubCat = targetItem.subCategory;
+        if (!targetDivision && targetHead) targetDivision = targetHead.mainDivision;
+      }
+    } else if (filters.subCategoryId && filters.subCategoryId !== 'ALL') {
+      targetSubCat = await this.prisma.expenseSubCategory.findUnique({
+        where: { id: filters.subCategoryId },
+        include: { expenseHead: true },
+      });
+      if (targetSubCat) {
+        targetHead = targetSubCat.expenseHead;
+        if (!targetDivision && targetHead) targetDivision = targetHead.mainDivision;
+      }
+    } else if (filters.headId && filters.headId !== 'ALL') {
+      targetHead = await this.prisma.expenseHead.findUnique({
+        where: { id: filters.headId },
+      });
+      if (targetHead && !targetDivision) targetDivision = targetHead.mainDivision;
+    }
+
+    // Determine ledger title & subtitle
+    let ledgerTitle = 'All Expenses & Liabilities Ledger';
+    let ledgerSubtitle = 'Consolidated ledger of all cash & bank disbursements';
+    if (targetItem) {
+      ledgerTitle = `Expense Ledger: ${targetItem.name}`;
+      ledgerSubtitle = `Account Code: ${targetItem.code} | Head: ${targetHead?.name || 'General'} ${targetSubCat ? `↳ ${targetSubCat.name}` : ''}`;
+    } else if (targetSubCat) {
+      ledgerTitle = `Sub-Category Ledger: ${targetSubCat.name}`;
+      ledgerSubtitle = `Code: ${targetSubCat.code} | Parent Head: ${targetHead?.name || 'General'}`;
+    } else if (targetHead) {
+      ledgerTitle = `Expense Head Ledger: ${targetHead.name}`;
+      ledgerSubtitle = `Head Code: ${targetHead.code} | Division: ${targetHead.mainDivision}`;
+    } else if (targetDivision) {
+      ledgerTitle = `${targetDivision.replace(/_/g, ' ')} Ledger`;
+      ledgerSubtitle = `Complete financial history for ${targetDivision}`;
+    }
+
+    // Build base conditions matching this ledger's scope
+    const baseWhere: any = {
+      companyId: company.id,
+      status: { notIn: ['CANCELLED', 'VOID'] },
+    };
+
+    if (targetDivision) {
+      baseWhere.OR = [
+        { mainDivision: targetDivision },
+        { expenseHead: { mainDivision: targetDivision as any } },
+      ];
+    }
+
+    if (filters.headId && filters.headId !== 'ALL') {
+      baseWhere.expenseHeadId = filters.headId;
+    }
+
+    if (filters.subCategoryId && filters.subCategoryId !== 'ALL') {
+      baseWhere.expenseSubCategoryId = filters.subCategoryId;
+    }
+
+    if (filters.itemId && filters.itemId !== 'ALL') {
+      baseWhere.expenseItemId = filters.itemId;
+    }
+
+    if (filters.paymentMethod && filters.paymentMethod !== 'ALL') {
+      baseWhere.paymentMethod = filters.paymentMethod;
+    }
+
+    // Calculate Opening Balance prior to fromDate
+    let openingBalance = 0;
+    if (filters.fromDate) {
+      const priorWhere = {
+        ...baseWhere,
+        transactionDate: { lt: new Date(filters.fromDate) },
+      };
+      const priorTxs = await this.prisma.financialTransaction.findMany({
+        where: priorWhere,
+        select: { amount: true, transactionType: true },
+      });
+      for (const p of priorTxs) {
+        const amt = Number(p.amount);
+        const isOutflow = ['CASH_PAYMENT', 'BANK_PAYMENT', 'PAYMENT'].includes(p.transactionType) || p.transactionType.includes('PAYMENT');
+        if (isOutflow) openingBalance += amt;
+        else openingBalance -= amt;
+      }
+    }
+
+    // Date range filter for period entries
+    const periodWhere: any = { ...baseWhere };
+    if (filters.fromDate || filters.toDate) {
+      periodWhere.transactionDate = {};
+      if (filters.fromDate) periodWhere.transactionDate.gte = new Date(filters.fromDate);
+      if (filters.toDate) periodWhere.transactionDate.lte = new Date(filters.toDate);
+    }
+
+    if (filters.search?.trim()) {
+      const q = filters.search.trim();
+      periodWhere.AND = [
+        {
+          OR: [
+            { voucherNumber: { contains: q, mode: 'insensitive' } },
+            { partyName: { contains: q, mode: 'insensitive' } },
+            { referenceNumber: { contains: q, mode: 'insensitive' } },
+            { remarks: { contains: q, mode: 'insensitive' } },
+            { headName: { contains: q, mode: 'insensitive' } },
+            { subCategoryName: { contains: q, mode: 'insensitive' } },
+            { expenseItemName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+
+    const txRecords = await this.prisma.financialTransaction.findMany({
+      where: periodWhere,
+      include: {
+        account: { select: { id: true, accountCode: true, accountName: true } },
+        contraAccount: { select: { id: true, accountCode: true, accountName: true } },
+        expenseHead: true,
+        expenseSubCategory: true,
+        expenseItem: true,
+      },
+      orderBy: { transactionDate: 'asc' },
+    });
+
+    let runningBal = openingBalance;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    // Itemized summary map (PTCL, StormFiber, Nayatel -> Total)
+    const itemBreakdownMap = new Map<string, { code?: string; name: string; amount: number; count: number }>();
+
+    const entries = txRecords.map((r) => {
+      const amt = Number(r.amount);
+      const isOutflow = ['CASH_PAYMENT', 'BANK_PAYMENT', 'PAYMENT'].includes(r.transactionType) || p_isOutflow(r.transactionType);
+
+      const debit = isOutflow ? amt : 0;
+      const credit = !isOutflow ? amt : 0;
+      totalDebit += debit;
+      totalCredit += credit;
+      runningBal += (debit - credit);
+
+      const resolvedDiv = r.mainDivision || r.expenseHead?.mainDivision || (r.partyType === 'VENDOR' ? 'LIABILITY' : 'GENERAL_EXPENSE');
+      const resolvedHeadName = r.headName || r.expenseHead?.name || (r.remarks?.match(/\[Head:\s*([^\]]+)\]/i)?.[1]?.trim()) || 'General Operating';
+      const resolvedSubCatName = r.subCategoryName || r.expenseSubCategory?.name || '—';
+      const resolvedItemName = r.expenseItemName || r.expenseItem?.name || r.partyName || 'Cash Expense Item';
+
+      // Aggregate breakdown
+      const itemKey = r.expenseItemId || resolvedItemName;
+      const existing = itemBreakdownMap.get(itemKey) || {
+        code: r.expenseItem?.code,
+        name: resolvedItemName,
+        amount: 0,
+        count: 0,
+      };
+      existing.amount += amt;
+      existing.count += 1;
+      itemBreakdownMap.set(itemKey, existing);
+
+      return {
+        id: r.id,
+        transactionDate: r.transactionDate,
+        voucherNumber: r.voucherNumber,
+        mainDivision: resolvedDiv,
+        expenseHeadId: r.expenseHeadId,
+        headName: resolvedHeadName,
+        expenseSubCategoryId: r.expenseSubCategoryId,
+        subCategoryName: resolvedSubCatName,
+        expenseItemId: r.expenseItemId,
+        expenseItemName: resolvedItemName,
+        description: r.remarks || 'Cash disbursement',
+        partyName: r.partyName,
+        partyType: r.partyType,
+        paymentMethod: r.paymentMethod,
+        sourceType: r.transactionType || 'CASH_PAYMENT',
+        sourceId: r.id,
+        referenceNumber: r.referenceNumber,
+        accountName: r.account?.accountName || 'Cash Account',
+        contraAccountName: r.contraAccount?.accountName || 'Expense Account',
+        debit,
+        credit,
+        runningBalance: runningBal,
+      };
+    });
+
+    const itemBreakdown = Array.from(itemBreakdownMap.values()).sort((a, b) => b.amount - a.amount);
+
+    return {
+      company: { id: company.id, code: company.code, name: company.name },
+      meta: {
+        ledgerTitle,
+        ledgerSubtitle,
+        targetDivision,
+        targetHead: targetHead ? { id: targetHead.id, code: targetHead.code, name: targetHead.name } : null,
+        targetSubCat: targetSubCat ? { id: targetSubCat.id, code: targetSubCat.code, name: targetSubCat.name } : null,
+        targetItem: targetItem ? { id: targetItem.id, code: targetItem.code, name: targetItem.name } : null,
+        period: filters.period || 'MONTH',
+        fromDate: filters.fromDate || null,
+        toDate: filters.toDate || null,
+      },
+      summary: {
+        openingBalance,
+        totalDebit,
+        totalCredit,
+        closingBalance: runningBal,
+        transactionCount: entries.length,
+      },
+      itemBreakdown,
+      entries,
+    };
+  }
+
+  /**
+   * Cash Movement & PR Integration Summary:
+   * - Aggregates total cash disbursed, total cash received, and provisional (unallocated) PR cash
+   * - Proves zero double counting between PR receipt and PR allocation
+   */
+  async getCashAndPrIntegrationSummary(companyId?: string) {
+    const company = await this.resolveCompany(companyId);
+
+    // 1. Unallocated Provisional Receipts
+    const prRecords = await this.prisma.provisionalReceipt.findMany({
+      where: {
+        companyId: company.id,
+        status: { notIn: ['CANCELLED', 'REVERSED'] },
+      },
+      select: {
+        id: true,
+        prNumber: true,
+        totalAmount: true,
+        allocatedAmount: true,
+        unallocatedAmount: true,
+        allocationStatus: true,
+        receiptDate: true,
+        receivedFrom: true,
+        paymentMethod: true,
+      },
+      orderBy: { receiptDate: 'desc' },
+    });
+
+    let totalPrReceived = 0;
+    let totalPrAllocated = 0;
+    let totalPrUnallocated = 0;
+    let unallocatedCount = 0;
+
+    for (const pr of prRecords) {
+      const tot = Number(pr.totalAmount);
+      const alloc = Number(pr.allocatedAmount);
+      const unalloc = Number(pr.unallocatedAmount);
+
+      totalPrReceived += tot;
+      totalPrAllocated += alloc;
+      totalPrUnallocated += unalloc;
+      if (pr.allocationStatus !== 'FULLY_ALLOCATED') {
+        unallocatedCount += 1;
+      }
+    }
+
+    // 2. Cash Transactions Overview
+    const cashPayments = await this.prisma.financialTransaction.aggregate({
+      where: {
+        companyId: company.id,
+        paymentMethod: 'CASH',
+        transactionType: 'CASH_PAYMENT',
+        status: { notIn: ['CANCELLED', 'VOID'] },
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    const cashReceipts = await this.prisma.financialTransaction.aggregate({
+      where: {
+        companyId: company.id,
+        paymentMethod: 'CASH',
+        transactionType: 'CASH_RECEIPT',
+        status: { notIn: ['CANCELLED', 'VOID'] },
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    const totalCashPaid = Number(cashPayments._sum.amount || 0);
+    const totalCashReceived = Number(cashReceipts._sum.amount || 0);
+    const netCashMovement = totalCashReceived - totalCashPaid;
+
+    return {
+      company: { id: company.id, code: company.code, name: company.name },
+      cashOverview: {
+        totalCashReceived,
+        totalCashPaid,
+        netCashMovement,
+        totalPaymentsCount: cashPayments._count.id,
+        totalReceiptsCount: cashReceipts._count.id,
+      },
+      prOverview: {
+        totalPrReceived,
+        totalPrAllocated,
+        totalPrUnallocated,
+        unallocatedCount,
+        recentPendingPrs: prRecords
+          .filter((p) => p.allocationStatus !== 'FULLY_ALLOCATED')
+          .slice(0, 10),
+      },
+    };
+  }
+}
+
+function p_isOutflow(transactionType?: string | null): boolean {
+  if (!transactionType) return true;
+  return ['CASH_PAYMENT', 'BANK_PAYMENT', 'PAYMENT'].includes(transactionType) || transactionType.includes('PAYMENT');
 }

@@ -342,10 +342,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   const productOptions = React.useMemo(() => {
     return companyProducts.map((p) => {
       const cleanName = (p.productName || 'Unnamed Product').trim();
+      const pSize = cleanPackSize(p.packSize?.name || p.packSize || p.packingUnit);
       return {
         value: String(p.id),
         label: cleanName,
-        searchTerms: `${cleanName} ${p.productCode || ''} ${p.sku || ''}`,
+        badge: p.productCode || undefined,
+        subtext: pSize ? `Pack: ${pSize}` : undefined,
+        searchTerms: `${cleanName} ${p.productCode || ''} ${pSize || ''} ${p.sku || ''}`,
       };
     });
   }, [companyProducts]);
@@ -353,10 +356,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   const schemeOptions = React.useMemo(() => {
     return companySchemes.map((s) => {
       const codeOnly = (s.shortCode || s.code || 'SCHEME').trim();
+      const desc = s.name || s.schemeName || s.description || '';
       return {
         value: s.id,
         label: codeOnly,
-        searchTerms: `${codeOnly} ${s.name || s.schemeName || ''} ${s.description || ''}`,
+        subtext: desc && desc !== codeOnly ? desc : undefined,
+        searchTerms: `${codeOnly} ${desc}`,
       };
     });
   }, [companySchemes]);
@@ -740,7 +745,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       },
     ]);
     setTimeout(() => {
-      const el = document.getElementById(`field-item-scheme-${newIdx}`) || document.getElementById(`field-item-product-${newIdx}`);
+      const el = document.getElementById(`field-item-product-${newIdx}`) || document.getElementById(`field-item-scheme-${newIdx}`);
       el?.focus();
     }, 60);
   };
@@ -3686,45 +3691,60 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
                         {/* Product-Specific Commercial Scheme */}
                         <td style={{ padding: '10px 12px', minWidth: '130px' }}>
-                          <Select
+                          <SearchableCombobox
                             id={`field-item-scheme-${idx}`}
-                            placeholder="-- Select Scheme --"
+                            placeholder="-- Scheme --"
                             value={item.schemeId || ''}
                             options={[
                               { value: '', label: '-- No Scheme --' },
                               ...schemeOptions,
                             ]}
-                            onChange={(e: any) => updateItem(idx, 'schemeId', e?.target?.value || e)}
-                            isSearchable={true}
+                            onChange={(val) => updateItem(idx, 'schemeId', val)}
+                            nextFocusId={`field-item-product-${idx}`}
+                            compact={true}
                           />
                         </td>
 
                         {/* Finished Product Selector */}
-                        <td style={{ padding: '10px 12px', minWidth: '220px' }}>
-                          <Select
+                        <td style={{ padding: '10px 12px', minWidth: '240px' }}>
+                          <SearchableCombobox
                             id={`field-item-product-${idx}`}
-                            placeholder="Select Finished Product..."
+                            placeholder="Search product name or code..."
                             value={item.finishedProductId || ''}
                             options={productOptions}
-                            onChange={(e: any) => updateItem(idx, 'finishedProductId', e?.target?.value || e)}
-                            isSearchable={true}
+                            onChange={(val) => updateItem(idx, 'finishedProductId', val)}
+                            nextFocusId={
+                              (item.availableBatches && item.availableBatches.length > 1)
+                                ? `field-item-batch-${idx}`
+                                : `field-item-qty-${idx}`
+                            }
+                            compact={true}
                           />
                         </td>
 
                         {/* Warehouse-Specific Batches */}
                         <td style={{ padding: '10px 12px', minWidth: '180px' }}>
-                          <Select
+                          <SearchableCombobox
                             id={`field-item-batch-${idx}`}
-                            placeholder={item.finishedProductId ? ((item.availableBatches || []).length > 0 ? "-- Select Batch in WH --" : "No batches in selected WH") : "Select product first"}
+                            placeholder={
+                              item.finishedProductId
+                                ? (item.availableBatches || []).length > 0
+                                  ? "-- Select Batch in WH --"
+                                  : "No batches in selected WH"
+                                : "Select product first"
+                            }
                             value={item.batchId || ''}
                             disabled={!item.finishedProductId || (item.availableBatches || []).length === 0}
                             options={(item.availableBatches || []).map((b: any) => ({
                               value: b.id,
-                              label: `${b.batchNumber} (Stock: ${b.availableQuantity})${b.isExpired ? ' [EXPIRED]' : ''}`,
+                              label: `${b.batchNumber} (Stock: ${b.availableQuantity})`,
+                              badge: b.isExpired ? 'EXPIRED' : `Stock: ${b.availableQuantity}`,
+                              subtext: b.isExpired ? 'Expired Batch' : undefined,
                               disabled: b.isExpired,
                             }))}
-                            onChange={(e: any) => updateItem(idx, 'batchId', e?.target?.value || e)}
-                            isSearchable={true}
+                            onChange={(val) => updateItem(idx, 'batchId', val)}
+                            nextFocusId={`field-item-qty-${idx}`}
+                            compact={true}
                           />
                         </td>
 
@@ -3740,10 +3760,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 if (idx < formItems.length - 1) {
-                                  const nextEl = document.getElementById(`field-item-scheme-${idx + 1}`) || document.getElementById(`field-item-product-${idx + 1}`);
+                                  const nextEl = document.getElementById(`field-item-product-${idx + 1}`);
                                   nextEl?.focus();
                                 } else {
-                                  document.getElementById('btn-add-product-line')?.focus();
+                                  addItemRow();
                                 }
                               }
                             }}
@@ -3771,6 +3791,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                             id={`field-item-baserate-${idx}`}
                             value={item.baseRate !== undefined && item.baseRate !== null ? item.baseRate : ''}
                             onChange={(e) => updateItem(idx, 'baseRate', e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                if (idx < formItems.length - 1) {
+                                  const nextEl = document.getElementById(`field-item-product-${idx + 1}`);
+                                  nextEl?.focus();
+                                } else {
+                                  addItemRow();
+                                }
+                              }
+                            }}
                             placeholder="0"
                             min="0"
                             step="any"

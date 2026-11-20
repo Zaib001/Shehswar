@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { IconSearch, IconChevronDown, IconClose, IconCheck, IconPlus } from '../icons';
 
 export interface ComboboxOption {
@@ -41,6 +42,8 @@ export interface SearchableComboboxProps {
   onSelectNext?: () => void;
   onAddNew?: () => void;
   addNewLabel?: string;
+  compact?: boolean;
+  usePortal?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -64,10 +67,13 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   onSelectNext,
   onAddNew,
   addNewLabel,
+  compact = false,
+  usePortal = true,
   className = '',
   style,
 }) => {
   const effectiveNextId = nextFocusId || nextFieldId;
+  const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
@@ -77,6 +83,18 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [menuCoords, setMenuCoords] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    placement: 'bottom' | 'top';
+  } | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Find currently selected option
   const selectedOption = useMemo(
@@ -90,6 +108,41 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
       setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
     }
   }, [value, selectedOption, isOpen]);
+
+  const updatePosition = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const menuEstimatedHeight = 280;
+    const openUpwards = spaceBelow < menuEstimatedHeight && rect.top > menuEstimatedHeight;
+
+    let left = rect.left;
+    const minWidth = Math.max(rect.width, 240);
+    if (left + minWidth > window.innerWidth - 12) {
+      left = Math.max(12, window.innerWidth - 12 - minWidth);
+    }
+
+    setMenuCoords({
+      top: openUpwards ? rect.top - 4 : rect.bottom + 4,
+      left,
+      width: minWidth,
+      placement: openUpwards ? 'top' : 'bottom',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || !usePortal) return;
+    updatePosition();
+
+    const handleScrollOrResize = () => updatePosition();
+    window.addEventListener('scroll', handleScrollOrResize, true);
+    window.addEventListener('resize', handleScrollOrResize);
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrResize, true);
+      window.removeEventListener('resize', handleScrollOrResize);
+    };
+  }, [isOpen, usePortal, updatePosition]);
 
   // Filter options based on typed query
   const filteredOptions = useMemo(() => {
@@ -128,16 +181,21 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
 
   // Outside click handler
   useEffect(() => {
+    if (!isOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        containerRef.current && !containerRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setIsOpen(false);
         setIsFocused(false);
-        setQuery(selectedOption ? selectedOption.label : '');
+        setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [selectedOption]);
+  }, [isOpen, selectedOption]);
 
   const advanceFocus = useCallback(() => {
     if (effectiveNextId) {
@@ -227,10 +285,13 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
     if (e.key === 'Tab') {
       if (isOpen) {
         if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
-          selectOption(filteredOptions[highlightedIndex]);
+          const opt = filteredOptions[highlightedIndex];
+          onChange(opt.value, opt);
+          setQuery(safeFormatValue(opt.label));
+          setIsOpen(false);
         } else {
           setIsOpen(false);
-          setQuery(selectedOption ? selectedOption.label : '');
+          setQuery(selectedOption ? safeFormatValue(selectedOption.label) : '');
         }
       }
       // Let tab event propagate to move naturally to next element
@@ -247,6 +308,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   const handleInputFocus = () => {
     setIsFocused(true);
     setIsOpen(true);
+    updatePosition();
     // Auto-select text on focus so user can type to immediately replace search query
     inputRef.current?.select();
   };
@@ -258,6 +320,200 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
     setIsOpen(false);
     inputRef.current?.focus();
   };
+
+  const dropdownList = (
+    <div
+      ref={dropdownRef}
+      onMouseDown={(e) => {
+        // Prevent input blur before click event fires
+        e.preventDefault();
+      }}
+      onMouseMove={() => { isKeyboardNav.current = false; }}
+      style={
+        usePortal && menuCoords
+          ? {
+              position: 'fixed',
+              top: menuCoords.placement === 'top' ? undefined : `${menuCoords.top}px`,
+              bottom: menuCoords.placement === 'top' ? `${window.innerHeight - menuCoords.top}px` : undefined,
+              left: `${menuCoords.left}px`,
+              width: `${menuCoords.width}px`,
+              minWidth: '240px',
+              maxWidth: 'min(620px, 95vw)',
+              zIndex: 9999999,
+              backgroundColor: 'var(--bg-surface, #FFFFFF)',
+              border: '1.5px solid var(--border-default, #CBD5E1)',
+              borderRadius: '8px',
+              boxShadow: '0 12px 28px -4px rgba(15, 23, 42, 0.22), 0 4px 10px -2px rgba(15, 23, 42, 0.1)',
+              maxHeight: '280px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+            }
+          : {
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              minWidth: 'max(100%, 360px)',
+              width: 'max-content',
+              maxWidth: 'min(600px, 94vw)',
+              zIndex: 9999,
+              backgroundColor: 'var(--bg-surface, #FFFFFF)',
+              border: '1px solid var(--border-default, #E2E8F0)',
+              borderRadius: '8px',
+              boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
+              maxHeight: '280px',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+            }
+      }
+    >
+      <ul
+        ref={listRef}
+        role="listbox"
+        style={{
+          margin: 0,
+          padding: '4px 0',
+          listStyle: 'none',
+          width: '100%',
+        }}
+      >
+        {filteredOptions.length === 0 ? (
+          <li
+            style={{
+              padding: '12px 14px',
+              fontSize: '12.5px',
+              color: 'var(--text-muted, #94A3B8)',
+              textAlign: 'center',
+              fontStyle: 'italic',
+            }}
+          >
+            No matching options found for "{query}"
+          </li>
+        ) : (
+          filteredOptions.map((opt, idx) => {
+            const isSelected = String(opt.value) === String(value);
+            const isHighlighted = idx === highlightedIndex;
+
+            return (
+              <li
+                key={opt.value}
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  if (!opt.disabled) {
+                    selectOption(opt);
+                  }
+                }}
+                onMouseEnter={() => {
+                  if (!isKeyboardNav.current) {
+                    setHighlightedIndex(idx);
+                  }
+                }}
+                style={{
+                  padding: '8px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '8px',
+                  cursor: opt.disabled ? 'not-allowed' : 'pointer',
+                  backgroundColor: isHighlighted
+                    ? 'rgba(37, 99, 235, 0.08)'
+                    : isSelected
+                      ? 'rgba(37, 99, 235, 0.04)'
+                      : 'transparent',
+                  color: opt.disabled
+                    ? 'var(--text-muted, #94A3B8)'
+                    : isSelected
+                      ? '#1D4ED8'
+                      : 'var(--text-primary, #0F172A)',
+                  fontSize: '13px',
+                  fontWeight: isSelected ? 600 : 500,
+                  transition: 'background-color 100ms ease',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {safeFormatValue(opt.label)}
+                    </span>
+                    {isSelected && <IconCheck size={14} style={{ color: '#2563EB', flexShrink: 0 }} />}
+                  </div>
+                  {Boolean(opt.subtext) && Boolean(safeFormatValue(opt.subtext)) && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        color: 'var(--text-muted, #64748B)',
+                        whiteSpace: 'pre-line',
+                        wordBreak: 'break-word',
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {safeFormatValue(opt.subtext)}
+                    </span>
+                  )}
+                </div>
+
+                {Boolean(opt.badge) && Boolean(safeFormatValue(opt.badge)) && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                      color: '#2563EB',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {safeFormatValue(opt.badge)}
+                  </span>
+                )}
+              </li>
+            );
+          })
+        )}
+
+        {/* Inline Add New Master Data Option */}
+        {onAddNew && (
+          <li
+            role="option"
+            onClick={() => {
+              setIsOpen(false);
+              onAddNew();
+            }}
+            onMouseEnter={() => setHighlightedIndex(filteredOptions.length)}
+            style={{
+              borderTop: '1px solid var(--border-subtle, #E2E8F0)',
+              padding: '9px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              backgroundColor:
+                highlightedIndex === filteredOptions.length
+                  ? 'rgba(16, 185, 129, 0.12)'
+                  : 'rgba(240, 253, 244, 0.7)',
+              color: '#059669',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              transition: 'background-color 100ms ease',
+            }}
+          >
+            <IconPlus size={14} />
+            <span>{addNewLabel ? addNewLabel.replace(/^[+\s]+/, '') : 'Add New'}</span>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
 
   return (
     <div
@@ -301,7 +557,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
         <span
           style={{
             position: 'absolute',
-            left: '10px',
+            left: compact ? '8px' : '10px',
             color: isFocused ? '#2563EB' : 'var(--text-muted, #94A3B8)',
             display: 'flex',
             alignItems: 'center',
@@ -309,7 +565,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
             zIndex: 1,
           }}
         >
-          <IconSearch size={15} />
+          <IconSearch size={compact ? 13 : 15} />
         </span>
 
         <input
@@ -333,10 +589,10 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
           onKeyDown={handleKeyDown}
           style={{
             width: '100%',
-            height: '38px',
-            paddingLeft: '34px',
-            paddingRight: value ? '54px' : '32px',
-            fontSize: '13px',
+            height: compact ? '34px' : '38px',
+            paddingLeft: compact ? '28px' : '34px',
+            paddingRight: value ? (compact ? '46px' : '54px') : (compact ? '26px' : '32px'),
+            fontSize: compact ? '12.5px' : '13px',
             fontWeight: 500,
             color: 'var(--text-primary, #0F172A)',
             backgroundColor: disabled ? 'var(--bg-canvas, #F1F5F9)' : 'var(--bg-surface, #FFFFFF)',
@@ -347,7 +603,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                   ? '#2563EB'
                   : 'var(--border-default, #CBD5E1)'
             }`,
-            borderRadius: '7px',
+            borderRadius: compact ? '6px' : '7px',
             outline: 'none',
             boxShadow: isFocused ? '0 0 0 3px rgba(37, 99, 235, 0.15)' : 'none',
             transition: 'border-color 150ms ease, box-shadow 150ms ease',
@@ -359,7 +615,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
         <div
           style={{
             position: 'absolute',
-            right: '8px',
+            right: compact ? '6px' : '8px',
             display: 'flex',
             alignItems: 'center',
             gap: '2px',
@@ -382,7 +638,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
                 borderRadius: '4px',
               }}
             >
-              <IconClose size={13} />
+              <IconClose size={compact ? 12 : 13} />
             </button>
           )}
 
@@ -411,178 +667,16 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
               transition: 'transform 150ms ease',
             }}
           >
-            <IconChevronDown size={14} />
+            <IconChevronDown size={compact ? 13 : 14} />
           </button>
         </div>
       </div>
 
       {/* Dropdown Results List */}
-      {isOpen && (
-        <div
-          onMouseMove={() => { isKeyboardNav.current = false; }}
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            minWidth: 'max(100%, 360px)',
-            width: 'max-content',
-            maxWidth: 'min(600px, 94vw)',
-            zIndex: 9999,
-            backgroundColor: 'var(--bg-surface, #FFFFFF)',
-            border: '1px solid var(--border-default, #E2E8F0)',
-            borderRadius: '8px',
-            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
-            maxHeight: '280px',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          <ul
-            ref={listRef}
-            role="listbox"
-            style={{
-              margin: 0,
-              padding: '4px 0',
-              listStyle: 'none',
-              width: '100%',
-            }}
-          >
-            {filteredOptions.length === 0 ? (
-              <li
-                style={{
-                  padding: '12px 14px',
-                  fontSize: '12.5px',
-                  color: 'var(--text-muted, #94A3B8)',
-                  textAlign: 'center',
-                  fontStyle: 'italic',
-                }}
-              >
-                No matching options found for "{query}"
-              </li>
-            ) : (
-              filteredOptions.map((opt, idx) => {
-                const isSelected = String(opt.value) === String(value);
-                const isHighlighted = idx === highlightedIndex;
-
-                return (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => {
-                      if (!opt.disabled) {
-                        selectOption(opt);
-                      }
-                    }}
-                    onMouseEnter={() => {
-                      if (!isKeyboardNav.current) {
-                        setHighlightedIndex(idx);
-                      }
-                    }}
-                    style={{
-                      padding: '8px 12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '8px',
-                      cursor: opt.disabled ? 'not-allowed' : 'pointer',
-                      backgroundColor: isHighlighted
-                        ? 'rgba(37, 99, 235, 0.08)'
-                        : isSelected
-                          ? 'rgba(37, 99, 235, 0.04)'
-                          : 'transparent',
-                      color: opt.disabled
-                        ? 'var(--text-muted, #94A3B8)'
-                        : isSelected
-                          ? '#1D4ED8'
-                          : 'var(--text-primary, #0F172A)',
-                      fontSize: '13px',
-                      fontWeight: isSelected ? 600 : 500,
-                      transition: 'background-color 100ms ease',
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span
-                          style={{
-                            whiteSpace: 'normal',
-                            wordBreak: 'break-word',
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          {safeFormatValue(opt.label)}
-                        </span>
-                        {isSelected && <IconCheck size={14} style={{ color: '#2563EB', flexShrink: 0 }} />}
-                      </div>
-                      {Boolean(opt.subtext) && Boolean(safeFormatValue(opt.subtext)) && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: 'var(--text-muted, #64748B)',
-                            whiteSpace: 'pre-line',
-                            wordBreak: 'break-word',
-                            lineHeight: 1.35,
-                          }}
-                        >
-                          {safeFormatValue(opt.subtext)}
-                        </span>
-                      )}
-                    </div>
-
-                    {Boolean(opt.badge) && Boolean(safeFormatValue(opt.badge)) && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: 'rgba(37, 99, 235, 0.08)',
-                          color: '#2563EB',
-                          whiteSpace: 'nowrap',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {safeFormatValue(opt.badge)}
-                      </span>
-                    )}
-                  </li>
-                );
-              })
-            )}
-
-            {/* Inline Add New Master Data Option */}
-            {onAddNew && (
-              <li
-                role="option"
-                onClick={() => {
-                  setIsOpen(false);
-                  onAddNew();
-                }}
-                onMouseEnter={() => setHighlightedIndex(filteredOptions.length)}
-                style={{
-                  borderTop: '1px solid var(--border-subtle, #E2E8F0)',
-                  padding: '9px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  backgroundColor:
-                    highlightedIndex === filteredOptions.length
-                      ? 'rgba(16, 185, 129, 0.12)'
-                      : 'rgba(240, 253, 244, 0.7)',
-                  color: '#059669',
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  transition: 'background-color 100ms ease',
-                }}
-              >
-                <IconPlus size={14} />
-                <span>{addNewLabel ? addNewLabel.replace(/^[+\s]+/, '') : 'Add New'}</span>
-              </li>
-            )}
-          </ul>
-        </div>
+      {mounted && isOpen && (
+        usePortal && menuCoords && typeof document !== 'undefined'
+          ? createPortal(dropdownList, document.body)
+          : dropdownList
       )}
 
       {/* Error / Helper text */}
