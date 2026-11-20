@@ -1475,6 +1475,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
               <Select
                 id="cp-head"
                 value={formHeadId || formHead}
+                nextFocusId="cp-item"
+                openOnHover={true}
                 onChange={(e) => {
                   handleSelectHead(e.target.value);
                   focusElement('cp-item');
@@ -1487,6 +1489,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                     placeholder="Type custom head name..."
                     value={customHead}
                     onChange={(e) => setCustomHead(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        focusElement('cp-item');
+                      }
+                    }}
                   />
                 </div>
               )}
@@ -1502,6 +1510,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                     <Select
                       id="cp-item"
                       value={formItemId === '__CUSTOM__' ? '__CUSTOM__' : (formItemId || (formSubCatId ? `sc_${formSubCatId}` : ''))}
+                      nextFocusId={formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id'}
+                      openOnHover={true}
                       onChange={(e) => {
                         const val = e.target.value;
                         if (val === '__CUSTOM__') {
@@ -1511,15 +1521,18 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                           setFormItemId('');
                           setFormSubCatId(val.replace('sc_', ''));
                           setFormCustomItem('');
+                          focusElement(formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
                         } else if (val) {
                           const matched = availableItemsForSelectedHead.find((it) => it.id === val);
                           setFormItemId(val);
                           setFormSubCatId(matched?.subCatId || '');
                           setFormCustomItem('');
+                          focusElement(formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
                         } else {
                           setFormItemId('');
                           setFormSubCatId('');
                           setFormCustomItem('');
+                          focusElement(formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
                         }
                       }}
                       options={[
@@ -1538,6 +1551,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                         placeholder="Type item name..."
                         value={formCustomItem}
                         onChange={(e) => setFormCustomItem(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            focusElement(formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
+                          }
+                        }}
                       />
                     </div>
                   )}
@@ -1548,6 +1567,12 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                   placeholder="e.g. PTCL Office, Vehicle ABC-123..."
                   value={formCustomItem}
                   onChange={(e) => setFormCustomItem(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      focusElement(formPartyType === 'OTHER' ? 'cp-party-name' : 'cp-party-id');
+                    }
+                  }}
                 />
               )}
             </div>
@@ -1598,6 +1623,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 <Select
                   id="cp-party-id"
                   value={formPartyId}
+                  nextFocusId="cp-description"
+                  openOnHover={true}
                   onChange={(e) => {
                     handlePartyIdChange(e.target.value);
                     focusElement('cp-description');
@@ -1611,6 +1638,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 <Select
                   id="cp-party-id"
                   value={formPartyId}
+                  nextFocusId="cp-description"
+                  openOnHover={true}
                   onChange={(e) => {
                     handlePartyIdChange(e.target.value);
                     focusElement('cp-description');
@@ -1624,6 +1653,8 @@ export const PurchaseCashPaymentsView: React.FC<PurchaseCashPaymentsViewProps> =
                 <Select
                   id="cp-party-id"
                   value={formPartyId}
+                  nextFocusId="cp-description"
+                  openOnHover={true}
                   onChange={(e) => {
                     handlePartyIdChange(e.target.value);
                     focusElement('cp-description');

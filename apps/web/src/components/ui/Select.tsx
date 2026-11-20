@@ -44,6 +44,10 @@ export interface SelectProps {
   helperText?: string;
   required?: boolean;
   name?: string;
+  openOnHover?: boolean;
+  nextFocusId?: string;
+  nextFieldId?: string;
+  onSelectNext?: () => void;
 }
 
 export const Select: React.FC<SelectProps> = ({
@@ -63,6 +67,10 @@ export const Select: React.FC<SelectProps> = ({
   helperText,
   required,
   name,
+  openOnHover = true,
+  nextFocusId,
+  nextFieldId,
+  onSelectNext,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -81,6 +89,36 @@ export const Select: React.FC<SelectProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isKeyboardNavRef = useRef(false);
+
+  const hoverOpenTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverCloseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMouseOverMenuRef = useRef(false);
+
+  const effectiveNextId = nextFocusId || nextFieldId;
+
+  const advanceFocus = useCallback(() => {
+    if (effectiveNextId) {
+      setTimeout(() => {
+        const nextEl = document.getElementById(effectiveNextId) as HTMLElement | null;
+        if (nextEl) {
+          nextEl.focus();
+          if (nextEl instanceof HTMLInputElement && nextEl.type !== 'date') {
+            nextEl.select?.();
+          }
+        }
+      }, 50);
+    }
+    if (onSelectNext) {
+      onSelectNext();
+    }
+  }, [effectiveNextId, onSelectNext]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverOpenTimerRef.current) clearTimeout(hoverOpenTimerRef.current);
+      if (hoverCloseTimerRef.current) clearTimeout(hoverCloseTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -210,6 +248,57 @@ export const Select: React.FC<SelectProps> = ({
       emitChange(val);
       setIsOpen(false);
       setSearch('');
+      advanceFocus();
+    }
+  };
+
+  const handleTriggerMouseEnter = () => {
+    setIsTriggerHovered(true);
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+    if (openOnHover && !disabled && !isOpen) {
+      hoverOpenTimerRef.current = setTimeout(() => {
+        updatePosition();
+        setIsOpen(true);
+      }, 70);
+    }
+  };
+
+  const handleTriggerMouseLeave = () => {
+    setIsTriggerHovered(false);
+    if (hoverOpenTimerRef.current) {
+      clearTimeout(hoverOpenTimerRef.current);
+      hoverOpenTimerRef.current = null;
+    }
+    if (openOnHover && isOpen && !isMouseOverMenuRef.current) {
+      if (!search.trim()) {
+        hoverCloseTimerRef.current = setTimeout(() => {
+          if (!isMouseOverMenuRef.current && document.activeElement !== searchInputRef.current) {
+            setIsOpen(false);
+          }
+        }, 220);
+      }
+    }
+  };
+
+  const handleMenuMouseEnter = () => {
+    isMouseOverMenuRef.current = true;
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+  };
+
+  const handleMenuMouseLeave = () => {
+    isMouseOverMenuRef.current = false;
+    if (openOnHover && isOpen && !search.trim() && document.activeElement !== searchInputRef.current) {
+      hoverCloseTimerRef.current = setTimeout(() => {
+        if (!isMouseOverMenuRef.current && !isTriggerHovered) {
+          setIsOpen(false);
+        }
+      }, 200);
     }
   };
 
@@ -261,8 +350,14 @@ export const Select: React.FC<SelectProps> = ({
         role="button"
         tabIndex={tabIndex ?? (disabled ? -1 : 0)}
         onClick={handleToggle}
-        onMouseEnter={() => setIsTriggerHovered(true)}
-        onMouseLeave={() => setIsTriggerHovered(false)}
+        onMouseEnter={handleTriggerMouseEnter}
+        onMouseLeave={handleTriggerMouseLeave}
+        onFocus={() => {
+          if (!disabled && !isOpen) {
+            updatePosition();
+            setIsOpen(true);
+          }
+        }}
         onKeyDown={(e) => {
           if (!disabled) {
             if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
@@ -426,6 +521,8 @@ export const Select: React.FC<SelectProps> = ({
         <div
           ref={menuRef}
           className="animate-modal-pop"
+          onMouseEnter={handleMenuMouseEnter}
+          onMouseLeave={handleMenuMouseLeave}
           style={{
             position: 'fixed',
             top: menuCoords.placement === 'top' ? undefined : `${menuCoords.top}px`,
@@ -477,26 +574,32 @@ export const Select: React.FC<SelectProps> = ({
                     if (e.key === 'ArrowDown') {
                       e.preventDefault();
                       isKeyboardNavRef.current = true;
-                      setHighlightedIndex((prev) => Math.min(prev + 1, Math.max(0, filteredOptions.length - 1)));
+                      setHighlightedIndex((prev) => (filteredOptions.length > 0 ? (prev + 1) % filteredOptions.length : 0));
                     } else if (e.key === 'ArrowUp') {
                       e.preventDefault();
                       isKeyboardNavRef.current = true;
-                      setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+                      setHighlightedIndex((prev) => (filteredOptions.length > 0 ? (prev - 1 + filteredOptions.length) % filteredOptions.length : 0));
                     } else if (e.key === 'Enter') {
                       e.preventDefault();
                       if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
                         handleSelect(String(filteredOptions[highlightedIndex].value));
-                        triggerRef.current?.focus();
+                      } else if (effectiveNextId) {
+                        setIsOpen(false);
+                        advanceFocus();
                       }
                     } else if (e.key === 'Escape') {
                       e.preventDefault();
                       setIsOpen(false);
+                      setSearch('');
                       triggerRef.current?.focus();
                     } else if (e.key === 'Tab') {
                       if (filteredOptions[highlightedIndex] && !filteredOptions[highlightedIndex].disabled) {
+                        e.preventDefault();
                         handleSelect(String(filteredOptions[highlightedIndex].value));
+                      } else {
+                        setIsOpen(false);
+                        advanceFocus();
                       }
-                      setIsOpen(false);
                     }
                   }}
                   placeholder="Search options..."

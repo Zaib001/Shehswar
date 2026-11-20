@@ -44,6 +44,7 @@ export interface SearchableComboboxProps {
   addNewLabel?: string;
   compact?: boolean;
   usePortal?: boolean;
+  openOnHover?: boolean;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -69,6 +70,7 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
   addNewLabel,
   compact = false,
   usePortal = true,
+  openOnHover = true,
   className = '',
   style,
 }) => {
@@ -585,6 +587,12 @@ export const SearchableCombobox: React.FC<SearchableComboboxProps> = ({
           value={query}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
+          onMouseEnter={() => {
+            if (openOnHover && !disabled && !isOpen) {
+              setIsOpen(true);
+              updatePosition();
+            }
+          }}
           onClick={() => {
             if (!disabled && !isOpen) {
               setIsOpen(true);
