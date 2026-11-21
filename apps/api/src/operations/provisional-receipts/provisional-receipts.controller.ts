@@ -54,6 +54,49 @@ export class ProvisionalReceiptsController {
     return this.service.getPrDashboard(companyId);
   }
 
+  @Get('next-number')
+  @ApiOperation({ summary: 'Get next suggested PR Number for company' })
+  async getNextPrNumber(@Query('companyId') companyId?: string, @Req() req?: any) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getNextPrNumber(resolvedCompanyId);
+  }
+
+  @Get('check-number')
+  @ApiOperation({ summary: 'Check if PR Number already exists in company scope' })
+  async checkPrNumber(
+    @Query('companyId') companyId: string,
+    @Query('prNumber') prNumber: string,
+    @Req() req?: any,
+  ) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.checkPrNumber(resolvedCompanyId, prNumber);
+  }
+
+  @Get('sales-officers')
+  @ApiOperation({ summary: 'Get active Sales Officers in company' })
+  async getSalesOfficers(@Query('companyId') companyId?: string, @Req() req?: any) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getSalesOfficers(resolvedCompanyId);
+  }
+
+  @Get('dealers-by-officer')
+  @ApiOperation({ summary: 'Get dealers assigned to selected Sales Officer in company' })
+  async getDealersByOfficer(
+    @Query('companyId') companyId: string,
+    @Query('officerId') officerId?: string,
+    @Req() req?: any,
+  ) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getDealersByOfficer(resolvedCompanyId, officerId);
+  }
+
+  @Get('expense-products')
+  @ApiOperation({ summary: 'Get available expense allocation products and operational heads' })
+  async getExpenseProducts(@Query('companyId') companyId?: string, @Req() req?: any) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getExpenseProducts(resolvedCompanyId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'PR Drill-down: Header, products, allocations, and financial impact' })
   async getProvisionalReceiptById(@Param('id') id: string) {

@@ -28,6 +28,7 @@ import {
   Modal,
   TableSkeleton,
   EmptyState,
+  SearchableCombobox,
 } from '../ui';
 import {
   IconPlus,
@@ -43,6 +44,7 @@ import {
   IconFinance,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { exportProvisionalReceiptToPdf } from '../../lib/pdf-export';
 
@@ -52,14 +54,13 @@ export const ProvisionalReceiptsView: React.FC = () => {
     showToast({ title: type === 'error' ? 'Error' : type === 'success' ? 'Success' : 'Notice', message, type });
   };
 
+  // Top header company integration
+  const { activeCompany, activeCompanyId, activeCompanyName } = useCompany();
+
   const [prs, setPrs] = useState<any[]>([]);
   const [dashboardData, setDashboardData] = useState<any | null>(null);
   const [companies, setCompanies] = useState<any[]>([]);
   const [dealers, setDealers] = useState<any[]>([]);
-  const [productsMaster, setProductsMaster] = useState<any[]>([]);
-  const [regions, setRegions] = useState<any[]>([]);
-  const [territories, setTerritories] = useState<any[]>([]);
-  const [usersMaster, setUsersMaster] = useState<any[]>([]);
 
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -67,6 +68,13 @@ export const ProvisionalReceiptsView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Effective company isolation (Active Company from Header takes priority)
+  const effectiveCompanyId = useMemo(() => {
+    if (activeCompanyId && activeCompanyId !== 'ALL') return activeCompanyId;
+    if (selectedCompanyId && selectedCompanyId !== 'ALL') return selectedCompanyId;
+    return companies[0]?.id || '';
+  }, [activeCompanyId, selectedCompanyId, companies]);
 
   // Modals
   const [isCreatePrOpen, setIsCreatePrOpen] = useState(false);
@@ -79,7 +87,32 @@ export const ProvisionalReceiptsView: React.FC = () => {
   const [prAudit, setPrAudit] = useState<any[]>([]);
   const [reversalReason, setReversalReason] = useState('');
 
-  // PR Form (matches physical document)
+  // Redesigned PR Workflow states
+  const [salesOfficers, setSalesOfficers] = useState<any[]>([]);
+  const [selectedSalesOfficer, setSelectedSalesOfficer] = useState<any | null>(null);
+  const [officerDealers, setOfficerDealers] = useState<any[]>([]);
+  const [selectedDealer, setSelectedDealer] = useState<any | null>(null);
+  const [expenseProducts, setExpenseProducts] = useState<any[]>([]);
+  const [prNumberError, setPrNumberError] = useState<string>('');
+  const [isCheckingPrNumber, setIsCheckingPrNumber] = useState<boolean>(false);
+
+  // Unified allocation line items (Dealer or Expense lines)
+  interface UnifiedAllocationLine {
+    id: string;
+    type: 'DEALER' | 'EXPENSE';
+    dealerId?: string;
+    partyCode?: string;
+    dealerName?: string;
+    expenseProductId?: string;
+    expenseName?: string;
+    expenseHeadId?: string;
+    expenseItemId?: string;
+    description: string;
+    allocatedAmount: number | '';
+  }
+  const [unifiedAllocations, setUnifiedAllocations] = useState<UnifiedAllocationLine[]>([]);
+
+  // PR Form (matches physical document & simplified workflow)
   const [prForm, setPrForm] = useState({
     companyId: '',
     prNumber: '',
@@ -93,7 +126,7 @@ export const ProvisionalReceiptsView: React.FC = () => {
     address: '',
     regionId: '',
     territoryId: '',
-    paymentMethod: 'ONLINE',
+    paymentMethod: 'CASH',
     paymentReferenceNumber: '',
     bankName: '',
     branchName: '',
@@ -102,18 +135,7 @@ export const ProvisionalReceiptsView: React.FC = () => {
     autoPost: true,
   });
 
-  // Dynamic Product Rows in Create PR
-  const [productRows, setProductRows] = useState<
-    Array<{
-      finishedProductId?: string;
-      productName: string;
-      packSize: string;
-      quantity: number;
-      policyRate: number;
-    }>
-  >([]);
-
-  // Dynamic Allocation Rows in Create PR or Allocate Modal
+  // Dynamic Allocation Rows in Allocate Modal
   const [allocationRows, setAllocationRows] = useState<
     Array<{
       dealerId: string;
@@ -144,7 +166,7 @@ const extractArray = (res: any): any[] => {
   const fetchAuxiliary = async (targetCompanyId?: string) => {
     try {
       const compParam = targetCompanyId && targetCompanyId !== 'ALL' ? `?companyId=${targetCompanyId}` : '';
-      const [compRes, dlrRes, prodRes, regRes, terrRes, usersRes] = await Promise.all([
+      const [compRes, dlrRes] = await Promise.all([
         ApiClient.get<any>('/api/v1/master-data/companies?all=true').catch((err) => {
           console.error('Failed to load companies:', err);
           return [];
@@ -153,26 +175,10 @@ const extractArray = (res: any): any[] => {
           console.error('Failed to load dealers:', err);
           return [];
         }),
-        ApiClient.get<any>('/api/v1/master-data/finished-products').catch(async () => {
-          return ApiClient.get<any>('/api/v1/pricing/active-products').catch(() => []);
-        }),
-        ApiClient.get<any>(`/api/v1/master-data/regions${compParam}`).catch((err) => {
-          console.error('Failed to load regions:', err);
-          return [];
-        }),
-        ApiClient.get<any>(`/api/v1/master-data/territories${compParam}`).catch((err) => {
-          console.error('Failed to load territories:', err);
-          return [];
-        }),
-        ApiClient.get<any>('/api/v1/master-data/users').catch(() => []),
       ]);
 
       const compData = extractArray(compRes);
       let dlrData = extractArray(dlrRes);
-      let prodData = extractArray(prodRes);
-      const regData = extractArray(regRes);
-      const terrData = extractArray(terrRes);
-      const usrData = extractArray(usersRes);
 
       // If company-scoped dealers returned empty, fallback to all dealers
       if (dlrData.length === 0 && compParam) {
@@ -184,10 +190,6 @@ const extractArray = (res: any): any[] => {
 
       setCompanies(compData);
       setDealers(dlrData);
-      setProductsMaster(prodData);
-      setRegions(regData);
-      setTerritories(terrData);
-      setUsersMaster(usrData);
 
       setPrForm((prev) => {
         const compId = prev.companyId || (compData.length > 0 ? compData[0].id : '');
@@ -235,9 +237,215 @@ const extractArray = (res: any): any[] => {
   }, []);
 
   useEffect(() => {
+    if (activeCompanyId && activeCompanyId !== 'ALL') {
+      setSelectedCompanyId(activeCompanyId);
+      loadPrAuxiliary(activeCompanyId);
+    }
+  }, [activeCompanyId]);
+
+  useEffect(() => {
     fetchDashboard();
     fetchPrs();
   }, [selectedCompanyId, statusFilter, allocStatusFilter]);
+
+  // Load next sequential PR number for active company
+  const loadNextPrNumber = async (compId: string) => {
+    if (!compId || compId === 'ALL') return;
+    try {
+      const res: any = await ApiClient.get(`/api/v1/provisional-receipts/next-number?companyId=${compId}`);
+      const nextNum = res?.nextPrNumber || res?.data?.nextPrNumber || '';
+      if (nextNum) {
+        setPrForm((prev) => ({ ...prev, prNumber: nextNum }));
+        setPrNumberError('');
+      }
+    } catch (err) {
+      console.error('Failed to get next PR number:', err);
+    }
+  };
+
+  // Validate PR number uniqueness within active company
+  const validatePrNumber = async (num: string, compId: string) => {
+    if (!num.trim() || !compId || compId === 'ALL') {
+      setPrNumberError('');
+      return;
+    }
+    setIsCheckingPrNumber(true);
+    try {
+      const res: any = await ApiClient.get(`/api/v1/provisional-receipts/check-number?companyId=${compId}&prNumber=${encodeURIComponent(num.trim())}`);
+      const exists = res?.exists ?? res?.data?.exists ?? false;
+      if (exists) {
+        setPrNumberError('PR Number already exists. Please enter a different PR number.');
+      } else {
+        setPrNumberError('');
+      }
+    } catch (err) {
+      console.error('Failed to check PR number uniqueness:', err);
+    } finally {
+      setIsCheckingPrNumber(false);
+    }
+  };
+
+  // Load auxiliary data for PR creation (Sales officers & Expense products for active company)
+  const loadPrAuxiliary = async (compId: string) => {
+    if (!compId || compId === 'ALL') return;
+    try {
+      const [officersRes, expenseRes]: [any, any] = await Promise.all([
+        ApiClient.get(`/api/v1/provisional-receipts/sales-officers?companyId=${compId}`).catch(() => []),
+        ApiClient.get(`/api/v1/provisional-receipts/expense-products?companyId=${compId}`).catch(() => []),
+      ]);
+      const officers = extractArray(officersRes);
+      const expenses = extractArray(expenseRes);
+      setSalesOfficers(officers);
+      setExpenseProducts(expenses);
+    } catch (err) {
+      console.error('Failed to load PR auxiliary data:', err);
+    }
+  };
+
+  // When Sales Officer changes, dynamically load only dealers assigned to that officer
+  const handleOfficerChange = async (officerId: string) => {
+    const officer = salesOfficers.find((o) => o.id === officerId || o.userId === officerId);
+    setSelectedSalesOfficer(officer || null);
+    setSelectedDealer(null);
+    setPrForm((prev) => ({
+      ...prev,
+      salesOfficerId: officerId,
+      receivedFrom: officer ? officer.name : '',
+      partyDealerId: '',
+      partyCode: '',
+    }));
+
+    if (!officerId) {
+      setOfficerDealers([]);
+      return;
+    }
+
+    const compId = effectiveCompanyId;
+    try {
+      const res: any = await ApiClient.get(`/api/v1/provisional-receipts/dealers-by-officer?companyId=${compId}&officerId=${officerId}`);
+      const dlrs = extractArray(res);
+      setOfficerDealers(dlrs);
+
+      // If only 1 dealer is assigned, auto-select it
+      if (dlrs.length === 1) {
+        handleDealerChange(dlrs[0].id, dlrs);
+      }
+    } catch (err) {
+      console.error('Failed to load dealers for officer:', err);
+      setOfficerDealers([]);
+    }
+  };
+
+  // When Dealer changes, update selectedDealer and auto-fill hierarchy
+  const handleDealerChange = (dealerId: string, currentDealers = officerDealers) => {
+    const dlr = currentDealers.find((d) => d.id === dealerId);
+    setSelectedDealer(dlr || null);
+    setPrForm((prev) => ({
+      ...prev,
+      partyDealerId: dealerId,
+      partyCode: dlr?.code || '',
+    }));
+
+    // If unifiedAllocations has an empty dealer line or is empty, auto-add this dealer
+    setUnifiedAllocations((prev) => {
+      if (prev.length === 0 && dlr) {
+        return [
+          {
+            id: `line-${Date.now()}`,
+            type: 'DEALER',
+            dealerId: dlr.id,
+            partyCode: dlr.code,
+            dealerName: dlr.name,
+            description: `Collection from ${dlr.businessName || dlr.name}`,
+            allocatedAmount: Number(prForm.totalAmount) || '',
+          },
+        ];
+      }
+      return prev;
+    });
+  };
+
+  // Add Dealer allocation line
+  const handleAddDealerLine = () => {
+    const defaultDealer = selectedDealer || officerDealers[0];
+    const totalRec = Number(prForm.totalAmount) || 0;
+    const currentAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+    const rem = Math.max(0, totalRec - currentAlloc);
+
+    setUnifiedAllocations((prev) => [
+      ...prev,
+      {
+        id: `line-${Date.now()}-${Math.random()}`,
+        type: 'DEALER',
+        dealerId: defaultDealer?.id || '',
+        partyCode: defaultDealer?.code || '',
+        dealerName: defaultDealer?.name || '',
+        description: defaultDealer ? `Collection from ${defaultDealer.businessName || defaultDealer.name}` : 'Dealer Collection',
+        allocatedAmount: rem > 0 ? rem : '',
+      },
+    ]);
+  };
+
+  // Add Expense allocation line
+  const handleAddExpenseLine = () => {
+    const defaultExp = expenseProducts[0];
+    const totalRec = Number(prForm.totalAmount) || 0;
+    const currentAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+    const rem = Math.max(0, totalRec - currentAlloc);
+
+    setUnifiedAllocations((prev) => [
+      ...prev,
+      {
+        id: `line-${Date.now()}-${Math.random()}`,
+        type: 'EXPENSE',
+        expenseProductId: defaultExp?.id || defaultExp?.finishedProductId,
+        expenseName: defaultExp?.productName || 'Bilty / Freight Expense',
+        expenseHeadId: defaultExp?.expenseHeadId,
+        expenseItemId: defaultExp?.expenseItemId,
+        description: defaultExp?.productName ? `${defaultExp.productName} reimbursement` : 'Field Expense',
+        allocatedAmount: rem > 0 ? rem : '',
+      },
+    ]);
+  };
+
+  // Remove allocation line
+  const handleRemoveUnifiedLine = (idx: number) => {
+    setUnifiedAllocations((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Open Create PR Modal with company pre-loaded and auto-fetched next PR number
+  const handleOpenCreateModal = () => {
+    const compId = effectiveCompanyId;
+    loadNextPrNumber(compId);
+    loadPrAuxiliary(compId);
+    setSelectedSalesOfficer(null);
+    setSelectedDealer(null);
+    setOfficerDealers([]);
+    setUnifiedAllocations([]);
+    setPrNumberError('');
+    setPrForm({
+      companyId: compId,
+      prNumber: '',
+      receiptDate: new Date().toISOString().split('T')[0],
+      issueDate: new Date().toISOString().split('T')[0],
+      receivedFrom: '',
+      salesOfficerId: '',
+      partyDealerId: '',
+      partyCode: '',
+      name: '',
+      address: '',
+      regionId: '',
+      territoryId: '',
+      paymentMethod: 'CASH',
+      paymentReferenceNumber: '',
+      bankName: '',
+      branchName: '',
+      totalAmount: '',
+      remarks: '',
+      autoPost: true,
+    });
+    setIsCreatePrOpen(true);
+  };
 
   // Open PR Drill-down detail
   const handleOpenDetail = async (pr: any) => {
@@ -279,39 +487,7 @@ const extractArray = (res: any): any[] => {
     setIsReverseOpen(true);
   };
 
-  // Calculate Product Total in Form
-  const calculatedProductTotal = useMemo(() => {
-    return productRows.reduce((sum, p) => sum + (Number(p.quantity || 0) * Number(p.policyRate || 0)), 0);
-  }, [productRows]);
-
-  // Auto-update total amount in form when products change
-  useEffect(() => {
-    if (productRows.length > 0) {
-      setPrForm((prev) => ({ ...prev, totalAmount: String(calculatedProductTotal) }));
-    }
-  }, [calculatedProductTotal]);
-
-  // Add Product Row
-  const handleAddProductRow = () => {
-    const defaultProd = (Array.isArray(productsMaster) ? productsMaster : [])[0];
-    setProductRows((prev) => [
-      ...prev,
-      {
-        finishedProductId: defaultProd?.finishedProductId || defaultProd?.id || undefined,
-        productName: defaultProd?.productName || 'Fertilizer Product',
-        packSize: defaultProd?.packSizeName || defaultProd?.packSize?.name || '50 KG Bag',
-        quantity: 50,
-        policyRate: Number(defaultProd?.baseRate || defaultProd?.defaultSellingPrice || 1200),
-      },
-    ]);
-  };
-
-  // Remove Product Row
-  const handleRemoveProductRow = (idx: number) => {
-    setProductRows((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  // Add Allocation Row
+  // Add Allocation Row for Modal 2 (Allocate unallocated PR)
   const handleAddAllocationRow = () => {
     setAllocationRows((prev) => [
       ...prev,
@@ -326,114 +502,6 @@ const extractArray = (res: any): any[] => {
   // Remove Allocation Row
   const handleRemoveAllocationRow = (idx: number) => {
     setAllocationRows((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  // Auto-fetch Officer -> Dealer, Region, Territory when user/officer is chosen
-  const handleHeaderOfficerSelect = (val: string) => {
-    if (!val) {
-      setPrForm((prev) => ({
-        ...prev,
-        salesOfficerId: '',
-      }));
-      return;
-    }
-
-    const u = (usersMaster || []).find((x) => x.id === val);
-    const officerName = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : '';
-
-    // Check user's market assignment (Region & Territory)
-    const ma = (u?.marketAssignments || [])[0];
-    let autoRegionId = ma?.regionId || ma?.region?.id || '';
-    let autoTerritoryId = ma?.territoryId || ma?.territory?.id || '';
-    const autoCompanyId = u?.companyId || prForm.companyId;
-
-    // Check dealers assigned to this sales officer
-    const dlrs = Array.isArray(dealers) ? dealers : [];
-    const officerDealers = dlrs.filter(
-      (d: any) =>
-        d.assignedFieldOfficerId === val ||
-        d.officerAssignments?.some((oa: any) => oa.userId === val || oa.user?.id === val)
-    );
-
-    let assignedPartyDealerId = '';
-    let assignedPartyCode = '';
-    let assignedReceivedFrom = officerName ? `${officerName} (Sales Officer)` : '';
-
-    if (officerDealers.length > 0) {
-      const primaryDealer = officerDealers[0];
-      assignedPartyDealerId = primaryDealer.id;
-      assignedPartyCode = primaryDealer.code || '';
-      assignedReceivedFrom = `${primaryDealer.name} (${primaryDealer.code})`;
-
-      if (primaryDealer.territoryId) {
-        autoTerritoryId = primaryDealer.territoryId;
-      }
-      if (primaryDealer.territory?.zone?.regionId) {
-        autoRegionId = primaryDealer.territory.zone.regionId;
-      }
-    } else if (autoTerritoryId) {
-      const terrDealer = dlrs.find((d: any) => d.territoryId === autoTerritoryId);
-      if (terrDealer) {
-        assignedPartyDealerId = terrDealer.id;
-        assignedPartyCode = terrDealer.code || '';
-        assignedReceivedFrom = `${terrDealer.name} (${terrDealer.code})`;
-      }
-    }
-
-    // Auto-generate clean PR number if empty
-    const autoPrNum = prForm.prNumber?.trim()
-      ? prForm.prNumber
-      : `PR-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-
-    setPrForm((prev) => ({
-      ...prev,
-      companyId: autoCompanyId || prev.companyId,
-      salesOfficerId: val,
-      receivedFrom: assignedReceivedFrom || prev.receivedFrom,
-      partyDealerId: assignedPartyDealerId || prev.partyDealerId,
-      partyCode: assignedPartyCode || prev.partyCode,
-      regionId: autoRegionId || prev.regionId,
-      territoryId: autoTerritoryId || prev.territoryId,
-      prNumber: autoPrNum,
-    }));
-
-    if (officerDealers.length > 0) {
-      notify(`Auto-fetched ${officerName}: Dealer "${officerDealers[0].name}", Region & Territory populated`, 'info');
-    } else {
-      notify(`Auto-fetched ${officerName}: Territory & Region synchronized`, 'info');
-    }
-  };
-
-  // Auto-fetch Dealer -> Officer, Territory, Region when dealer is chosen
-  const handleHeaderDealerSelect = (val: string) => {
-    const dlrs = Array.isArray(dealers) ? dealers : [];
-    const d = dlrs.find((x) => x.id === val);
-
-    if (!val || !d) {
-      setPrForm((prev) => ({
-        ...prev,
-        partyDealerId: '',
-        partyCode: '',
-      }));
-      return;
-    }
-
-    const regId = d?.territory?.zone?.regionId || d?.regionId || prForm.regionId;
-    const terrId = d?.territoryId || prForm.territoryId;
-    const officerId = d?.assignedFieldOfficerId || prForm.salesOfficerId;
-
-    setPrForm((prev) => ({
-      ...prev,
-      partyDealerId: val,
-      partyCode: d.code || '',
-      receivedFrom: `${d.name} (${d.code})`,
-      regionId: regId || prev.regionId,
-      territoryId: terrId || prev.territoryId,
-      salesOfficerId: officerId || prev.salesOfficerId,
-      companyId: d.companyId || prev.companyId,
-    }));
-
-    notify(`Auto-filled Region & Territory for Dealer ${d.name}`, 'info');
   };
 
   // Handle Dealer Select in Allocation
@@ -456,69 +524,115 @@ const extractArray = (res: any): any[] => {
     });
   };
 
-  // Submit Create PR
+  // Submit Create PR (Redesigned: Saves to Ledgers & Resets Form WITHOUT Closing Modal)
   const handleCreatePrSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const effCompId = effectiveCompanyId;
+    if (!effCompId) {
+      notify('Active company could not be resolved. Please select a company from the top bar.', 'error');
+      return;
+    }
+
     if (!prForm.prNumber.trim()) {
-      notify('Please enter a unique PR Number (e.g. PR-000001)', 'error');
-      return;
-    }
-    if (!prForm.receivedFrom.trim()) {
-      notify('Please enter "Received From M/s" / Field Employee', 'error');
+      notify('Please enter a PR Number (e.g. PR-2026-0001)', 'error');
       return;
     }
 
-    const totalAmt = Number(prForm.totalAmount) || calculatedProductTotal;
+    if (prNumberError) {
+      notify('PR Number already exists. Please enter a different PR number.', 'error');
+      return;
+    }
+
+    if (!prForm.salesOfficerId) {
+      notify('Please select a Collecting / Sales Officer', 'error');
+      return;
+    }
+
+    const totalAmt = Number(prForm.totalAmount) || 0;
     if (totalAmt <= 0) {
-      notify('Please specify a total amount or add product lines', 'error');
+      notify('Please enter a valid Total Received Amount (PKR)', 'error');
       return;
     }
 
-    // Check sum of allocations if provided
-    const allocTotal = allocationRows.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
-    if (allocTotal > totalAmt) {
-      notify(`Total allocated (PKR ${allocTotal}) cannot exceed received amount (PKR ${totalAmt})`, 'error');
+    // Filter valid allocations
+    const validAllocs = unifiedAllocations.filter((a) => {
+      const hasTarget = a.type === 'DEALER' ? !!a.dealerId : (!!a.expenseProductId || !!a.expenseName);
+      return hasTarget && Number(a.allocatedAmount) > 0;
+    });
+
+    if (validAllocs.length === 0) {
+      notify('Please add at least one valid allocation line (Dealer or Expense)', 'error');
       return;
+    }
+
+    const totalAllocated = validAllocs.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+    const remaining = totalAmt - totalAllocated;
+
+    if (Math.abs(remaining) > 0.01) {
+      if (remaining < 0) {
+        notify(`Total allocated (PKR ${totalAllocated.toLocaleString()}) cannot exceed received amount (PKR ${totalAmt.toLocaleString()}). Please balance allocations.`, 'error');
+        return;
+      } else {
+        notify(`Total allocated (PKR ${totalAllocated.toLocaleString()}) must equal Total Received (PKR ${totalAmt.toLocaleString()}). Remaining unallocated: PKR ${remaining.toLocaleString()}.`, 'error');
+        return;
+      }
     }
 
     setIsSubmitting(true);
     try {
       await ApiClient.post('/api/v1/provisional-receipts', {
-        ...prForm,
+        companyId: effCompId,
+        prNumber: prForm.prNumber.trim(),
+        receiptDate: prForm.receiptDate,
+        issueDate: prForm.issueDate || prForm.receiptDate,
+        salesOfficerId: prForm.salesOfficerId,
+        receivedFrom: prForm.receivedFrom || selectedSalesOfficer?.name || 'Field Officer',
+        partyDealerId: selectedDealer?.id || validAllocs.find((a) => a.type === 'DEALER')?.dealerId || undefined,
+        partyCode: selectedDealer?.code || validAllocs.find((a) => a.type === 'DEALER')?.partyCode || undefined,
         totalAmount: totalAmt,
-        products: productRows,
-        allocations: allocationRows.filter((a) => a.dealerId && Number(a.allocatedAmount) > 0),
+        paymentMethod: prForm.paymentMethod,
+        paymentReferenceNumber: prForm.paymentReferenceNumber || undefined,
+        bankName: prForm.bankName || undefined,
+        branchName: prForm.branchName || undefined,
+        remarks: prForm.remarks || undefined,
+        autoPost: true,
+        allocations: validAllocs.map((a) => ({
+          type: a.type,
+          dealerId: a.type === 'DEALER' ? a.dealerId : undefined,
+          partyCode: a.type === 'DEALER' ? a.partyCode : undefined,
+          expenseProductId: a.type === 'EXPENSE' ? a.expenseProductId : undefined,
+          expenseName: a.type === 'EXPENSE' ? a.expenseName : undefined,
+          expenseHeadId: a.type === 'EXPENSE' ? a.expenseHeadId : undefined,
+          expenseItemId: a.type === 'EXPENSE' ? a.expenseItemId : undefined,
+          allocatedAmount: Number(a.allocatedAmount),
+          remarks: a.description || undefined,
+        })),
       });
 
-      notify(`Provisional Receipt ${prForm.prNumber.toUpperCase()} created & posted to Collection Clearing!`, 'success');
-      setIsCreatePrOpen(false);
-      setProductRows([]);
-      setAllocationRows([]);
-      setPrForm({
-        companyId: companies[0]?.id || '',
-        prNumber: '',
-        receiptDate: new Date().toISOString().split('T')[0],
-        issueDate: new Date().toISOString().split('T')[0],
-        receivedFrom: '',
-        salesOfficerId: '',
-        partyDealerId: '',
-        partyCode: '',
-        name: '',
-        address: '',
-        regionId: '',
-        territoryId: '',
-        paymentMethod: 'ONLINE',
+      notify(`✓ Provisional Receipt ${prForm.prNumber.toUpperCase()} (PKR ${totalAmt.toLocaleString()}) saved and posted successfully!`, 'success');
+
+      // RESET FORM FOR NEXT ENTRY — KEEP MODAL OPEN!
+      setPrForm((prev) => ({
+        ...prev,
+        totalAmount: '',
+        remarks: '',
         paymentReferenceNumber: '',
         bankName: '',
         branchName: '',
-        totalAmount: '',
-        remarks: '',
-        autoPost: true,
-      });
+        // preserve salesOfficerId and date for rapid batch voucher entry
+      }));
+      setUnifiedAllocations([]);
+      setSelectedDealer(null);
+
+      // Auto-fetch next sequential PR number
+      await loadNextPrNumber(effCompId);
+
+      // Refresh background PR list and dashboard
       fetchDashboard();
       fetchPrs();
     } catch (err: any) {
-      notify(err?.message || 'Failed to create Provisional Receipt', 'error');
+      const errorMsg = err?.response?.data?.message || err?.message || 'Failed to save Provisional Receipt';
+      notify(errorMsg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -608,16 +722,7 @@ const extractArray = (res: any): any[] => {
 
           <Button
             variant="primary"
-            onClick={() => {
-              const defaultCompanyId = prForm.companyId || (companies[0]?.id || '');
-              setPrForm((prev) => ({
-                ...prev,
-                companyId: defaultCompanyId,
-                prNumber: `PR-${Math.floor(100000 + Math.random() * 900000)}`,
-              }));
-              fetchAuxiliary(defaultCompanyId);
-              setIsCreatePrOpen(true);
-            }}
+            onClick={handleOpenCreateModal}
             style={{ backgroundColor: '#f59e0b', border: 'none', color: '#fff' }}
           >
             <IconPlus size={14} /> New Provisional Receipt (PR)
@@ -858,7 +963,7 @@ const extractArray = (res: any): any[] => {
         </CardContent>
       </Card>
 
-      {/* MODAL 1: ISSUE NEW PROVISIONAL RECEIPT */}
+      {/* MODAL 1: REDESIGNED PROVISIONAL RECEIPT (PR) WORKFLOW */}
       <Modal
         isOpen={isCreatePrOpen}
         onClose={() => setIsCreatePrOpen(false)}
@@ -866,42 +971,63 @@ const extractArray = (res: any): any[] => {
         size="xl"
       >
         <form onSubmit={handleCreatePrSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {/* Active Company Banner (Auto-Resolved from Header - Isolation Enforced) */}
+          <div
+            style={{
+              padding: '10px 16px',
+              background: 'rgba(13, 148, 136, 0.08)',
+              border: '1px solid rgba(13, 148, 136, 0.25)',
+              borderRadius: '8px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Active Company Context:</span>
+              <span style={{ fontSize: '13px', fontWeight: 700, color: '#0d9488' }}>
+                {activeCompanyName || activeCompany?.name || 'Selected Company'}
+              </span>
+              {activeCompany?.code && (
+                <span style={{ fontSize: '11px', background: '#0d9488', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                  {activeCompany.code}
+                </span>
+              )}
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              Child company isolation strictly enforced • Zero redundant selector
+            </span>
+          </div>
+
           {/* Header Info Panel */}
           <div style={{ padding: '16px', background: 'var(--color-bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
-                <label className="label">Company *</label>
-                <Select
-                  value={prForm.companyId}
-                  onChange={(valOrEvent) => {
-                    const val = valOrEvent?.target?.value ?? valOrEvent;
-                    setPrForm((prev) => ({
-                      ...prev,
-                      companyId: val,
-                      partyDealerId: '',
-                      partyCode: '',
-                      regionId: '',
-                      territoryId: '',
-                    }));
-                    fetchAuxiliary(val);
-                  }}
-                  options={(Array.isArray(companies) ? companies : []).map((c) => ({
-                    label: `${c.name} (${c.code})`,
-                    value: c.id,
-                  }))}
-                  required
-                />
-              </div>
-
-              <div>
                 <label className="label">PR Number (Unique) *</label>
                 <Input
                   required
-                  placeholder="e.g. PR-000001"
+                  placeholder="e.g. PR-2026-0001"
                   value={prForm.prNumber}
-                  onChange={(e) => setPrForm({ ...prForm, prNumber: e.target.value })}
-                  style={{ fontWeight: 700, fontFamily: 'monospace' }}
+                  onChange={(e) => {
+                    setPrForm({ ...prForm, prNumber: e.target.value });
+                    if (prNumberError) setPrNumberError('');
+                  }}
+                  onBlur={(e) => validatePrNumber(e.target.value, effectiveCompanyId)}
+                  style={{
+                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    borderColor: prNumberError ? '#ef4444' : undefined,
+                  }}
                 />
+                {prNumberError ? (
+                  <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px', fontWeight: 600 }}>
+                    {prNumberError}
+                  </div>
+                ) : isCheckingPrNumber ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Checking uniqueness...
+                  </div>
+                ) : null}
               </div>
 
               <div>
@@ -922,122 +1048,57 @@ const extractArray = (res: any): any[] => {
                   onChange={(e) => setPrForm({ ...prForm, issueDate: e.target.value })}
                 />
               </div>
+
+              <div>
+                <label className="label">Total Received (PKR) *</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="e.g. 500000"
+                  value={prForm.totalAmount}
+                  onChange={(e) => setPrForm({ ...prForm, totalAmount: e.target.value })}
+                  style={{ fontWeight: 800, fontSize: '15px', color: '#d97706' }}
+                />
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginTop: '14px' }}>
               <div>
-                <label className="label">Collecting Officer / User (Staff Dropdown)</label>
-                <Select
-                  value={prForm.salesOfficerId}
-                  onChange={(valOrEvent) => {
-                    const val = valOrEvent?.target?.value ?? valOrEvent;
-                    handleHeaderOfficerSelect(val);
-                  }}
-                  options={[
-                    { label: '-- Select Collecting Officer (Optional) --', value: '' },
-                    ...(Array.isArray(usersMaster) ? usersMaster : []).map((u) => {
-                      const officerDealers = (dealers || []).filter(
-                        (d: any) =>
-                          d.assignedFieldOfficerId === u.id ||
-                          d.officerAssignments?.some((oa: any) => oa.userId === u.id || oa.user?.id === u.id)
-                      );
-                      const dealerCount = officerDealers.length;
-                      return {
-                        label: `${u.firstName || ''} ${u.lastName || ''}`.trim() + ` (${u.email})${dealerCount > 0 ? ` [${dealerCount} Dealers]` : ''}`,
-                        value: u.id,
-                      };
-                    }),
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="label">Received From M/s (Payer / Officer Name) *</label>
-                <Input
+                <label className="label">Collecting / Sales Officer *</label>
+                <SearchableCombobox
                   required
-                  placeholder="e.g. Officer Hamza / M/s Al-Madina Traders"
-                  value={prForm.receivedFrom}
-                  onChange={(e) => setPrForm({ ...prForm, receivedFrom: e.target.value })}
+                  value={prForm.salesOfficerId}
+                  onChange={handleOfficerChange}
+                  placeholder="Search sales officer..."
+                  options={salesOfficers.map((o) => ({
+                    value: o.id,
+                    label: o.name,
+                    subtext: `${o.position || 'Sales Officer'}${o.dealerCount ? ` • ${o.dealerCount} Dealers` : ''}`,
+                    badge: o.code,
+                  }))}
                 />
               </div>
 
               <div>
-                <label className="label">Primary Dealer / Party Code</label>
-                <Select
+                <label className="label">Primary Dealer / Party</label>
+                <SearchableCombobox
                   value={prForm.partyDealerId}
-                  onChange={(valOrEvent) => {
-                    const val = valOrEvent?.target?.value ?? valOrEvent;
-                    handleHeaderDealerSelect(val);
-                  }}
-                  options={[
-                    { label: '-- Select Dealer (Optional) --', value: '' },
-                    ...(() => {
-                      const dlrs = Array.isArray(dealers) ? dealers : [];
-                      // If officer is selected, sort their assigned dealers first
-                      return [...dlrs]
-                        .sort((a, b) => {
-                          if (!prForm.salesOfficerId) return 0;
-                          const aAssigned = a.assignedFieldOfficerId === prForm.salesOfficerId || a.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId);
-                          const bAssigned = b.assignedFieldOfficerId === prForm.salesOfficerId || b.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId);
-                          if (aAssigned && !bAssigned) return -1;
-                          if (!aAssigned && bAssigned) return 1;
-                          return 0;
-                        })
-                        .map((d) => {
-                          const isAssigned = prForm.salesOfficerId && (
-                            d.assignedFieldOfficerId === prForm.salesOfficerId ||
-                            d.officerAssignments?.some((oa: any) => oa.userId === prForm.salesOfficerId || oa.user?.id === prForm.salesOfficerId)
-                          );
-                          return {
-                            label: `${isAssigned ? '★ ' : ''}${d.code} - ${d.name}${isAssigned ? ' (Assigned)' : ''}`,
-                            value: d.id,
-                            subtext: d.city ? `City: ${d.city}` : undefined,
-                          };
-                        });
-                    })(),
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="label">Region</label>
-                <Select
-                  value={prForm.regionId}
-                  onChange={(valOrEvent) => {
-                    const val = valOrEvent?.target?.value ?? valOrEvent;
-                    setPrForm((prev) => ({ ...prev, regionId: val }));
-                  }}
-                  options={[
-                    { label: '-- Select Region --', value: '' },
-                    ...(Array.isArray(regions) ? regions : []).map((r) => ({
-                      label: `${r.name} (${r.code || 'REG'})`,
-                      value: r.id,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <div>
-                <label className="label">Territory</label>
-                <Select
-                  value={prForm.territoryId}
-                  onChange={(valOrEvent) => {
-                    const val = valOrEvent?.target?.value ?? valOrEvent;
-                    const terr = (territories || []).find((t: any) => t.id === val);
-                    setPrForm((prev) => ({
-                      ...prev,
-                      territoryId: val,
-                      regionId: terr?.zone?.regionId || prev.regionId,
-                      salesOfficerId: terr?.managerId || prev.salesOfficerId,
-                    }));
-                  }}
-                  options={[
-                    { label: '-- Select Territory --', value: '' },
-                    ...(Array.isArray(territories) ? territories : []).map((t) => ({
-                      label: `${t.name} (${t.code || 'TERR'})`,
-                      value: t.id,
-                    })),
-                  ]}
+                  onChange={(val) => handleDealerChange(val)}
+                  disabled={!prForm.salesOfficerId}
+                  placeholder={
+                    !prForm.salesOfficerId
+                      ? 'Select Sales Officer first'
+                      : officerDealers.length === 0
+                      ? 'No assigned dealers found'
+                      : 'Search assigned dealer...'
+                  }
+                  options={officerDealers.map((d) => ({
+                    value: d.id,
+                    label: `${d.code} - ${d.name}`,
+                    subtext: `Shop: ${d.businessName || d.name} • ${d.territoryName || ''}`,
+                    badge: `PKR ${Number(d.currentBalance || 0).toLocaleString()}`,
+                  }))}
                 />
               </div>
 
@@ -1050,133 +1111,273 @@ const extractArray = (res: any): any[] => {
                     setPrForm((prev) => ({ ...prev, paymentMethod: val }));
                   }}
                   options={[
+                    { label: 'Cash Collection (CASH)', value: 'CASH' },
                     { label: 'Online / Bank Deposit', value: 'ONLINE' },
                     { label: 'Bank Cheque', value: 'CHEQUE' },
-                    { label: 'Cash Collection', value: 'CASH' },
                     { label: 'Pay Order / Demand Draft', value: 'PAY_ORDER' },
                   ]}
                 />
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginTop: '14px' }}>
-              <div>
-                <label className="label">Cheque / Ref Number</label>
-                <Input
-                  placeholder="e.g. CHQ-991203 / Dep-Slip #12"
-                  value={prForm.paymentReferenceNumber}
-                  onChange={(e) => setPrForm({ ...prForm, paymentReferenceNumber: e.target.value })}
-                />
-              </div>
+            {/* Bank details only when payment method is not Cash */}
+            {prForm.paymentMethod !== 'CASH' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginTop: '14px' }}>
+                <div>
+                  <label className="label">Cheque / Ref Number *</label>
+                  <Input
+                    required
+                    placeholder="e.g. CHQ-991203 / Dep-Slip #12"
+                    value={prForm.paymentReferenceNumber}
+                    onChange={(e) => setPrForm({ ...prForm, paymentReferenceNumber: e.target.value })}
+                  />
+                </div>
 
-              <div>
-                <label className="label">Bank Name</label>
-                <Input
-                  placeholder="e.g. Habib Bank Limited"
-                  value={prForm.bankName}
-                  onChange={(e) => setPrForm({ ...prForm, bankName: e.target.value })}
-                />
-              </div>
+                <div>
+                  <label className="label">Bank Name</label>
+                  <Input
+                    placeholder="e.g. Habib Bank Limited"
+                    value={prForm.bankName}
+                    onChange={(e) => setPrForm({ ...prForm, bankName: e.target.value })}
+                  />
+                </div>
 
-              <div>
-                <label className="label">Branch Name</label>
-                <Input
-                  placeholder="e.g. Main Boulevard Branch"
-                  value={prForm.branchName}
-                  onChange={(e) => setPrForm({ ...prForm, branchName: e.target.value })}
-                />
+                <div>
+                  <label className="label">Branch Name</label>
+                  <Input
+                    placeholder="e.g. Main Boulevard Branch"
+                    value={prForm.branchName}
+                    onChange={(e) => setPrForm({ ...prForm, branchName: e.target.value })}
+                  />
+                </div>
               </div>
+            )}
+
+            <div style={{ marginTop: '14px' }}>
+              <label className="label">Remarks / Description</label>
+              <Input
+                placeholder="Optional PR collection remarks..."
+                value={prForm.remarks}
+                onChange={(e) => setPrForm({ ...prForm, remarks: e.target.value })}
+              />
             </div>
           </div>
 
-          {/* Dynamic Product Lines Section */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <div>
-                <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  Product Lines (Matches Physical PR Table)
-                </h3>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Enter physical commercial lines to auto-calculate the total receipt value.
+          {/* Auto-Filled Market Hierarchy Card (Read-Only) */}
+          {selectedDealer && (
+            <div
+              style={{
+                padding: '12px 16px',
+                background: 'var(--color-bg-secondary)',
+                borderRadius: '8px',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px' }}>
+                Assigned Dealer Market Hierarchy & Outstanding Balance
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', fontSize: '12px' }}>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Party Code</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{selectedDealer.code}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Shop / Business</span>
+                  <span style={{ fontWeight: 700 }}>{selectedDealer.businessName || selectedDealer.name}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Territory</span>
+                  <span style={{ fontWeight: 600 }}>{selectedDealer.territoryName}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Zone</span>
+                  <span style={{ fontWeight: 600 }}>{selectedDealer.zoneName}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Region</span>
+                  <span style={{ fontWeight: 600 }}>{selectedDealer.regionName}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Province</span>
+                  <span style={{ fontWeight: 600 }}>{selectedDealer.provinceName}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Address</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{selectedDealer.address || '—'}</span>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Current Outstanding</span>
+                  <span style={{ fontWeight: 800, color: Number(selectedDealer.currentBalance) > 0 ? '#ef4444' : '#10b981' }}>
+                    PKR {Number(selectedDealer.currentBalance || 0).toLocaleString()}
+                  </span>
                 </div>
               </div>
-              <Button type="button" variant="secondary" size="sm" onClick={handleAddProductRow}>
-                <IconPlus size={13} /> Add Product Line
-              </Button>
+            </div>
+          )}
+
+          {/* Unified Allocation Table (Dealer & Expense Lines) */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
+                  Allocation Breakdown (Dealer & Expense Lines)
+                </h3>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Distribute the received collection across assigned dealers and operating expense items.
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button type="button" variant="secondary" size="sm" onClick={handleAddDealerLine}>
+                  <IconPlus size={13} /> Add Dealer Line
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={handleAddExpenseLine}>
+                  <IconPlus size={13} /> Add Expense Line
+                </Button>
+              </div>
             </div>
 
-            {productRows.length > 0 && (
+            {unifiedAllocations.length === 0 ? (
+              <div
+                style={{
+                  padding: '24px',
+                  textAlign: 'center',
+                  background: 'var(--color-bg-secondary)',
+                  borderRadius: '8px',
+                  border: '1px dashed var(--border-default)',
+                }}
+              >
+                <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  No allocation lines added yet
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Click <strong>Add Dealer Line</strong> or <strong>Add Expense Line</strong> above to allocate the received amount.
+                </div>
+              </div>
+            ) : (
               <div style={{ border: '1px solid var(--border-default)', borderRadius: '8px', overflow: 'hidden' }}>
                 <table className="table" style={{ width: '100%', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ background: 'var(--color-bg-secondary)' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Product</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '140px' }}>Pack Size</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '110px' }}>Qty</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '120px' }}>Rate (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '130px' }}>Amount (PKR)</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'center', width: '40px' }}>#</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '110px' }}>Type</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Dealer / Expense Target</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '220px' }}>Description / Remarks</th>
+                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '150px' }}>Amount (PKR)</th>
                       <th style={{ padding: '8px 12px', textAlign: 'center', width: '50px' }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {productRows.map((row, idx) => {
-                      const lineAmt = Number(row.quantity || 0) * Number(row.policyRate || 0);
+                    {unifiedAllocations.map((alloc, idx) => {
                       return (
-                        <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <tr key={alloc.id || idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>
+                            {idx + 1}
+                          </td>
                           <td style={{ padding: '8px 12px' }}>
-                            <select
-                              value={row.finishedProductId || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                const prods = Array.isArray(productsMaster) ? productsMaster : [];
-                                const prod = prods.find((p) => (p.finishedProductId || p.id) === val);
-                                const copy = [...productRows];
-                                if (copy[idx]) {
-                                  copy[idx] = {
-                                    ...copy[idx],
-                                    finishedProductId: val,
-                                    productName: prod?.productName || copy[idx].productName,
-                                    packSize: prod?.packSizeName || prod?.packSize?.name || copy[idx].packSize,
-                                    policyRate: Number(prod?.baseRate || prod?.defaultSellingPrice || copy[idx].policyRate),
-                                  };
-                                  setProductRows(copy);
-                                }
-                              }}
+                            <span
                               style={{
-                                width: '100%',
-                                minWidth: '180px',
-                                padding: '8px 10px',
-                                borderRadius: '8px',
-                                border: '1.5px solid var(--border-default)',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                color: 'var(--text-primary)',
-                                backgroundColor: 'var(--bg-surface)',
-                                cursor: 'pointer',
-                                outline: 'none',
+                                display: 'inline-block',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                background: alloc.type === 'DEALER' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)',
+                                color: alloc.type === 'DEALER' ? '#10b981' : '#8b5cf6',
                               }}
                             >
-                              <option value="">-- Select Master Product --</option>
-                              {(Array.isArray(productsMaster) ? productsMaster : []).map((p) => {
-                                const pId = p.finishedProductId || p.id;
-                                const pPack = p.packSizeName || p.packSize?.name || 'Standard';
-                                const pRate = Number(p.baseRate || p.defaultSellingPrice || 0);
-                                return (
-                                  <option key={pId} value={pId}>
-                                    {p.productName} ({pPack}) - PKR {pRate.toLocaleString()}
+                              {alloc.type === 'DEALER' ? 'Dealer' : 'Expense'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            {alloc.type === 'DEALER' ? (
+                              <select
+                                required
+                                value={alloc.dealerId || ''}
+                                onChange={(e) => {
+                                  const dId = e.target.value;
+                                  const dlr = officerDealers.find((d) => d.id === dId);
+                                  const copy = [...unifiedAllocations];
+                                  if (copy[idx]) {
+                                    copy[idx] = {
+                                      ...copy[idx],
+                                      dealerId: dId,
+                                      partyCode: dlr?.code || '',
+                                      dealerName: dlr?.name || '',
+                                      description: dlr ? `Collection from ${dlr.businessName || dlr.name}` : copy[idx].description,
+                                    };
+                                    setUnifiedAllocations(copy);
+                                  }
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-default)',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  backgroundColor: 'var(--bg-surface)',
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                <option value="">-- Select Assigned Dealer --</option>
+                                {officerDealers.map((d) => (
+                                  <option key={d.id} value={d.id}>
+                                    {d.code} - {d.name} ({d.businessName || 'Shop'}) [Bal: PKR {Number(d.currentBalance || 0).toLocaleString()}]
                                   </option>
-                                );
-                              })}
-                            </select>
+                                ))}
+                              </select>
+                            ) : (
+                              <select
+                                required
+                                value={alloc.expenseProductId || ''}
+                                onChange={(e) => {
+                                  const epId = e.target.value;
+                                  const exp = expenseProducts.find((p) => (p.id || p.finishedProductId) === epId);
+                                  const copy = [...unifiedAllocations];
+                                  if (copy[idx]) {
+                                    copy[idx] = {
+                                      ...copy[idx],
+                                      expenseProductId: epId,
+                                      expenseName: exp?.productName || 'Operational Expense',
+                                      expenseHeadId: exp?.expenseHeadId,
+                                      expenseItemId: exp?.expenseItemId,
+                                      description: exp?.productName ? `${exp.productName} reimbursement` : copy[idx].description,
+                                    };
+                                    setUnifiedAllocations(copy);
+                                  }
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-default)',
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  backgroundColor: 'var(--bg-surface)',
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                <option value="">-- Select Expense / Product Head --</option>
+                                {expenseProducts.map((p) => {
+                                  const id = p.id || p.finishedProductId;
+                                  return (
+                                    <option key={id} value={id}>
+                                      {p.productName} ({p.category || p.productType || 'EXPENSE'})
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            )}
                           </td>
                           <td style={{ padding: '8px 12px' }}>
                             <Input
-                              value={row.packSize}
+                              placeholder="Line remarks"
+                              value={alloc.description}
                               onChange={(e) => {
-                                const copy = [...productRows];
+                                const copy = [...unifiedAllocations];
                                 if (copy[idx]) {
-                                  copy[idx].packSize = e.target.value;
-                                  setProductRows(copy);
+                                  copy[idx].description = e.target.value;
+                                  setUnifiedAllocations(copy);
                                 }
                               }}
                             />
@@ -1184,40 +1385,24 @@ const extractArray = (res: any): any[] => {
                           <td style={{ padding: '8px 12px' }}>
                             <Input
                               type="number"
-                              value={row.quantity}
+                              required
+                              value={alloc.allocatedAmount}
                               onChange={(e) => {
-                                const copy = [...productRows];
+                                const copy = [...unifiedAllocations];
                                 if (copy[idx]) {
-                                  copy[idx].quantity = Number(e.target.value);
-                                  setProductRows(copy);
+                                  copy[idx].allocatedAmount = e.target.value === '' ? '' : Number(e.target.value);
+                                  setUnifiedAllocations(copy);
                                 }
                               }}
-                              style={{ textAlign: 'right' }}
+                              style={{ textAlign: 'right', fontWeight: 700 }}
                             />
-                          </td>
-                          <td style={{ padding: '8px 12px' }}>
-                            <Input
-                              type="number"
-                              value={row.policyRate}
-                              onChange={(e) => {
-                                const copy = [...productRows];
-                                if (copy[idx]) {
-                                  copy[idx].policyRate = Number(e.target.value);
-                                  setProductRows(copy);
-                                }
-                              }}
-                              style={{ textAlign: 'right' }}
-                            />
-                          </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
-                            PKR {lineAmt.toLocaleString()}
                           </td>
                           <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                             <Button
                               type="button"
                               variant="secondary"
                               size="sm"
-                              onClick={() => handleRemoveProductRow(idx)}
+                              onClick={() => handleRemoveUnifiedLine(idx)}
                               style={{ color: '#ef4444', borderColor: 'transparent', padding: '4px' }}
                             >
                               <IconTrash size={14} />
@@ -1230,176 +1415,117 @@ const extractArray = (res: any): any[] => {
                 </table>
               </div>
             )}
-          </div>
 
-          {/* Total Amount Box */}
-          <div
-            style={{
-              padding: '16px',
-              background: 'rgba(217, 119, 6, 0.08)',
-              borderRadius: '8px',
-              border: '1px solid rgba(217, 119, 6, 0.25)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase' }}>
-                Total Received Amount
-              </div>
-              <div style={{ fontSize: '24px', fontWeight: 800, color: '#d97706' }}>
-                PKR {(Number(prForm.totalAmount) || calculatedProductTotal).toLocaleString()}
-              </div>
-            </div>
+            {/* Real-time Reconciliation Bar */}
+            {(() => {
+              const totalRec = Number(prForm.totalAmount) || 0;
+              const totalAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
+              const remaining = totalRec - totalAlloc;
+              const isBalanced = Math.abs(remaining) <= 0.01 && totalRec > 0;
+              const isOver = remaining < -0.01;
 
-            <div style={{ maxWidth: '220px' }}>
-              <label className="label" style={{ fontSize: '11px' }}>Direct / Override Total (PKR)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="Total amount"
-                value={prForm.totalAmount}
-                onChange={(e) => setPrForm({ ...prForm, totalAmount: e.target.value })}
-                style={{ fontWeight: 700 }}
-              />
-            </div>
-          </div>
+              return (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 16px',
+                    background: isBalanced
+                      ? 'rgba(16, 185, 129, 0.08)'
+                      : isOver
+                      ? 'rgba(239, 68, 68, 0.08)'
+                      : 'rgba(245, 158, 11, 0.08)',
+                    border: `1px solid ${
+                      isBalanced ? '#10b981' : isOver ? '#ef4444' : '#f59e0b'
+                    }`,
+                    borderRadius: '8px',
+                    marginTop: '12px',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Received</span>
+                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#d97706' }}>
+                        PKR {totalRec.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Allocated</span>
+                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#10b981' }}>
+                        PKR {totalAlloc.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Remaining Balance</span>
+                      <span
+                        style={{
+                          fontSize: '16px',
+                          fontWeight: 800,
+                          color: isBalanced ? '#10b981' : isOver ? '#ef4444' : '#f59e0b',
+                        }}
+                      >
+                        PKR {remaining.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
 
-          {/* Multi-Dealer Allocation Split */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <div>
-                <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  Dealer Allocation (Optional at creation, can be allocated later)
-                </h3>
-                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Unallocated amount remains securely in Account 103500 (Collection Clearing).
+                  <div>
+                    {isBalanced ? (
+                      <span style={{ background: '#10b981', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                        ✓ Perfectly Balanced (Ready to Post)
+                      </span>
+                    ) : isOver ? (
+                      <span style={{ background: '#ef4444', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                        ✕ Overallocated by PKR {Math.abs(remaining).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span style={{ background: '#f59e0b', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                        ⚠ Unallocated: PKR {remaining.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <Button type="button" variant="secondary" size="sm" onClick={handleAddAllocationRow}>
-                <IconPlus size={13} /> Add Dealer Split
-              </Button>
-            </div>
-
-            {allocationRows.length > 0 && (
-              <div style={{ border: '1px solid var(--border-default)', borderRadius: '8px', overflow: 'hidden' }}>
-                <table className="table" style={{ width: '100%', fontSize: '12px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--color-bg-secondary)' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Dealer</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '180px' }}>Allocated Amount (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Remarks</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center', width: '50px' }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allocationRows.map((alloc, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '8px 12px' }}>
-                          <select
-                            value={alloc.dealerId || ''}
-                            onChange={(e) => handleDealerSelect(idx, e.target.value)}
-                            style={{
-                              width: '100%',
-                              minWidth: '220px',
-                              padding: '8px 10px',
-                              borderRadius: '8px',
-                              border: '1.5px solid var(--border-default)',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              color: 'var(--text-primary)',
-                              backgroundColor: 'var(--bg-surface)',
-                              cursor: 'pointer',
-                              outline: 'none',
-                            }}
-                          >
-                            <option value="">-- Select Dealer --</option>
-                            {(Array.isArray(dealers) ? dealers : []).map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.code} - {d.name} (Bal: PKR {Number(d.currentBalance || 0).toLocaleString()})
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <Input
-                            type="number"
-                            value={alloc.allocatedAmount}
-                            onChange={(e) => {
-                              const copy = [...allocationRows];
-                              if (copy[idx]) {
-                                copy[idx].allocatedAmount = Number(e.target.value);
-                                setAllocationRows(copy);
-                              }
-                            }}
-                            style={{ textAlign: 'right', fontWeight: 700 }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <Input
-                            placeholder="Allocation remarks"
-                            value={alloc.remarks || ''}
-                            onChange={(e) => {
-                              const copy = [...allocationRows];
-                              if (copy[idx]) {
-                                copy[idx].remarks = e.target.value;
-                                setAllocationRows(copy);
-                              }
-                            }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => handleRemoveAllocationRow(idx)}
-                            style={{ color: '#ef4444', borderColor: 'transparent', padding: '4px' }}
-                          >
-                            <IconTrash size={14} />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
-          {/* GL Accounting Impact Box */}
+          {/* GL Double-Entry Notice */}
           <div
             style={{
-              padding: '12px 16px',
+              padding: '10px 14px',
               backgroundColor: 'rgba(2, 132, 199, 0.05)',
               border: '1px solid rgba(2, 132, 199, 0.2)',
               borderRadius: '8px',
-              fontSize: '12px',
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.5,
             }}
           >
-            <div style={{ fontWeight: 700, color: '#0284c7', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <IconFileText size={14} />
-              Automated Double-Entry General Ledger Impact:
-            </div>
-            <div style={{ marginTop: '6px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              • <strong>Debit:</strong> Account 101000 (Cash) / Account 102000 (Bank) for received amount.<br />
-              • <strong>Credit:</strong> Account 103000 (Accounts Receivable - Dealers) for allocated portion & Account 103500 (Collection Clearing) for unallocated balance.
-            </div>
+            <strong style={{ color: '#0284c7' }}>Double-Entry General Ledger Impact: </strong>
+            Debit Cash (101000) / Bank (102000) • Credit Dealer AR (103000) for dealer splits • Credit Operating Expenses (609000) for expense lines • Credit Collection Clearing (103500) for unallocated balance.
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-            <Button type="button" variant="secondary" onClick={() => setIsCreatePrOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={isSubmitting}
-              style={{ background: '#d97706', borderColor: '#d97706', color: '#fff' }}
-            >
-              <IconCheck size={14} /> {isSubmitting ? 'Posting...' : 'Issue & Post Provisional Receipt'}
-            </Button>
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap', gap: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              💡 Form automatically resets & increments PR number upon saving for continuous entry.
+            </span>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <Button type="button" variant="secondary" onClick={() => setIsCreatePrOpen(false)}>
+                Done / Close
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={isSubmitting || !!prNumberError}
+                style={{ background: '#d97706', borderColor: '#d97706', color: '#fff' }}
+              >
+                <IconCheck size={14} /> {isSubmitting ? 'Posting...' : 'Save & Post PR (Reset Ready)'}
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>

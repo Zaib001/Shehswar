@@ -31,11 +31,16 @@ export interface CreatePrProductDto {
 }
 
 export interface CreatePrAllocationDto {
-  dealerId: string;
+  type?: 'DEALER' | 'EXPENSE';
+  dealerId?: string;
   partyCode?: string;
   dealerName?: string;
   regionId?: string;
   territoryId?: string;
+  expenseProductId?: string;
+  expenseName?: string;
+  expenseHeadId?: string;
+  expenseItemId?: string;
   allocatedAmount: number;
   reference?: string;
   remarks?: string;
@@ -52,8 +57,10 @@ export interface CreateProvisionalReceiptDto {
   partyCode?: string;
   address?: string;
   salesOfficerId?: string;
+  salesOfficerName?: string;
   regionId?: string;
   territoryId?: string;
+  zoneId?: string;
   paymentMethod: 'CASH' | 'CHEQUE' | 'DD' | 'ONLINE' | 'OTHER';
   paymentReferenceNumber?: string;
   bankName?: string;
@@ -127,7 +134,7 @@ export class ProvisionalReceiptsService {
 
     if (existing) {
       throw new ConflictException(
-        `Provisional Receipt with number "${prNumberClean}" already exists for this company`,
+        `PR Number "${prNumberClean}" already exists. Please enter a different PR number.`,
       );
     }
 
@@ -197,9 +204,9 @@ export class ProvisionalReceiptsService {
     const receiptDate = new Date(dto.receiptDate);
     const issueDate = dto.issueDate ? new Date(dto.issueDate) : receiptDate;
 
-    // 4. Validate initial allocations if any are provided
+    // 4. Validate initial allocations (Dealers and Expenses)
     let totalAllocated = 0;
-    const processedAllocations: Array<{
+    const dealerAllocations: Array<{
       id: string;
       dealerId: string;
       partyCode?: string | null;
@@ -212,24 +219,48 @@ export class ProvisionalReceiptsService {
       status: string;
     }> = [];
 
+    const expenseAllocations: Array<{
+      id: string;
+      expenseProductId?: string | null;
+      expenseName: string;
+      expenseHeadId?: string | null;
+      expenseItemId?: string | null;
+      allocatedAmount: number;
+      reference?: string | null;
+      remarks?: string | null;
+    }> = [];
+
     if (dto.allocations && dto.allocations.length > 0) {
       for (const a of dto.allocations) {
         const amt = Math.round(Number(a.allocatedAmount) * 100) / 100;
         if (amt <= 0) continue;
         totalAllocated += amt;
 
-        processedAllocations.push({
-          id: uuidv7(),
-          dealerId: a.dealerId,
-          partyCode: a.partyCode || null,
-          dealerName: a.dealerName || null,
-          regionId: a.regionId || null,
-          territoryId: a.territoryId || null,
-          allocatedAmount: amt,
-          reference: a.reference || null,
-          remarks: a.remarks || null,
-          status: 'POSTED',
-        });
+        if (a.type === 'EXPENSE' || (!a.dealerId && (a.expenseName || a.expenseProductId))) {
+          expenseAllocations.push({
+            id: uuidv7(),
+            expenseProductId: a.expenseProductId || null,
+            expenseName: a.expenseName || a.remarks || 'Bilty Expense',
+            expenseHeadId: a.expenseHeadId || null,
+            expenseItemId: a.expenseItemId || null,
+            allocatedAmount: amt,
+            reference: a.reference || null,
+            remarks: a.remarks || null,
+          });
+        } else if (a.dealerId) {
+          dealerAllocations.push({
+            id: uuidv7(),
+            dealerId: a.dealerId,
+            partyCode: a.partyCode || null,
+            dealerName: a.dealerName || null,
+            regionId: a.regionId || null,
+            territoryId: a.territoryId || null,
+            allocatedAmount: amt,
+            reference: a.reference || null,
+            remarks: a.remarks || null,
+            status: 'POSTED',
+          });
+        }
       }
     }
 
@@ -298,10 +329,23 @@ export class ProvisionalReceiptsService {
         await this.postInitialReceiptAccounting(tx, organizationId, pr, userId);
       }
 
-      // If initial allocations were provided and autoPost is true, post them
-      if (dto.autoPost && processedAllocations.length > 0) {
-        for (const alloc of processedAllocations) {
+      // If initial dealer allocations were provided and autoPost is true, post them to Dealer Ledger
+      if (dto.autoPost && dealerAllocations.length > 0) {
+        for (const alloc of dealerAllocations) {
           await this.executeDealerAllocation(
+            tx,
+            organizationId,
+            pr,
+            alloc,
+            userId,
+          );
+        }
+      }
+
+      // If initial expense allocations were provided and autoPost is true, post them to Expense Ledger
+      if (dto.autoPost && expenseAllocations.length > 0) {
+        for (const alloc of expenseAllocations) {
+          await this.executeExpenseAllocation(
             tx,
             organizationId,
             pr,
@@ -525,6 +569,131 @@ export class ProvisionalReceiptsService {
   }
 
   /**
+   * Helper to execute expense allocation:
+   * 1. Creates `ProvisionalReceiptProduct` line for audit & document print
+   * 2. Creates `FinancialTransaction` record in Expense Ledger (debit contra expense)
+   * 3. Posts GL entry: Debit Operating Expense, Credit Collection Clearing (103500)
+   */
+  private async executeExpenseAllocation(
+    tx: any,
+    organizationId: string,
+    pr: any,
+    alloc: {
+      id: string;
+      expenseProductId?: string | null;
+      expenseName: string;
+      expenseHeadId?: string | null;
+      expenseItemId?: string | null;
+      allocatedAmount: number;
+      reference?: string | null;
+      remarks?: string | null;
+    },
+    userId?: string,
+  ) {
+    const amount = alloc.allocatedAmount;
+    const expenseName = alloc.expenseName || 'Operational Expense';
+
+    // 1. Create product/expense line on PR
+    await tx.provisionalReceiptProduct.create({
+      data: {
+        id: alloc.id,
+        provisionalReceiptId: pr.id,
+        srNo: 99,
+        finishedProductId: alloc.expenseProductId && !alloc.expenseProductId.startsWith('STD-') ? alloc.expenseProductId : null,
+        productName: expenseName,
+        packSize: 'EXPENSE',
+        quantity: 1,
+        policyRate: amount,
+        amount,
+      },
+    });
+
+    // 2. Resolve Contra Expense GL Account (e.g. 609000 Operating / Misc Expense)
+    let expenseAccount = await tx.account.findFirst({
+      where: {
+        companyId: pr.companyId,
+        OR: [
+          { accountCode: '609000' },
+          { accountCode: '6090' },
+          { accountType: 'EXPENSE' },
+        ],
+      },
+    });
+
+    if (!expenseAccount) {
+      expenseAccount = await tx.account.findFirst({
+        where: { companyId: pr.companyId },
+      });
+    }
+
+    const clearingAccount = await tx.account.findFirst({
+      where: { companyId: pr.companyId, accountCode: '103500' },
+    });
+
+    // 3. Post GL Entry: Debit Operating Expense, Credit 103500 Collection Clearing
+    const journal = await this.financeService.postJournalEntry(tx, {
+      organizationId,
+      companyId: pr.companyId,
+      sourceType: 'EXPENSE',
+      sourceId: alloc.id,
+      referenceType: 'PR_EXPENSE_ALLOCATION',
+      referenceNumber: `${pr.prNumber}-EXP`,
+      description: `PR Expense Allocation [${pr.prNumber}] - ${expenseName}: ${alloc.remarks || 'Field Expense'}`,
+      entryDate: pr.receiptDate,
+      createdById: userId,
+      lines: [
+        {
+          accountCode: expenseAccount?.accountCode || '609000',
+          debit: amount,
+          credit: 0,
+          description: `PR Expense: ${expenseName}`,
+        },
+        {
+          accountCode: '103500',
+          debit: 0,
+          credit: amount,
+          description: `Clearing deduction for expense on PR ${pr.prNumber}`,
+        },
+      ],
+    });
+
+    // 4. Create FinancialTransaction entry for instant visibility in Expense Ledger & Reports
+    if (expenseAccount && clearingAccount) {
+      await tx.financialTransaction.create({
+        data: {
+          id: uuidv7(),
+          organizationId,
+          companyId: pr.companyId,
+          voucherNumber: `${pr.prNumber}-EXP`,
+          transactionType: 'CASH_PAYMENT',
+          transactionDate: pr.receiptDate,
+          partyType: 'EMPLOYEE',
+          partyId: pr.salesOfficerId || null,
+          partyName: pr.receivedFrom,
+          mainDivision: 'SALES_EXPENSE',
+          expenseHeadId: alloc.expenseHeadId || null,
+          expenseItemId: alloc.expenseItemId || null,
+          headName: expenseName,
+          expenseItemName: alloc.remarks || expenseName,
+          amount,
+          paymentMethod: 'CASH',
+          accountId: clearingAccount.id,
+          contraAccountId: expenseAccount.id,
+          referenceNumber: pr.prNumber,
+          remarks: `PR Expense Allocation [${pr.prNumber}] - ${alloc.remarks || expenseName}`,
+          status: 'POSTED',
+          journalEntryId: journal.id,
+          createdById: userId || null,
+        },
+      });
+    }
+
+    this.logger.log(
+      `PR ${pr.prNumber} allocated expense PKR ${amount} to "${expenseName}". Recorded in Expense Ledger and GL.`,
+    );
+  }
+
+  /**
    * Allocate collection across dealers
    * Never allows Total Allocated > Received Amount
    * Automatically recalculates unallocated amount and allocation status
@@ -575,11 +744,15 @@ export class ProvisionalReceiptsService {
 
       // Execute each new dealer allocation
       for (const alloc of allocations) {
+        if (!alloc.dealerId) continue;
         await this.executeDealerAllocation(
           tx,
           pr.organizationId,
           pr,
-          alloc,
+          {
+            ...alloc,
+            dealerId: alloc.dealerId,
+          },
           userId,
         );
       }
@@ -765,7 +938,32 @@ export class ProvisionalReceiptsService {
       where: { id },
       include: {
         company: { select: { id: true, code: true, name: true } },
-        dealer: { select: { id: true, code: true, name: true, currentBalance: true, creditLimit: true } },
+        dealer: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            businessName: true,
+            address: true,
+            currentBalance: true,
+            creditLimit: true,
+            territory: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                zone: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    region: { select: { id: true, code: true, name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
         region: { select: { id: true, code: true, name: true } },
         territory: { select: { id: true, code: true, name: true } },
         products: { orderBy: { srNo: 'asc' } },
@@ -776,6 +974,7 @@ export class ProvisionalReceiptsService {
                 id: true,
                 code: true,
                 name: true,
+                businessName: true,
                 currentBalance: true,
                 creditLimit: true,
               },
@@ -787,7 +986,59 @@ export class ProvisionalReceiptsService {
     });
 
     if (!pr) throw new NotFoundException('Provisional Receipt not found');
-    return pr;
+
+    // Look up Sales Officer details if available
+    let salesOfficer: any = null;
+    if (pr.salesOfficerId) {
+      salesOfficer = await client.user.findUnique({
+        where: { id: pr.salesOfficerId },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      if (!salesOfficer) {
+        salesOfficer = await client.employee.findUnique({
+          where: { id: pr.salesOfficerId },
+          select: { id: true, firstName: true, lastName: true, employeeCode: true },
+        });
+      }
+    }
+
+    const unifiedAllocations = [
+      ...pr.allocations.map((a: any, idx: number) => ({
+        id: a.id,
+        srNo: idx + 1,
+        type: 'DEALER',
+        dealerId: a.dealerId,
+        targetName: a.dealerName || a.dealer?.name,
+        targetCode: a.partyCode || a.dealer?.code,
+        description: a.remarks || 'Dealer Collection',
+        amount: Number(a.allocatedAmount),
+        status: a.status,
+      })),
+      ...pr.products
+        .filter((p: any) => p.packSize === 'EXPENSE')
+        .map((p: any, idx: number) => ({
+          id: p.id,
+          srNo: pr.allocations.length + idx + 1,
+          type: 'EXPENSE',
+          targetName: p.productName,
+          targetCode: 'EXPENSE',
+          description: p.productName || 'Operational Expense',
+          amount: Number(p.amount),
+          status: pr.status,
+        })),
+    ];
+
+    return {
+      ...pr,
+      salesOfficer: salesOfficer
+        ? {
+            id: salesOfficer.id,
+            name: `${salesOfficer.firstName || ''} ${salesOfficer.lastName || ''}`.trim() || salesOfficer.email || salesOfficer.employeeCode,
+            code: salesOfficer.employeeCode || salesOfficer.email,
+          }
+        : null,
+      unifiedAllocations,
+    };
   }
 
   /**
@@ -960,5 +1211,392 @@ export class ProvisionalReceiptsService {
     }
 
     return auditSteps;
+  }
+
+  /**
+   * Suggest Next Sequential PR Number within Company Scope
+   */
+  async getNextPrNumber(companyId?: string) {
+    if (!companyId || companyId === 'ALL') {
+      return { prNumber: `PR-${new Date().getFullYear()}-0001` };
+    }
+
+    const latestPr = await this.prisma.provisionalReceipt.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      select: { prNumber: true },
+    });
+
+    if (!latestPr) {
+      return { prNumber: `PR-${new Date().getFullYear()}-0001` };
+    }
+
+    const match = latestPr.prNumber.match(/^(.*?)(\d+)$/);
+    if (match && match[1] !== undefined && match[2] !== undefined) {
+      const nextSeq = parseInt(match[2], 10) + 1;
+      return { prNumber: `${match[1]}${String(nextSeq).padStart(match[2].length, '0')}` };
+    }
+
+    return { prNumber: `PR-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}` };
+  }
+
+  /**
+   * Check if PR Number already exists in Company Scope
+   */
+  async checkPrNumber(companyId: string, prNumber: string) {
+    const cleanPr = prNumber?.trim().toUpperCase();
+    if (!cleanPr || !companyId || companyId === 'ALL') return { exists: false };
+
+    const existing = await this.prisma.provisionalReceipt.findUnique({
+      where: {
+        companyId_prNumber: {
+          companyId,
+          prNumber: cleanPr,
+        },
+      },
+      select: { id: true, prNumber: true },
+    });
+
+    return { exists: !!existing };
+  }
+
+  /**
+   * Fetch active Sales Officers in company scope
+   */
+  async getSalesOfficers(companyId?: string) {
+    const company = await this.prisma.company.findFirst({
+      where: companyId && companyId !== 'ALL' ? { id: companyId } : {},
+      orderBy: [{ isParent: 'desc' }, { createdAt: 'asc' }],
+    });
+    if (!company) return [];
+
+    // 1. Fetch users with sales/field roles or assignments
+    const users = await this.prisma.user.findMany({
+      where: {
+        organizationId: company.organizationId,
+        isActive: true,
+        OR: [
+          { companyId: company.id },
+          { assignedDealers: { some: { companyId: company.id } } },
+          { managedTerritories: { some: { zone: { region: { companyId: company.id } } } } },
+          { marketAssignments: { some: { companyId: company.id } } },
+        ],
+      },
+      include: {
+        employee: true,
+        userRoles: { include: { role: true } },
+        assignedDealers: { where: { companyId: company.id }, select: { id: true } },
+        managedTerritories: { select: { id: true } },
+        marketAssignments: { where: { companyId: company.id } },
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+
+    // 2. Also fetch employees with field/sales position in that company
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        companyId: company.id,
+        status: 'ACTIVE',
+      },
+      include: {
+        users: true,
+        marketAssignments: true,
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    });
+
+    const officerMap = new Map<string, any>();
+
+    // Add matching users
+    for (const u of users) {
+      const isSales =
+        u.userRoles.some((ur) => /sales|field|officer|agent|so/i.test(ur.role.name || ur.role.code)) ||
+        u.assignedDealers.length > 0 ||
+        u.managedTerritories.length > 0 ||
+        u.marketAssignments.some((ma) => /sales|so/i.test(ma.roleScope)) ||
+        (u.employee && /sales|field|officer/i.test(u.employee.position || ''));
+
+      if (isSales || users.length <= 15) {
+        const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email;
+        const code = u.employee?.employeeCode || u.email.split('@')[0];
+        officerMap.set(u.id, {
+          id: u.id,
+          userId: u.id,
+          employeeId: u.employeeId || undefined,
+          name,
+          code,
+          email: u.email,
+          phone: u.phone || u.employee?.phone || '',
+          position: u.employee?.position || 'Sales Officer',
+          dealerCount: u.assignedDealers.length,
+        });
+      }
+    }
+
+    // Add matching employees who might not have user accounts yet
+    for (const e of employees) {
+      const hasExisting = Array.from(officerMap.values()).some(
+        (o) => o.employeeId === e.id || (e.users.length > 0 && e.users.some((u) => u.id === o.id)),
+      );
+      if (!hasExisting) {
+        const isSales =
+          /sales|field|officer|rep|agent/i.test(e.position || '') ||
+          e.marketAssignments.length > 0;
+        if (isSales || employees.length <= 10) {
+          const name = `${e.firstName} ${e.lastName}`.trim();
+          officerMap.set(e.id, {
+            id: e.users[0]?.id || e.id,
+            userId: e.users[0]?.id || undefined,
+            employeeId: e.id,
+            name,
+            code: e.employeeCode,
+            email: e.email || '',
+            phone: e.phone || '',
+            position: e.position || 'Sales Officer',
+            dealerCount: 0,
+          });
+        }
+      }
+    }
+
+    return Array.from(officerMap.values());
+  }
+
+  /**
+   * Fetch only dealers assigned to selected Sales Officer in company
+   * Shows complete market hierarchy: Dealer Code, Name, Shop, Territory, Zone, Region, Province
+   */
+  async getDealersByOfficer(companyId: string, officerId?: string) {
+    if (!companyId || companyId === 'ALL') return [];
+
+    let targetUserId = officerId;
+    let targetEmployeeId: string | undefined;
+
+    if (officerId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: officerId },
+        select: { id: true, employeeId: true },
+      });
+      if (user) {
+        targetUserId = user.id;
+        targetEmployeeId = user.employeeId || undefined;
+      } else {
+        const emp = await this.prisma.employee.findUnique({
+          where: { id: officerId },
+          include: { users: { select: { id: true } } },
+        });
+        if (emp) {
+          targetEmployeeId = emp.id;
+          targetUserId = emp.users[0]?.id;
+        }
+      }
+    }
+
+    // Find assigned territories for this officer
+    const assignedTerritoryIds = new Set<string>();
+
+    if (targetUserId) {
+      const territories = await this.prisma.territory.findMany({
+        where: { managerId: targetUserId },
+        select: { id: true },
+      });
+      territories.forEach((t) => assignedTerritoryIds.add(t.id));
+
+      const marketAssignments = await this.prisma.userMarketAssignment.findMany({
+        where: {
+          OR: [
+            { userId: targetUserId },
+            ...(targetEmployeeId ? [{ employeeId: targetEmployeeId }] : []),
+          ],
+          territoryId: { not: null },
+        },
+        select: { territoryId: true },
+      });
+      marketAssignments.forEach((ma) => {
+        if (ma.territoryId) assignedTerritoryIds.add(ma.territoryId);
+      });
+    }
+
+    const whereClause: any = {
+      companyId,
+      status: 'ACTIVE',
+    };
+
+    if (targetUserId) {
+      whereClause.OR = [
+        { assignedFieldOfficerId: targetUserId },
+        { officerAssignments: { some: { userId: targetUserId } } },
+        ...(assignedTerritoryIds.size > 0
+          ? [{ territoryId: { in: Array.from(assignedTerritoryIds) } }]
+          : []),
+      ];
+    }
+
+    let dealers = await this.prisma.dealer.findMany({
+      where: whereClause,
+      include: {
+        territory: {
+          include: {
+            zone: {
+              include: {
+                region: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    // If an officer was selected but no specific assignments were found in DB,
+    // fallback gracefully to all dealers in this company so the user can still proceed
+    if (dealers.length === 0 && targetUserId) {
+      dealers = await this.prisma.dealer.findMany({
+        where: { companyId, status: 'ACTIVE' },
+        include: {
+          territory: {
+            include: {
+              zone: {
+                include: {
+                  region: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      });
+    }
+
+    return dealers.map((d) => ({
+      id: d.id,
+      code: d.code,
+      name: d.name,
+      businessName: d.businessName || d.name,
+      contactPerson: d.contactPerson || '',
+      phone: d.phone || '',
+      address: d.address || '',
+      city: d.city || '',
+      creditLimit: Number(d.creditLimit || 0),
+      currentBalance: Number(d.currentBalance || 0),
+      territoryId: d.territoryId,
+      territoryCode: d.territory?.code || '—',
+      territoryName: d.territory?.name || '—',
+      zoneId: d.territory?.zoneId,
+      zoneCode: d.territory?.zone?.code || '—',
+      zoneName: d.territory?.zone?.name || '—',
+      regionId: d.territory?.zone?.regionId,
+      regionCode: d.territory?.zone?.region?.code || '—',
+      regionName: d.territory?.zone?.region?.name || '—',
+      provinceName: d.territory?.zone?.region?.name?.includes('Sindh') ? 'Sindh' : 'Punjab',
+    }));
+  }
+
+  /**
+   * Fetch available Other Expense Products and standard Expense Heads
+   */
+  async getExpenseProducts(companyId?: string) {
+    const fps = await this.prisma.finishedProduct.findMany({
+      where: {
+        ...(companyId && companyId !== 'ALL' ? { companyId } : {}),
+        status: 'ACTIVE',
+        OR: [
+          { productType: { contains: 'other', mode: 'insensitive' } },
+          { productType: { contains: 'expense', mode: 'insensitive' } },
+          { mType: { contains: 'other', mode: 'insensitive' } },
+          { productName: { contains: 'expense', mode: 'insensitive' } },
+          { productName: { contains: 'bilty', mode: 'insensitive' } },
+          { productName: { contains: 'freight', mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        productCode: true,
+        productName: true,
+        productType: true,
+      },
+      take: 20,
+    });
+
+    const expenseHeads = await this.prisma.expenseHead.findMany({
+      where: {
+        ...(companyId && companyId !== 'ALL' ? { companyId } : {}),
+        isActive: true,
+      },
+      include: {
+        items: { where: { isActive: true }, select: { id: true, code: true, name: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const list: Array<{
+      id: string;
+      code: string;
+      name: string;
+      category: string;
+      expenseHeadId?: string;
+      expenseItemId?: string;
+      mainDivision?: string;
+    }> = [];
+
+    for (const fp of fps) {
+      list.push({
+        id: fp.id,
+        code: fp.productCode,
+        name: fp.productName,
+        category: 'Product',
+        mainDivision: 'SALES_EXPENSE',
+      });
+    }
+
+    const standardCommon = [
+      { name: 'Bilty Expense', code: 'EXP-BLT', division: 'SALES_EXPENSE' },
+      { name: 'Freight Expense', code: 'EXP-FRT', division: 'SALES_EXPENSE' },
+      { name: 'Field Travel & Fuel', code: 'EXP-FUEL', division: 'SALES_EXPENSE' },
+      { name: 'Sales TA / DA Allowance', code: 'EXP-TADA', division: 'SALES_EXPENSE' },
+      { name: 'Vehicle Maintenance & Repair', code: 'EXP-VMR', division: 'SALES_EXPENSE' },
+      { name: 'Office Supplies & Stationery', code: 'EXP-SUP', division: 'GENERAL_EXPENSE' },
+      { name: 'Miscellaneous Operational Expense', code: 'EXP-MISC', division: 'MISCELLANEOUS_EXPENSE' },
+    ];
+
+    for (const sc of standardCommon) {
+      if (!list.some((it) => it.name.toLowerCase() === sc.name.toLowerCase())) {
+        list.push({
+          id: `STD-${sc.code}`,
+          code: sc.code,
+          name: sc.name,
+          category: 'Standard Expense',
+          mainDivision: sc.division,
+        });
+      }
+    }
+
+    for (const eh of expenseHeads) {
+      if (!list.some((it) => it.name.toLowerCase() === eh.name.toLowerCase())) {
+        list.push({
+          id: eh.id,
+          code: eh.code,
+          name: eh.name,
+          category: 'Expense Head',
+          expenseHeadId: eh.id,
+          mainDivision: eh.mainDivision,
+        });
+      }
+      for (const item of eh.items) {
+        if (!list.some((it) => it.name.toLowerCase() === item.name.toLowerCase())) {
+          list.push({
+            id: item.id,
+            code: item.code,
+            name: `${eh.name} — ${item.name}`,
+            category: 'Expense Item',
+            expenseHeadId: eh.id,
+            expenseItemId: item.id,
+            mainDivision: eh.mainDivision,
+          });
+        }
+      }
+    }
+
+    return list;
   }
 }
