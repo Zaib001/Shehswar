@@ -2142,6 +2142,109 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
               )}
             </CardContent>
           </Card>
+
+          {/* Real Cash Movements Table */}
+          <Card>
+            <CardHeader>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <CardTitle>Recent Cash Transactions &amp; Movement Audit</CardTitle>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    Live audit trail of real cash disbursements and receipt movements.
+                  </div>
+                </div>
+                <Badge variant="default" style={{ backgroundColor: '#f1f5f9', color: '#334155' }}>
+                  {cashPrData?.cashOverview?.recentCashTransactions?.length || 0} Records
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingCashPr ? (
+                <TableSkeleton rows={6} />
+              ) : !cashPrData?.cashOverview?.recentCashTransactions || cashPrData.cashOverview.recentCashTransactions.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                  No cash transactions recorded for this company or period yet.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Date</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Voucher No.</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Type</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Entity / Company</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Payee / Party</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Expense Head / Item</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#059669' }}>Inflow (Receipt)</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>Outflow (Payment)</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#334155' }}>Status</th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#334155' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashPrData.cashOverview.recentCashTransactions.map((tx: any) => {
+                        const isReceipt = tx.transactionType === 'CASH_RECEIPT' || tx.transactionType?.includes('RECEIPT');
+                        return (
+                          <tr key={tx.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <td style={{ padding: '10px 12px', color: '#475569' }}>
+                              {tx.transactionDate ? new Date(tx.transactionDate).toISOString().slice(0, 10) : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#0284c7' }}>
+                              {tx.voucherNumber}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <Badge variant={isReceipt ? 'success' : 'danger'}>
+                                {isReceipt ? 'CASH RECEIPT' : 'CASH PAYMENT'}
+                              </Badge>
+                            </td>
+                            <td style={{ padding: '10px 12px', color: '#475569', fontSize: '11px' }}>
+                              {tx.companyName}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontWeight: 600, color: '#0f172a' }}>
+                              {tx.partyName}
+                            </td>
+                            <td style={{ padding: '10px 12px', color: '#334155' }}>
+                              <div style={{ fontWeight: 600 }}>{tx.headName}</div>
+                              {tx.itemName && tx.itemName !== '—' && (
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>↳ {tx.itemName}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#059669' }}>
+                              {isReceipt ? `PKR ${Number(tx.amount).toLocaleString()}` : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                              {!isReceipt ? `PKR ${Number(tx.amount).toLocaleString()}` : '—'}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              <Badge variant="default">{tx.status}</Badge>
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  setDrillDownDoc({
+                                    isOpen: true,
+                                    sourceType: isReceipt ? 'CASH_RECEIPT' : 'CASH_PAYMENT',
+                                    sourceId: tx.id,
+                                    voucherNumber: tx.voucherNumber,
+                                  })
+                                }
+                                style={{ padding: '3px 8px', fontSize: '11px' }}
+                              >
+                                <IconEye size={12} /> View
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -2156,6 +2259,79 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
             <p style={{ margin: '4px 0 12px 0', fontSize: '12px', color: '#64748b' }}>
               Period: {reportFromDate || 'Start'} to {reportToDate || 'End'} | Generated: {new Date().toLocaleString()}
             </p>
+          </div>
+
+          {/* Executive Summary Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            <Card style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1' }}>
+              <CardContent style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+                  Total Operating Expenses
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
+                  PKR {Number(reportData?.summary?.totalExpenseAmount || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                  {reportData?.summary?.totalTransactions || 0} disbursements recorded
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={{ backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <CardContent style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase' }}>
+                  Sales Expenses
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#1e40af', marginTop: '4px' }}>
+                  PKR {Number(reportData?.summary?.salesExpensesTotal || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#3b82f6', marginTop: '2px' }}>
+                  Fuel, salaries &amp; field operations
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={{ backgroundColor: '#f5f3ff', border: '1px solid #ddd6fe' }}>
+              <CardContent style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#6d28d9', textTransform: 'uppercase' }}>
+                  General / Head Office
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#5b21b6', marginTop: '4px' }}>
+                  PKR {Number(reportData?.summary?.generalExpensesTotal || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#8b5cf6', marginTop: '2px' }}>
+                  Utilities, internet &amp; office equipment
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa' }}>
+              <CardContent style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#c2410c', textTransform: 'uppercase' }}>
+                  Miscellaneous
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#9a3412', marginTop: '4px' }}>
+                  PKR {Number(reportData?.summary?.miscExpensesTotal || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#ea580c', marginTop: '2px' }}>
+                  Small unplanned operational payments
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
+              <CardContent style={{ padding: '14px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: '#b91c1c', textTransform: 'uppercase' }}>
+                  Segregated Liabilities
+                </div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#991b1b', marginTop: '4px' }}>
+                  PKR {Number(reportData?.summary?.totalLiabilityAmount || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '2px' }}>
+                  Short/long term debts &amp; leasing
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Filter Bar */}
@@ -2271,74 +2447,120 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
               <CardTitle>Expenditure Hierarchy Drill-Down</CardTitle>
             </CardHeader>
             <CardContent>
-              {isLoadingReport ? (
-                <TableSkeleton rows={6} />
-              ) : !reportData.treeSummary || reportData.treeSummary.length === 0 ? (
-                <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
-                  No expenditures recorded for the selected criteria and period.
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {reportData.treeSummary.map((divNode: any) => {
-                    const divMeta = MAIN_DIVISIONS.find((d) => d.key === divNode.division) || MAIN_DIVISIONS[0];
-                    return (
-                      <div
-                        key={divNode.division}
-                        style={{
-                          border: `1px solid ${divMeta.badgeBorder}`,
-                          borderRadius: '8px',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {/* Division Header */}
+              {(() => {
+                const treeList = reportData?.treeSummary || reportData?.divisions || [];
+                if (isLoadingReport) return <TableSkeleton rows={6} />;
+                if (!treeList || treeList.length === 0) {
+                  return (
+                    <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                      No expenditures recorded for the selected criteria and period.
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {treeList.map((divNode: any) => {
+                      const divKey = divNode.division || divNode.divisionKey;
+                      const divMeta = MAIN_DIVISIONS.find((d) => d.key === divKey) || MAIN_DIVISIONS[0];
+                      const heads = divNode.heads || [];
+                      return (
                         <div
+                          key={divKey}
                           style={{
-                            padding: '10px 16px',
-                            backgroundColor: divMeta.badgeBg,
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
+                            border: `1px solid ${divMeta.badgeBorder}`,
+                            borderRadius: '8px',
+                            overflow: 'hidden',
                           }}
                         >
-                          <div style={{ fontWeight: 800, color: divMeta.textColor, fontSize: '14px' }}>
-                            {divNode.label}
-                          </div>
-                          <div style={{ fontWeight: 800, color: divMeta.textColor, fontSize: '15px' }}>
-                            Total: PKR {Number(divNode.totalAmount || 0).toLocaleString()}
-                          </div>
-                        </div>
-
-                        {/* Heads */}
-                        <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {divNode.heads.map((headNode: any) => (
-                            <div
-                              key={headNode.id}
-                              style={{
-                                padding: '8px 12px',
-                                backgroundColor: '#f8fafc',
-                                borderRadius: '6px',
-                                border: '1px solid #e2e8f0',
-                              }}
-                            >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
-                                  <span style={{ fontFamily: 'monospace', color: '#64748b', marginRight: '6px' }}>
-                                    {headNode.code}
-                                  </span>
-                                  {headNode.name}
-                                </div>
-                                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>
-                                  PKR {Number(headNode.totalAmount || 0).toLocaleString()}
-                                </div>
-                              </div>
+                          {/* Division Header */}
+                          <div
+                            style={{
+                              padding: '12px 16px',
+                              backgroundColor: divMeta.badgeBg,
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 800, color: divMeta.textColor, fontSize: '14px' }}>
+                                {divNode.label || divMeta.label}
+                              </span>
+                              <span style={{ marginLeft: '10px', fontSize: '12px', color: '#64748b' }}>
+                                ({heads.length} Heads, {divNode.transactionCount || 0} Transactions)
+                              </span>
                             </div>
-                          ))}
+                            <div style={{ fontWeight: 800, color: divMeta.textColor, fontSize: '15px' }}>
+                              Total: PKR {Number(divNode.totalAmount || 0).toLocaleString()}
+                              {divNode.percentage !== undefined && (
+                                <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', marginLeft: '8px' }}>
+                                  ({divNode.percentage}%)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Heads */}
+                          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {heads.length === 0 ? (
+                              <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', padding: '6px' }}>
+                                No expenditures booked under this division.
+                              </div>
+                            ) : (
+                              heads.map((headNode: any) => {
+                                const hId = headNode.id || headNode.headId;
+                                const hCode = headNode.code || headNode.headCode;
+                                const hName = headNode.name || headNode.headName;
+                                const subCats = headNode.subCategories || [];
+                                return (
+                                  <div
+                                    key={hId || hCode || hName}
+                                    style={{
+                                      padding: '10px 14px',
+                                      backgroundColor: '#f8fafc',
+                                      borderRadius: '6px',
+                                      border: '1px solid #e2e8f0',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <div style={{ fontWeight: 700, fontSize: '13px', color: '#0f172a' }}>
+                                        {hCode && hCode !== '—' && (
+                                          <span style={{ fontFamily: 'monospace', color: '#64748b', marginRight: '8px' }}>
+                                            {hCode}
+                                          </span>
+                                        )}
+                                        {hName}
+                                      </div>
+                                      <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px' }}>
+                                        PKR {Number(headNode.totalAmount || 0).toLocaleString()}
+                                      </div>
+                                    </div>
+
+                                    {/* Sub-Categories Breakdown */}
+                                    {subCats.length > 0 && (
+                                      <div style={{ marginTop: '8px', paddingLeft: '14px', borderLeft: '2px solid #cbd5e1', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {subCats.map((scNode: any) => {
+                                          const scName = scNode.name || scNode.subCategoryName;
+                                          return (
+                                            <div key={scNode.id || scName} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
+                                              <span>↳ {scName}</span>
+                                              <span style={{ fontWeight: 600 }}>PKR {Number(scNode.totalAmount || 0).toLocaleString()}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>

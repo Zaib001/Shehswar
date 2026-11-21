@@ -105,6 +105,26 @@ export class ExpenseManagementService {
   }
 
   /**
+   * Helper to resolve target companies for multi-entity reporting & isolation
+   * If company is Parent or 'ALL', aggregates across the organization
+   * Otherwise isolates to specific operating subsidiary
+   */
+  private async getTargetCompanyScope(companyId?: string) {
+    const company = await this.resolveCompany(companyId);
+    let companyIds: string[] = [company.id];
+
+    if (company.isParent || companyId === 'ALL' || companyId === 'all') {
+      const allCompanies = await this.prisma.company.findMany({
+        where: { organizationId: company.organizationId },
+        select: { id: true },
+      });
+      companyIds = allCompanies.map((c) => c.id);
+    }
+
+    return { company, companyIds };
+  }
+
+  /**
    * Seed standard template heads if none exist for company
    */
   async ensureInitialTemplates(companyId: string, organizationId: string) {
@@ -305,11 +325,11 @@ export class ExpenseManagementService {
    * Get full hierarchy tree grouped by 4 Main Divisions
    */
   async getExpenseHierarchy(companyId?: string) {
-    const company = await this.resolveCompany(companyId);
+    const { company, companyIds } = await this.getTargetCompanyScope(companyId);
     await this.ensureInitialTemplates(company.id, company.organizationId);
 
     const heads = await this.prisma.expenseHead.findMany({
-      where: { companyId: company.id },
+      where: { companyId: { in: companyIds } },
       include: {
         subCategories: {
           where: { isActive: true },
@@ -378,10 +398,10 @@ export class ExpenseManagementService {
    * List Expense Heads with optional filters
    */
   async getHeads(companyId?: string, mainDivision?: string, isActive?: boolean) {
-    const company = await this.resolveCompany(companyId);
+    const { company, companyIds } = await this.getTargetCompanyScope(companyId);
     await this.ensureInitialTemplates(company.id, company.organizationId);
 
-    const where: any = { companyId: company.id };
+    const where: any = { companyId: { in: companyIds } };
     if (mainDivision && mainDivision !== 'ALL') where.mainDivision = mainDivision;
     if (isActive !== undefined) where.isActive = isActive;
 
@@ -634,12 +654,16 @@ export class ExpenseManagementService {
    * Provides complete breakdown by Main Division, Head, Sub-Category, and Item
    */
   async getExpenseReport(filters: ExpenseReportFilters) {
-    const company = await this.resolveCompany(filters.companyId);
+    const { company, companyIds } = await this.getTargetCompanyScope(filters.companyId);
 
     const where: any = {
-      companyId: company.id,
-      transactionType: 'CASH_PAYMENT',
-      paymentMethod: 'CASH',
+      companyId: { in: companyIds },
+      status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
+      OR: [
+        { transactionType: { in: ['CASH_PAYMENT', 'BANK_PAYMENT', 'PAYMENT', 'EXPENSE'] } },
+        { expenseHeadId: { not: null } },
+        { mainDivision: { not: null } },
+      ],
     };
 
     if (filters.mainDivision && filters.mainDivision !== 'ALL') {
@@ -666,6 +690,7 @@ export class ExpenseManagementService {
         expenseItem: { select: { id: true, code: true, name: true } },
         account: { select: { id: true, accountCode: true, accountName: true } },
         contraAccount: { select: { id: true, accountCode: true, accountName: true } },
+        company: { select: { id: true, code: true, name: true } },
       },
       orderBy: { transactionDate: 'desc' },
       take: 2000,
@@ -834,6 +859,7 @@ export class ExpenseManagementService {
 
     // Transform division tree to clean arrays for frontend consumption
     const divisionsList = Object.values(divisionTree).map((d) => ({
+      division: d.divisionKey,
       divisionKey: d.divisionKey,
       label: d.label,
       totalAmount: d.totalAmount,
@@ -842,18 +868,33 @@ export class ExpenseManagementService {
         ? Math.round((d.totalAmount / (totalExpenseAmount + totalLiabilityAmount)) * 1000) / 10
         : 0,
       heads: Object.values(d.heads).map((h) => ({
+        id: h.headId || h.headCode || h.headName,
         headId: h.headId,
+        code: h.headCode || '—',
         headCode: h.headCode,
+        name: h.headName,
         headName: h.headName,
         totalAmount: h.totalAmount,
         transactionCount: h.transactionCount,
         subCategories: Object.values(h.subCategories).map((sc) => ({
+          id: sc.subCategoryId || sc.subCategoryCode || sc.subCategoryName,
           subCategoryId: sc.subCategoryId,
+          code: sc.subCategoryCode || '—',
           subCategoryCode: sc.subCategoryCode,
+          name: sc.subCategoryName,
           subCategoryName: sc.subCategoryName,
           totalAmount: sc.totalAmount,
           transactionCount: sc.transactionCount,
-          items: Object.values(sc.items),
+          items: Object.values(sc.items).map((itm) => ({
+            id: itm.itemId || itm.itemCode || itm.itemName,
+            itemId: itm.itemId,
+            code: itm.itemCode || '—',
+            itemCode: itm.itemCode,
+            name: itm.itemName,
+            itemName: itm.itemName,
+            totalAmount: itm.totalAmount,
+            transactionCount: itm.transactionCount,
+          })),
         })),
       })),
     }));
@@ -868,6 +909,7 @@ export class ExpenseManagementService {
         miscExpensesTotal,
         totalTransactions: txRecords.length,
       },
+      treeSummary: divisionsList,
       divisions: divisionsList,
       transactions: parsedTransactions,
     };
@@ -881,7 +923,7 @@ export class ExpenseManagementService {
    * - Provides item-wise breakdown summary for Heads
    */
   async getExpenseLedger(filters: ExpenseLedgerFilters, reqCompanyId?: string) {
-    const company = await this.resolveCompany(filters.companyId || reqCompanyId);
+    const { company, companyIds } = await this.getTargetCompanyScope(filters.companyId || reqCompanyId);
 
     // Entity lookup to provide rich ledger headers
     let targetDivision: string | null = filters.mainDivision && filters.mainDivision !== 'ALL' ? filters.mainDivision : null;
@@ -934,8 +976,8 @@ export class ExpenseManagementService {
 
     // Build base conditions matching this ledger's scope
     const baseWhere: any = {
-      companyId: company.id,
-      status: { notIn: ['CANCELLED', 'VOID'] },
+      companyId: { in: companyIds },
+      status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
     };
 
     if (targetDivision) {
@@ -1110,17 +1152,18 @@ export class ExpenseManagementService {
    * - Proves zero double counting between PR receipt and PR allocation
    */
   async getCashAndPrIntegrationSummary(companyId?: string) {
-    const company = await this.resolveCompany(companyId);
+    const { company, companyIds } = await this.getTargetCompanyScope(companyId);
 
-    // 1. Unallocated Provisional Receipts
+    // 1. Provisional Receipts
     const prRecords = await this.prisma.provisionalReceipt.findMany({
       where: {
-        companyId: company.id,
+        companyId: { in: companyIds },
         status: { notIn: ['CANCELLED', 'REVERSED'] },
       },
       select: {
         id: true,
         prNumber: true,
+        companyId: true,
         totalAmount: true,
         allocatedAmount: true,
         unallocatedAmount: true,
@@ -1128,8 +1171,11 @@ export class ExpenseManagementService {
         receiptDate: true,
         receivedFrom: true,
         paymentMethod: true,
+        dealer: { select: { id: true, name: true, code: true } },
+        company: { select: { id: true, code: true, name: true } },
       },
       orderBy: { receiptDate: 'desc' },
+      take: 100,
     });
 
     let totalPrReceived = 0;
@@ -1153,10 +1199,10 @@ export class ExpenseManagementService {
     // 2. Cash Transactions Overview
     const cashPayments = await this.prisma.financialTransaction.aggregate({
       where: {
-        companyId: company.id,
-        paymentMethod: 'CASH',
+        companyId: { in: companyIds },
+        paymentMethod: { in: ['CASH', 'cash'] },
         transactionType: 'CASH_PAYMENT',
-        status: { notIn: ['CANCELLED', 'VOID'] },
+        status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
       },
       _sum: { amount: true },
       _count: { id: true },
@@ -1164,10 +1210,10 @@ export class ExpenseManagementService {
 
     const cashReceipts = await this.prisma.financialTransaction.aggregate({
       where: {
-        companyId: company.id,
-        paymentMethod: 'CASH',
+        companyId: { in: companyIds },
+        paymentMethod: { in: ['CASH', 'cash'] },
         transactionType: 'CASH_RECEIPT',
-        status: { notIn: ['CANCELLED', 'VOID'] },
+        status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
       },
       _sum: { amount: true },
       _count: { id: true },
@@ -1177,6 +1223,22 @@ export class ExpenseManagementService {
     const totalCashReceived = Number(cashReceipts._sum.amount || 0);
     const netCashMovement = totalCashReceived - totalCashPaid;
 
+    // 3. Recent Real Cash Movements for Live Audit Trail
+    const recentCashTransactions = await this.prisma.financialTransaction.findMany({
+      where: {
+        companyId: { in: companyIds },
+        paymentMethod: { in: ['CASH', 'cash'] },
+        status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
+      },
+      include: {
+        expenseHead: { select: { id: true, code: true, name: true } },
+        expenseItem: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { transactionDate: 'desc' },
+      take: 50,
+    });
+
     return {
       company: { id: company.id, code: company.code, name: company.name },
       cashOverview: {
@@ -1185,15 +1247,38 @@ export class ExpenseManagementService {
         netCashMovement,
         totalPaymentsCount: cashPayments._count.id,
         totalReceiptsCount: cashReceipts._count.id,
+        recentCashTransactions: recentCashTransactions.map((tx) => ({
+          id: tx.id,
+          voucherNumber: tx.voucherNumber,
+          transactionDate: tx.transactionDate,
+          transactionType: tx.transactionType,
+          companyName: tx.company?.name || 'Company',
+          partyName: tx.partyName || '—',
+          headName: tx.headName || tx.expenseHead?.name || '—',
+          itemName: tx.expenseItemName || tx.expenseItem?.name || '—',
+          amount: Number(tx.amount),
+          status: tx.status,
+          remarks: tx.remarks,
+        })),
       },
       prOverview: {
         totalPrReceived,
         totalPrAllocated,
         totalPrUnallocated,
         unallocatedCount,
-        recentPendingPrs: prRecords
-          .filter((p) => p.allocationStatus !== 'FULLY_ALLOCATED')
-          .slice(0, 10),
+        recentPendingPrs: prRecords.map((p) => ({
+          id: p.id,
+          prNumber: p.prNumber,
+          receiptDate: p.receiptDate,
+          receivedFrom: p.receivedFrom || p.dealer?.name || '—',
+          dealerName: p.dealer?.name || '—',
+          companyName: p.company?.name || '—',
+          paymentMethod: p.paymentMethod,
+          totalAmount: Number(p.totalAmount),
+          allocatedAmount: Number(p.allocatedAmount),
+          unallocatedAmount: Number(p.unallocatedAmount),
+          allocationStatus: p.allocationStatus,
+        })),
       },
     };
   }
