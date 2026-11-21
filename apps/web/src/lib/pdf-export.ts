@@ -6976,3 +6976,620 @@ export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
     printWindow.document.close();
   }
 };
+
+
+// ============================================================================
+// EXPENSE LEDGER (RUNNING BALANCES) PDF EXPORT
+// ============================================================================
+
+export interface ExpenseLedgerExportData {
+  companyName: string;
+  companyAddress?: string;
+  companyPhone?: string;
+  ledgerTitle: string;
+  ledgerSubtitle?: string;
+  startDate?: string;
+  endDate?: string;
+  filters: {
+    division?: string;
+    head?: string;
+    subCategory?: string;
+    item?: string;
+    paymentMethod?: string;
+    search?: string;
+  };
+  summary: {
+    openingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+    closingBalance: number;
+    transactionCount: number;
+  };
+  itemBreakdown?: Array<{
+    code?: string;
+    name: string;
+    amount: number;
+    count: number;
+  }>;
+  entries: Array<{
+    id: string;
+    transactionDate: string;
+    voucherNumber: string;
+    mainDivision: string;
+    headName: string;
+    subCategoryName: string;
+    expenseItemName: string;
+    description: string;
+    partyName?: string;
+    paymentMethod: string;
+    sourceType: string;
+    referenceNumber?: string;
+    accountName: string;
+    contraAccountName: string;
+    debit: number;
+    credit: number;
+    runningBalance: number;
+  }>;
+}
+
+export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
+  const {
+    companyName,
+    companyAddress = 'Plot # 12-B, Industrial Estate, Multan Road, Pakistan',
+    companyPhone = '+92 42 111-743-479',
+    ledgerTitle = 'Expense & Liability Ledger (Running Balances)',
+    ledgerSubtitle = 'Official Financial Running Balance Statement',
+    startDate,
+    endDate,
+    filters,
+    summary,
+    itemBreakdown = [],
+    entries = [],
+  } = data;
+
+  const formatPKR = (v: number | undefined | null) =>
+    Number(v || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const formatDate = (dateStr: string | undefined | null) => {
+    if (!dateStr) return '-';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const periodLabel = startDate && endDate
+    ? `${formatDate(startDate)} to ${formatDate(endDate)}`
+    : startDate
+      ? `From ${formatDate(startDate)}`
+      : endDate
+        ? `Up to ${formatDate(endDate)}`
+        : 'All Time Historical';
+
+  const filterItems = [
+    { label: 'Division', value: filters.division || 'All Divisions' },
+    { label: 'Expense Head', value: filters.head || 'All Heads' },
+    { label: 'Sub-Category', value: filters.subCategory || 'All Sub-Categories' },
+    { label: 'Expense Item / Account', value: filters.item || 'All Accounts / Items' },
+    { label: 'Payment Method', value: filters.paymentMethod || 'All Methods' },
+    ...(filters.search ? [{ label: 'Search Keyword', value: filters.search }] : []),
+  ];
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Expense_Ledger_${(companyName || 'Shehswar').replace(/\\s+/g, '_')}_${(filters.head || 'Whole_Head').replace(/\\s+/g, '_')}</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm 10mm 10mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #0f172a;
+      margin: 0;
+      padding: 0;
+      font-size: 8pt;
+      line-height: 1.35;
+      width: 100%;
+      background: #ffffff;
+    }
+    .screen-toolbar {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      color: #ffffff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      font-size: 13px;
+    }
+    .screen-toolbar button {
+      background: #047857;
+      color: #ffffff;
+      border: none;
+      padding: 6px 16px;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+    .screen-toolbar button:hover { background: #065f46; }
+    .screen-toolbar .close-btn { background: #475569; margin-left: 8px; }
+    .screen-toolbar .close-btn:hover { background: #334155; }
+    @media print {
+      .screen-toolbar { display: none !important; }
+      body { background: #ffffff !important; }
+      .page-container { padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+    }
+    .page-container {
+      max-width: 287mm;
+      margin: 0 auto;
+      padding: 12px 18px;
+      background: #ffffff;
+      position: relative;
+    }
+    .watermark {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-25deg);
+      font-size: 80pt;
+      font-weight: 900;
+      color: rgba(4, 120, 87, 0.035);
+      letter-spacing: 0.1em;
+      pointer-events: none;
+      z-index: 0;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .header-table {
+      width: 100%;
+      border-bottom: 2.5px solid #047857;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+    }
+    .company-title {
+      font-size: 14pt;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .company-sub {
+      font-size: 7.5pt;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .report-title {
+      font-size: 12pt;
+      font-weight: 800;
+      color: #047857;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-top: 2px;
+    }
+    .report-subtitle {
+      font-size: 8pt;
+      color: #475569;
+      font-weight: 500;
+      margin-top: 1px;
+    }
+    .meta-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+    }
+    .meta-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .meta-label {
+      font-size: 6.5pt;
+      color: #64748b;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .meta-val {
+      font-size: 8pt;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .kpi-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+      padding: 6px 10px;
+      background: #fdfdfd;
+    }
+    .kpi-card.highlight {
+      border-color: #047857;
+      background: #f0fdf4;
+    }
+    .kpi-label {
+      font-size: 6.5pt;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .kpi-card.highlight .kpi-label {
+      color: #047857;
+    }
+    .kpi-value {
+      font-size: 10.5pt;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 2px;
+      font-family: "Courier New", Courier, monospace;
+    }
+    .kpi-card.highlight .kpi-value {
+      color: #047857;
+    }
+    .breakdown-box {
+      margin-bottom: 12px;
+      background: #fafafa;
+      border: 1px dashed #cbd5e1;
+      border-radius: 5px;
+      padding: 6px 10px;
+    }
+    .breakdown-title {
+      font-size: 7pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+    .breakdown-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .breakdown-pill {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 7pt;
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+    }
+    .breakdown-pill strong {
+      color: #047857;
+      font-family: "Courier New", Courier, monospace;
+    }
+    .ledger-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 7.5pt;
+      margin-bottom: 14px;
+    }
+    .ledger-table th {
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 6.5pt;
+      letter-spacing: 0.04em;
+      padding: 6px 7px;
+      text-align: left;
+      border: 1px solid #1e293b;
+    }
+    .ledger-table th.num { text-align: right; }
+    .ledger-table th.center { text-align: center; }
+    .ledger-table td {
+      padding: 5px 7px;
+      border: 1px solid #e2e8f0;
+      vertical-align: top;
+      color: #1e293b;
+    }
+    .ledger-table tr:nth-child(even) td { background: #f8fafc; }
+    .ledger-table td.num {
+      text-align: right;
+      font-family: "Courier New", Courier, monospace;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .ledger-table td.center { text-align: center; }
+    .ledger-table tr.opening-row td {
+      background: #f1f5f9;
+      font-weight: 700;
+      color: #334155;
+      border-top: 1.5px solid #94a3b8;
+      border-bottom: 1.5px solid #94a3b8;
+    }
+    .ledger-table tr.closing-row td {
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 8pt;
+      border: 1px solid #0f172a;
+    }
+    .ledger-table tr.closing-row td.num {
+      color: #4ade80;
+    }
+    .badge-division {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 6pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      background: #e2e8f0;
+      color: #334155;
+    }
+    .signatures {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      page-break-inside: avoid;
+    }
+    .sig-box {
+      width: 28%;
+      text-align: center;
+    }
+    .sig-line {
+      border-bottom: 1.5px solid #64748b;
+      margin-bottom: 5px;
+      height: 32px;
+    }
+    .sig-title {
+      font-size: 7.5pt;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .sig-subtitle {
+      font-size: 6.5pt;
+      color: #64748b;
+    }
+    .footer {
+      border-top: 1px solid #cbd5e1;
+      padding-top: 6px;
+      margin-top: 14px;
+      font-size: 6.5pt;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      page-break-inside: avoid;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen-toolbar">
+    <div>
+      <strong>SHEHSWAR ONE360 ERP</strong> &nbsp;|&nbsp;
+      <span>Expense & Liability Running Balances Ledger Statement</span>
+    </div>
+    <div>
+      <button onclick="window.print()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        Print / Save PDF
+      </button>
+      <button class="close-btn" onclick="window.close()">Close</button>
+    </div>
+  </div>
+
+  <div class="page-container">
+    <div class="watermark">SHEHSWAR</div>
+
+    <table class="header-table">
+      <tr>
+        <td style="width: 60%; vertical-align: top;">
+          <div class="company-title">${companyName || 'SHEHSWAR AGRO CHEMICALS'}</div>
+          <div class="company-sub">${companyAddress} • Ph: ${companyPhone}</div>
+          <div class="report-title">${ledgerTitle}</div>
+          <div class="report-subtitle">${ledgerSubtitle}</div>
+        </td>
+        <td style="width: 40%; text-align: right; vertical-align: top;">
+          <table style="margin-left: auto; font-size: 7.5pt; border-collapse: collapse; text-align: right;">
+            <tr>
+              <td style="color: #64748b; padding: 2px 6px;">Statement Period:</td>
+              <td style="font-weight: 700; color: #047857; padding: 2px 6px;">${periodLabel}</td>
+            </tr>
+            <tr>
+              <td style="color: #64748b; padding: 2px 6px;">Generated Date:</td>
+              <td style="font-weight: 600; padding: 2px 6px;">${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
+            </tr>
+            <tr>
+              <td style="color: #64748b; padding: 2px 6px;">Total Transactions:</td>
+              <td style="font-weight: 700; padding: 2px 6px;">${summary.transactionCount} records</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    <div class="meta-box">
+      <div class="meta-grid">
+        ${filterItems.map(f => `
+          <div class="meta-item">
+            <span class="meta-label">${f.label}</span>
+            <span class="meta-val" title="${f.value}">${f.value}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">Opening Balance B/F</div>
+        <div class="kpi-value">PKR ${formatPKR(summary.openingBalance)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total Debits (Expenses Incurred)</div>
+        <div class="kpi-value" style="color: #b91c1c;">PKR ${formatPKR(summary.totalDebit)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Total Credits (Adjustments/Refunds)</div>
+        <div class="kpi-value" style="color: #047857;">PKR ${formatPKR(summary.totalCredit)}</div>
+      </div>
+      <div class="kpi-card highlight">
+        <div class="kpi-label">Closing Net Balance</div>
+        <div class="kpi-value">PKR ${formatPKR(summary.closingBalance)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Filtered Transactions</div>
+        <div class="kpi-value">${summary.transactionCount}</div>
+      </div>
+    </div>
+
+    ${itemBreakdown.length > 0 ? `
+      <div class="breakdown-box">
+        <div class="breakdown-title">Expense Item Distribution Summary:</div>
+        <div class="breakdown-pills">
+          ${itemBreakdown.map(ib => `
+            <div class="breakdown-pill">
+              <span>${ib.name}:</span>
+              <strong>PKR ${formatPKR(ib.amount)}</strong>
+              <span style="color: #64748b;">(${ib.count} txns)</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th style="width: 28px;" class="center">#</th>
+          <th style="width: 65px;">Date</th>
+          <th style="width: 75px;">Voucher No</th>
+          <th style="width: 100px;">Head & Sub-Cat</th>
+          <th style="width: 105px;">Expense Item / Target</th>
+          <th>Particulars / Payee / Description</th>
+          <th style="width: 60px;">Payment Mode</th>
+          <th style="width: 80px;" class="num">Debit (PKR)</th>
+          <th style="width: 80px;" class="num">Credit (PKR)</th>
+          <th style="width: 90px;" class="num">Balance (PKR)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="opening-row">
+          <td class="center">-</td>
+          <td>${startDate ? formatDate(startDate) : '-'}</td>
+          <td><strong>OPENING</strong></td>
+          <td colspan="4">OPENING BALANCE BROUGHT FORWARD</td>
+          <td class="num">-</td>
+          <td class="num">-</td>
+          <td class="num">PKR ${formatPKR(summary.openingBalance)}</td>
+        </tr>
+
+        ${entries.length === 0 ? `
+          <tr>
+            <td colspan="10" style="text-align: center; padding: 18px; color: #64748b; font-style: italic;">
+              No financial expense transactions found for the selected filters and date range.
+            </td>
+          </tr>
+        ` : entries.map((entry, idx) => `
+          <tr>
+            <td class="center" style="color: #64748b;">${idx + 1}</td>
+            <td style="white-space: nowrap;">${formatDate(entry.transactionDate)}</td>
+            <td style="font-family: monospace; font-weight: 700; color: #0284c7;">${entry.voucherNumber || entry.referenceNumber || '-'}</td>
+            <td>
+              <div style="font-weight: 700;">${entry.headName || '-'}</div>
+              <div style="font-size: 6.5pt; color: #64748b;">${entry.subCategoryName || ''}</div>
+            </td>
+            <td>
+              <div style="font-weight: 600;">${entry.expenseItemName || '-'}</div>
+              <span class="badge-division">${entry.mainDivision || ''}</span>
+            </td>
+            <td>
+              ${entry.partyName ? `<span style="font-weight: 700; color: #0f172a;">${entry.partyName}</span> &bull; ` : ''}
+              <span>${entry.description || '-'}</span>
+              ${entry.contraAccountName ? `<div style="font-size: 6.5pt; color: #64748b;">A/C: ${entry.accountName || ''} &harr; ${entry.contraAccountName}</div>` : ''}
+            </td>
+            <td style="text-transform: capitalize; font-size: 7pt;">${(entry.paymentMethod || '-').replace(/_/g, ' ')}</td>
+            <td class="num" style="${entry.debit > 0 ? 'color: #b91c1c; font-weight: 700;' : 'color: #94a3b8;'}">
+              ${entry.debit > 0 ? formatPKR(entry.debit) : '-'}
+            </td>
+            <td class="num" style="${entry.credit > 0 ? 'color: #047857; font-weight: 700;' : 'color: #94a3b8;'}">
+              ${entry.credit > 0 ? formatPKR(entry.credit) : '-'}
+            </td>
+            <td class="num" style="font-weight: 700; color: #0f172a;">
+              PKR ${formatPKR(entry.runningBalance)}
+            </td>
+          </tr>
+        `).join('')}
+
+        <tr class="closing-row">
+          <td colspan="7" style="text-align: right; text-transform: uppercase; letter-spacing: 0.04em;">
+            STATEMENT TOTALS & CLOSING RUNNING BALANCE:
+          </td>
+          <td class="num">PKR ${formatPKR(summary.totalDebit)}</td>
+          <td class="num">PKR ${formatPKR(summary.totalCredit)}</td>
+          <td class="num">PKR ${formatPKR(summary.closingBalance)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="signatures">
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-title">Prepared By</div>
+        <div class="sig-subtitle">Accounts & Operations Officer</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-title">Checked & Verified By</div>
+        <div class="sig-subtitle">Internal Audit & Finance Manager</div>
+      </div>
+      <div class="sig-box">
+        <div class="sig-line"></div>
+        <div class="sig-title">Authorized Signatory</div>
+        <div class="sig-subtitle">Chief Executive / Director Finance</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>SHEHSWAR ONE360 ERP &bull; System-Generated Auditable Ledger Statement &bull; Strict Integrity & Traceability</span>
+      <span>Page 1 of 1</span>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  }
+};

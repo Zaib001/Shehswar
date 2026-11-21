@@ -980,23 +980,56 @@ export class ExpenseManagementService {
       status: { notIn: ['CANCELLED', 'VOID', 'REVERSED'] },
     };
 
-    if (targetDivision) {
+    if (filters.itemId && filters.itemId !== 'ALL') {
+      const it = targetItem || await this.prisma.expenseItem.findUnique({ where: { id: filters.itemId } });
+      if (it) {
+        baseWhere.AND = [
+          ...(baseWhere.AND || []),
+          {
+            OR: [
+              { expenseItemId: it.id },
+              { expenseItemName: { equals: it.name, mode: 'insensitive' } },
+            ],
+          },
+        ];
+      } else {
+        baseWhere.expenseItemId = filters.itemId;
+      }
+    } else if (filters.subCategoryId && filters.subCategoryId !== 'ALL') {
+      const sc = targetSubCat || await this.prisma.expenseSubCategory.findUnique({ where: { id: filters.subCategoryId } });
+      if (sc) {
+        baseWhere.AND = [
+          ...(baseWhere.AND || []),
+          {
+            OR: [
+              { expenseSubCategoryId: sc.id },
+              { subCategoryName: { equals: sc.name, mode: 'insensitive' } },
+            ],
+          },
+        ];
+      } else {
+        baseWhere.expenseSubCategoryId = filters.subCategoryId;
+      }
+    } else if (filters.headId && filters.headId !== 'ALL') {
+      const head = targetHead || await this.prisma.expenseHead.findUnique({ where: { id: filters.headId } });
+      if (head) {
+        baseWhere.AND = [
+          ...(baseWhere.AND || []),
+          {
+            OR: [
+              { expenseHeadId: head.id },
+              { headName: { equals: head.name, mode: 'insensitive' } },
+            ],
+          },
+        ];
+      } else {
+        baseWhere.expenseHeadId = filters.headId;
+      }
+    } else if (targetDivision) {
       baseWhere.OR = [
         { mainDivision: targetDivision },
         { expenseHead: { mainDivision: targetDivision as any } },
       ];
-    }
-
-    if (filters.headId && filters.headId !== 'ALL') {
-      baseWhere.expenseHeadId = filters.headId;
-    }
-
-    if (filters.subCategoryId && filters.subCategoryId !== 'ALL') {
-      baseWhere.expenseSubCategoryId = filters.subCategoryId;
-    }
-
-    if (filters.itemId && filters.itemId !== 'ALL') {
-      baseWhere.expenseItemId = filters.itemId;
     }
 
     if (filters.paymentMethod && filters.paymentMethod !== 'ALL') {
@@ -1006,9 +1039,10 @@ export class ExpenseManagementService {
     // Calculate Opening Balance prior to fromDate
     let openingBalance = 0;
     if (filters.fromDate) {
+      const fromD = new Date(filters.fromDate.includes('T') ? filters.fromDate : `${filters.fromDate}T00:00:00.000Z`);
       const priorWhere = {
         ...baseWhere,
-        transactionDate: { lt: new Date(filters.fromDate) },
+        transactionDate: { lt: fromD },
       };
       const priorTxs = await this.prisma.financialTransaction.findMany({
         where: priorWhere,
@@ -1016,7 +1050,7 @@ export class ExpenseManagementService {
       });
       for (const p of priorTxs) {
         const amt = Number(p.amount);
-        const isOutflow = ['CASH_PAYMENT', 'BANK_PAYMENT', 'PAYMENT'].includes(p.transactionType) || p.transactionType.includes('PAYMENT');
+        const isOutflow = p_isOutflow(p.transactionType);
         if (isOutflow) openingBalance += amt;
         else openingBalance -= amt;
       }
@@ -1026,8 +1060,12 @@ export class ExpenseManagementService {
     const periodWhere: any = { ...baseWhere };
     if (filters.fromDate || filters.toDate) {
       periodWhere.transactionDate = {};
-      if (filters.fromDate) periodWhere.transactionDate.gte = new Date(filters.fromDate);
-      if (filters.toDate) periodWhere.transactionDate.lte = new Date(filters.toDate);
+      if (filters.fromDate) {
+        periodWhere.transactionDate.gte = new Date(filters.fromDate.includes('T') ? filters.fromDate : `${filters.fromDate}T00:00:00.000Z`);
+      }
+      if (filters.toDate) {
+        periodWhere.transactionDate.lte = new Date(filters.toDate.includes('T') ? filters.toDate : `${filters.toDate}T23:59:59.999Z`);
+      }
     }
 
     if (filters.search?.trim()) {

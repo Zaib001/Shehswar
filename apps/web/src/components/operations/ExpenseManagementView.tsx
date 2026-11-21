@@ -31,6 +31,7 @@ import { useToast } from '../../context/toast-context';
 import { useCompany } from '../../context/company-context';
 import { ApiClient } from '../../lib/api-client';
 import { SourceDocumentDrillDownModal } from './SourceDocumentDrillDownModal';
+import { exportExpenseLedgerToPdf } from '../../lib/pdf-export';
 
 export interface ExpenseItemRecord {
   id: string;
@@ -698,7 +699,34 @@ export const ExpenseManagementView: React.FC<ExpenseManagementViewProps> = ({ ac
 
   // Printable Ledger Trigger
   const handlePrint = () => {
-    window.print();
+    if (activeTab === 'LEDGER') {
+      exportExpenseLedgerToPdf({
+        companyName: effectiveCompanyName,
+        ledgerTitle: ledgerData?.meta?.ledgerTitle || 'Expense & Liability Ledger',
+        ledgerSubtitle: ledgerData?.meta?.ledgerSubtitle || 'Running Balances Statement',
+        startDate: ledgerFromDate,
+        endDate: ledgerToDate,
+        filters: {
+          division: ledgerDivision !== 'ALL' ? MAIN_DIVISIONS.find((d) => d.key === ledgerDivision)?.label : undefined,
+          head: ledgerHeadId !== 'ALL' ? allHeads.find((h) => h.id === ledgerHeadId)?.name : undefined,
+          subCategory: ledgerSubCatId !== 'ALL' ? ledgerAvailableSubCats.find((s) => s.id === ledgerSubCatId)?.name : undefined,
+          item: ledgerItemId !== 'ALL' ? ledgerAvailableItems.find((i) => i.id === ledgerItemId)?.name : undefined,
+          paymentMethod: ledgerPaymentMethod !== 'ALL' ? ledgerPaymentMethod : undefined,
+          search: ledgerSearch.trim() || undefined,
+        },
+        summary: ledgerData?.summary || {
+          openingBalance: 0,
+          totalDebit: 0,
+          totalCredit: 0,
+          closingBalance: 0,
+          transactionCount: 0,
+        },
+        itemBreakdown: ledgerData?.itemBreakdown || [],
+        entries: ledgerData?.entries || [],
+      });
+    } else {
+      window.print();
+    }
   };
 
   // Sub-categories available for item modal based on selected parent head
