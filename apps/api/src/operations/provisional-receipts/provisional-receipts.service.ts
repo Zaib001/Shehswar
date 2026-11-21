@@ -450,12 +450,18 @@ export class ProvisionalReceiptsService {
     }
 
     // Atomic Cash & Bank Transaction Integration
-    const mainAcc = await tx.account.findFirst({
-      where: { companyId: pr.companyId, accountCode: cashOrBankCode },
-    });
-    const clearingAcc = await tx.account.findFirst({
-      where: { companyId: pr.companyId, accountCode: clearingAccountCode },
-    });
+    const mainAcc = await this.financeService.resolveAccount(
+      tx,
+      organizationId,
+      pr.companyId,
+      cashOrBankCode,
+    );
+    const clearingAcc = await this.financeService.resolveAccount(
+      tx,
+      organizationId,
+      pr.companyId,
+      clearingAccountCode,
+    );
 
     if (mainAcc && clearingAcc) {
       await tx.financialTransaction.create({
@@ -665,27 +671,20 @@ export class ProvisionalReceiptsService {
       },
     });
 
-    // 3. Resolve Contra Expense GL Account (e.g. 609000 Operating / Misc Expense)
-    let expenseAccount = await tx.account.findFirst({
-      where: {
-        companyId: pr.companyId,
-        OR: [
-          { accountCode: '609000' },
-          { accountCode: '6090' },
-          { accountType: 'EXPENSE' },
-        ],
-      },
-    });
+    // 3. Resolve Contra Expense GL Account (e.g. 609000 Operating / Misc Expense) & Clearing Account (103500)
+    const expenseAccount = await this.financeService.resolveAccount(
+      tx,
+      organizationId,
+      pr.companyId,
+      '609000',
+    );
 
-    if (!expenseAccount) {
-      expenseAccount = await tx.account.findFirst({
-        where: { companyId: pr.companyId },
-      });
-    }
-
-    const clearingAccount = await tx.account.findFirst({
-      where: { companyId: pr.companyId, accountCode: '103500' },
-    });
+    const clearingAccount = await this.financeService.resolveAccount(
+      tx,
+      organizationId,
+      pr.companyId,
+      '103500',
+    );
 
     // 4. Post GL Entry: Debit Operating Expense, Credit 103500 Collection Clearing
     const journal = await this.financeService.postJournalEntry(tx, {
@@ -700,13 +699,13 @@ export class ProvisionalReceiptsService {
       createdById: userId,
       lines: [
         {
-          accountCode: expenseAccount?.accountCode || '609000',
+          accountCode: expenseAccount.accountCode || '609000',
           debit: amount,
           credit: 0,
           description: `PR Expense: ${headTitle} - ${itemTitle}`,
         },
         {
-          accountCode: '103500',
+          accountCode: clearingAccount.accountCode || '103500',
           debit: 0,
           credit: amount,
           description: `Clearing deduction for expense on PR ${pr.prNumber}`,
@@ -715,37 +714,35 @@ export class ProvisionalReceiptsService {
     });
 
     // 5. Create FinancialTransaction entry for instant visibility in Expense Ledger & Reports
-    if (expenseAccount && clearingAccount) {
-      await tx.financialTransaction.create({
-        data: {
-          id: uuidv7(),
-          organizationId,
-          companyId: pr.companyId,
-          voucherNumber: `${pr.prNumber}-EXP`,
-          transactionType: 'CASH_PAYMENT',
-          transactionDate: pr.receiptDate,
-          partyType: 'DEALER',
-          partyId: pr.partyDealerId || pr.salesOfficerId || null,
-          partyName: pr.receivedFrom,
-          mainDivision,
-          expenseHeadId: alloc.expenseHeadId || null,
-          expenseSubCategoryId: alloc.expenseSubCategoryId || null,
-          expenseItemId: alloc.expenseItemId || null,
-          headName: headTitle,
-          subCategoryName: subCatTitle,
-          expenseItemName: itemTitle,
-          amount,
-          paymentMethod: 'CASH',
-          accountId: clearingAccount.id,
-          contraAccountId: expenseAccount.id,
-          referenceNumber: pr.prNumber,
-          remarks: alloc.remarks || `${headTitle} - ${itemTitle}`, // Expense Line Description!
-          status: 'POSTED',
-          journalEntryId: journal.id,
-          createdById: userId || null,
-        },
-      });
-    }
+    await tx.financialTransaction.create({
+      data: {
+        id: uuidv7(),
+        organizationId,
+        companyId: pr.companyId,
+        voucherNumber: `${pr.prNumber}-EXP`,
+        transactionType: 'CASH_PAYMENT',
+        transactionDate: pr.receiptDate,
+        partyType: 'DEALER',
+        partyId: pr.partyDealerId || pr.salesOfficerId || null,
+        partyName: pr.receivedFrom,
+        mainDivision,
+        expenseHeadId: alloc.expenseHeadId || null,
+        expenseSubCategoryId: alloc.expenseSubCategoryId || null,
+        expenseItemId: alloc.expenseItemId || null,
+        headName: headTitle,
+        subCategoryName: subCatTitle,
+        expenseItemName: itemTitle,
+        amount,
+        paymentMethod: 'CASH',
+        accountId: clearingAccount.id,
+        contraAccountId: expenseAccount.id,
+        referenceNumber: pr.prNumber,
+        remarks: alloc.remarks || `${headTitle} - ${itemTitle}`, // Expense Line Description!
+        status: 'POSTED',
+        journalEntryId: journal.id,
+        createdById: userId || null,
+      },
+    });
 
     this.logger.log(
       `PR ${pr.prNumber} allocated expense PKR ${amount} to "${headTitle} - ${itemTitle}". Recorded in Expense Ledger and GL.`,

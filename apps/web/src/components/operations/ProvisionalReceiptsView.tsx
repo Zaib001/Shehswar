@@ -1676,9 +1676,9 @@ const extractArray = (res: any): any[] => {
                 setQuickHeadDivision(val);
               }}
               options={[
-                { label: 'Sales Expenses', value: 'SALES' },
-                { label: 'General / Head Office Expenses', value: 'GENERAL' },
-                { label: 'Miscellaneous Expenses', value: 'MISCELLANEOUS' },
+                { label: 'Sales Expenses', value: 'SALES_EXPENSE' },
+                { label: 'General / Head Office Expenses', value: 'GENERAL_EXPENSE' },
+                { label: 'Miscellaneous Expenses', value: 'MISCELLANEOUS_EXPENSE' },
               ]}
             />
           </div>
