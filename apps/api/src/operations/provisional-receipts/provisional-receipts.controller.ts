@@ -97,6 +97,13 @@ export class ProvisionalReceiptsController {
     return this.service.getExpenseProducts(resolvedCompanyId);
   }
 
+  @Get('expense-hierarchy')
+  @ApiOperation({ summary: 'Get real Expense Head -> Sub-Category -> Item hierarchy for PR Expense lines' })
+  async getExpenseHierarchy(@Query('companyId') companyId?: string, @Req() req?: any) {
+    const resolvedCompanyId = companyId || req?.user?.companyId || req?.headers?.['x-company-id'];
+    return this.service.getExpenseHierarchy(resolvedCompanyId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'PR Drill-down: Header, products, allocations, and financial impact' })
   async getProvisionalReceiptById(@Param('id') id: string) {

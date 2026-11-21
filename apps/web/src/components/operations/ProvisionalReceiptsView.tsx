@@ -92,25 +92,43 @@ export const ProvisionalReceiptsView: React.FC = () => {
   const [selectedSalesOfficer, setSelectedSalesOfficer] = useState<any | null>(null);
   const [officerDealers, setOfficerDealers] = useState<any[]>([]);
   const [selectedDealer, setSelectedDealer] = useState<any | null>(null);
-  const [expenseProducts, setExpenseProducts] = useState<any[]>([]);
+  const [expenseHeads, setExpenseHeads] = useState<any[]>([]);
   const [prNumberError, setPrNumberError] = useState<string>('');
   const [isCheckingPrNumber, setIsCheckingPrNumber] = useState<boolean>(false);
 
-  // Unified allocation line items (Dealer or Expense lines)
-  interface UnifiedAllocationLine {
+  // Expense Breakdown line items
+  interface PrExpenseLine {
     id: string;
-    type: 'DEALER' | 'EXPENSE';
-    dealerId?: string;
-    partyCode?: string;
-    dealerName?: string;
-    expenseProductId?: string;
-    expenseName?: string;
-    expenseHeadId?: string;
+    expenseHeadId: string;
+    headName: string;
+    subCategoryId?: string;
+    subCategoryName?: string;
     expenseItemId?: string;
+    itemName?: string;
     description: string;
-    allocatedAmount: number | '';
+    amount: number | '';
   }
-  const [unifiedAllocations, setUnifiedAllocations] = useState<UnifiedAllocationLine[]>([]);
+  const [expenseLines, setExpenseLines] = useState<PrExpenseLine[]>([]);
+
+  // Quick modals for adding Head, Sub-Category, Item inline
+  const [isQuickHeadOpen, setIsQuickHeadOpen] = useState(false);
+  const [quickHeadName, setQuickHeadName] = useState('');
+  const [quickHeadDivision, setQuickHeadDivision] = useState<string>('SALES_EXPENSE');
+  const [isSavingQuickHead, setIsSavingQuickHead] = useState(false);
+  const [quickHeadRowIdx, setQuickHeadRowIdx] = useState<number | null>(null);
+
+  const [isQuickSubCatOpen, setIsQuickSubCatOpen] = useState(false);
+  const [quickSubCatHeadId, setQuickSubCatHeadId] = useState('');
+  const [quickSubCatName, setQuickSubCatName] = useState('');
+  const [isSavingQuickSubCat, setIsSavingQuickSubCat] = useState(false);
+  const [quickSubCatRowIdx, setQuickSubCatRowIdx] = useState<number | null>(null);
+
+  const [isQuickItemOpen, setIsQuickItemOpen] = useState(false);
+  const [quickItemHeadId, setQuickItemHeadId] = useState('');
+  const [quickItemSubCatId, setQuickItemSubCatId] = useState('');
+  const [quickItemName, setQuickItemName] = useState('');
+  const [isSavingQuickItem, setIsSavingQuickItem] = useState(false);
+  const [quickItemRowIdx, setQuickItemRowIdx] = useState<number | null>(null);
 
   // PR Form (matches physical document & simplified workflow)
   const [prForm, setPrForm] = useState({
@@ -130,7 +148,6 @@ export const ProvisionalReceiptsView: React.FC = () => {
     paymentReferenceNumber: '',
     bankName: '',
     branchName: '',
-    totalAmount: '',
     remarks: '',
     autoPost: true,
   });
@@ -285,18 +302,18 @@ const extractArray = (res: any): any[] => {
     }
   };
 
-  // Load auxiliary data for PR creation (Sales officers & Expense products for active company)
+  // Load auxiliary data for PR creation (Sales officers & real Expense hierarchy for active company)
   const loadPrAuxiliary = async (compId: string) => {
     if (!compId || compId === 'ALL') return;
     try {
-      const [officersRes, expenseRes]: [any, any] = await Promise.all([
+      const [officersRes, expenseHierarchyRes]: [any, any] = await Promise.all([
         ApiClient.get(`/api/v1/provisional-receipts/sales-officers?companyId=${compId}`).catch(() => []),
-        ApiClient.get(`/api/v1/provisional-receipts/expense-products?companyId=${compId}`).catch(() => []),
+        ApiClient.get(`/api/v1/provisional-receipts/expense-hierarchy?companyId=${compId}`).catch(() => []),
       ]);
       const officers = extractArray(officersRes);
-      const expenses = extractArray(expenseRes);
+      const hierarchy = extractArray(expenseHierarchyRes);
       setSalesOfficers(officers);
-      setExpenseProducts(expenses);
+      setExpenseHeads(hierarchy);
     } catch (err) {
       console.error('Failed to load PR auxiliary data:', err);
     }
@@ -336,7 +353,7 @@ const extractArray = (res: any): any[] => {
     }
   };
 
-  // When Dealer changes, update selectedDealer and auto-fill hierarchy
+  // When Dealer changes, only update selectedDealer and auto-fill hierarchy (NO auto-creation of allocation rows!)
   const handleDealerChange = (dealerId: string, currentDealers = officerDealers) => {
     const dlr = currentDealers.find((d) => d.id === dealerId);
     setSelectedDealer(dlr || null);
@@ -344,73 +361,158 @@ const extractArray = (res: any): any[] => {
       ...prev,
       partyDealerId: dealerId,
       partyCode: dlr?.code || '',
+      receivedFrom: dlr ? `${dlr.name} (${dlr.code})` : prev.receivedFrom,
     }));
-
-    // If unifiedAllocations has an empty dealer line or is empty, auto-add this dealer
-    setUnifiedAllocations((prev) => {
-      if (prev.length === 0 && dlr) {
-        return [
-          {
-            id: `line-${Date.now()}`,
-            type: 'DEALER',
-            dealerId: dlr.id,
-            partyCode: dlr.code,
-            dealerName: dlr.name,
-            description: `Collection from ${dlr.businessName || dlr.name}`,
-            allocatedAmount: Number(prForm.totalAmount) || '',
-          },
-        ];
-      }
-      return prev;
-    });
   };
 
-  // Add Dealer allocation line
-  const handleAddDealerLine = () => {
-    const defaultDealer = selectedDealer || officerDealers[0];
-    const totalRec = Number(prForm.totalAmount) || 0;
-    const currentAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
-    const rem = Math.max(0, totalRec - currentAlloc);
-
-    setUnifiedAllocations((prev) => [
-      ...prev,
-      {
-        id: `line-${Date.now()}-${Math.random()}`,
-        type: 'DEALER',
-        dealerId: defaultDealer?.id || '',
-        partyCode: defaultDealer?.code || '',
-        dealerName: defaultDealer?.name || '',
-        description: defaultDealer ? `Collection from ${defaultDealer.businessName || defaultDealer.name}` : 'Dealer Collection',
-        allocatedAmount: rem > 0 ? rem : '',
-      },
-    ]);
-  };
-
-  // Add Expense allocation line
+  // Add Expense line to Expense Breakdown table
   const handleAddExpenseLine = () => {
-    const defaultExp = expenseProducts[0];
-    const totalRec = Number(prForm.totalAmount) || 0;
-    const currentAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
-    const rem = Math.max(0, totalRec - currentAlloc);
+    const defaultHead = expenseHeads[0];
+    const defaultSub = defaultHead?.subCategories?.[0];
+    const defaultItem = defaultSub?.items?.[0] || defaultHead?.items?.[0];
 
-    setUnifiedAllocations((prev) => [
+    setExpenseLines((prev) => [
       ...prev,
       {
-        id: `line-${Date.now()}-${Math.random()}`,
-        type: 'EXPENSE',
-        expenseProductId: defaultExp?.id || defaultExp?.finishedProductId,
-        expenseName: defaultExp?.productName || 'Bilty / Freight Expense',
-        expenseHeadId: defaultExp?.expenseHeadId,
-        expenseItemId: defaultExp?.expenseItemId,
-        description: defaultExp?.productName ? `${defaultExp.productName} reimbursement` : 'Field Expense',
-        allocatedAmount: rem > 0 ? rem : '',
+        id: `exp-${Date.now()}-${Math.random()}`,
+        expenseHeadId: defaultHead?.id || '',
+        headName: defaultHead?.name || '',
+        subCategoryId: defaultSub?.id || '',
+        subCategoryName: defaultSub?.name || '',
+        expenseItemId: defaultItem?.id || '',
+        itemName: defaultItem?.name || '',
+        description: '',
+        amount: '',
       },
     ]);
   };
 
-  // Remove allocation line
-  const handleRemoveUnifiedLine = (idx: number) => {
-    setUnifiedAllocations((prev) => prev.filter((_, i) => i !== idx));
+  // Remove Expense line
+  const handleRemoveExpenseLine = (idx: number) => {
+    setExpenseLines((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Dynamically calculate total amount from all expense lines
+  const calculatedTotal = useMemo(() => {
+    return expenseLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  }, [expenseLines]);
+
+  // Quick Modal: Save New Expense Head
+  const handleSaveQuickHead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickHeadName.trim()) return;
+    setIsSavingQuickHead(true);
+    try {
+      const res: any = await ApiClient.post('/api/v1/expense-management/heads', {
+        companyId: effectiveCompanyId,
+        name: quickHeadName.trim(),
+        mainDivision: quickHeadDivision,
+        description: '',
+      });
+      const created = res?.data || res;
+      notify(`Expense Head "${quickHeadName}" created!`, 'success');
+      await loadPrAuxiliary(effectiveCompanyId);
+      if (quickHeadRowIdx !== null && expenseLines[quickHeadRowIdx]) {
+        const cur = expenseLines[quickHeadRowIdx];
+        if (cur) {
+          const copy = [...expenseLines];
+          copy[quickHeadRowIdx] = {
+            ...cur,
+            id: cur.id,
+            expenseHeadId: created.id,
+            headName: created.name,
+            subCategoryId: '',
+            subCategoryName: '',
+            expenseItemId: '',
+            itemName: '',
+          };
+          setExpenseLines(copy);
+        }
+      }
+      setIsQuickHeadOpen(false);
+      setQuickHeadName('');
+    } catch (err: any) {
+      notify(err?.message || 'Failed to create Expense Head', 'error');
+    } finally {
+      setIsSavingQuickHead(false);
+    }
+  };
+
+  // Quick Modal: Save New Sub-Category
+  const handleSaveQuickSubCat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickSubCatName.trim() || !quickSubCatHeadId) return;
+    setIsSavingQuickSubCat(true);
+    try {
+      const res: any = await ApiClient.post('/api/v1/expense-management/sub-categories', {
+        companyId: effectiveCompanyId,
+        expenseHeadId: quickSubCatHeadId,
+        name: quickSubCatName.trim(),
+        description: '',
+      });
+      const created = res?.data || res;
+      notify(`Sub-Category "${quickSubCatName}" created!`, 'success');
+      await loadPrAuxiliary(effectiveCompanyId);
+      if (quickSubCatRowIdx !== null && expenseLines[quickSubCatRowIdx]) {
+        const cur = expenseLines[quickSubCatRowIdx];
+        if (cur) {
+          const copy = [...expenseLines];
+          copy[quickSubCatRowIdx] = {
+            ...cur,
+            id: cur.id,
+            subCategoryId: created.id,
+            subCategoryName: created.name,
+            expenseItemId: '',
+            itemName: '',
+          };
+          setExpenseLines(copy);
+        }
+      }
+      setIsQuickSubCatOpen(false);
+      setQuickSubCatName('');
+    } catch (err: any) {
+      notify(err?.message || 'Failed to create Sub-Category', 'error');
+    } finally {
+      setIsSavingQuickSubCat(false);
+    }
+  };
+
+  // Quick Modal: Save New Expense Item
+  const handleSaveQuickItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickItemName.trim() || !quickItemHeadId) return;
+    setIsSavingQuickItem(true);
+    try {
+      const res: any = await ApiClient.post('/api/v1/expense-management/items', {
+        companyId: effectiveCompanyId,
+        expenseHeadId: quickItemHeadId,
+        subCategoryId: quickItemSubCatId || undefined,
+        name: quickItemName.trim(),
+        description: '',
+      });
+      const created = res?.data || res;
+      notify(`Expense Item "${quickItemName}" created!`, 'success');
+      await loadPrAuxiliary(effectiveCompanyId);
+      if (quickItemRowIdx !== null && expenseLines[quickItemRowIdx]) {
+        const cur = expenseLines[quickItemRowIdx];
+        if (cur) {
+          const copy = [...expenseLines];
+          copy[quickItemRowIdx] = {
+            ...cur,
+            id: cur.id,
+            expenseItemId: created.id,
+            itemName: created.name,
+          };
+          setExpenseLines(copy);
+        }
+      }
+      setIsQuickItemOpen(false);
+      setQuickItemName('');
+    } catch (err: any) {
+      notify(err?.message || 'Failed to create Expense Item', 'error');
+    } finally {
+      setIsSavingQuickItem(false);
+    }
   };
 
   // Open Create PR Modal with company pre-loaded and auto-fetched next PR number
@@ -421,7 +523,19 @@ const extractArray = (res: any): any[] => {
     setSelectedSalesOfficer(null);
     setSelectedDealer(null);
     setOfficerDealers([]);
-    setUnifiedAllocations([]);
+    setExpenseLines([
+      {
+        id: `exp-${Date.now()}`,
+        expenseHeadId: '',
+        headName: '',
+        subCategoryId: '',
+        subCategoryName: '',
+        expenseItemId: '',
+        itemName: '',
+        description: '',
+        amount: '',
+      },
+    ]);
     setPrNumberError('');
     setPrForm({
       companyId: compId,
@@ -440,7 +554,6 @@ const extractArray = (res: any): any[] => {
       paymentReferenceNumber: '',
       bankName: '',
       branchName: '',
-      totalAmount: '',
       remarks: '',
       autoPost: true,
     });
@@ -524,7 +637,7 @@ const extractArray = (res: any): any[] => {
     });
   };
 
-  // Submit Create PR (Redesigned: Saves to Ledgers & Resets Form WITHOUT Closing Modal)
+  // Submit Create PR (Redesigned: Calculated Total, Single Dealer Header, Dynamic Expense Breakdown)
   const handleCreatePrSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const effCompId = effectiveCompanyId;
@@ -548,34 +661,22 @@ const extractArray = (res: any): any[] => {
       return;
     }
 
-    const totalAmt = Number(prForm.totalAmount) || 0;
+    if (!prForm.partyDealerId) {
+      notify('Please select a Primary Dealer / Party', 'error');
+      return;
+    }
+
+    // Filter valid expense lines
+    const validLines = expenseLines.filter((l) => l.expenseHeadId && Number(l.amount) > 0);
+    if (validLines.length === 0) {
+      notify('Please add at least one valid expense line with an amount greater than 0', 'error');
+      return;
+    }
+
+    const totalAmt = validLines.reduce((sum, l) => sum + Number(l.amount || 0), 0);
     if (totalAmt <= 0) {
-      notify('Please enter a valid Total Received Amount (PKR)', 'error');
+      notify('Total calculated PR amount must be greater than 0', 'error');
       return;
-    }
-
-    // Filter valid allocations
-    const validAllocs = unifiedAllocations.filter((a) => {
-      const hasTarget = a.type === 'DEALER' ? !!a.dealerId : (!!a.expenseProductId || !!a.expenseName);
-      return hasTarget && Number(a.allocatedAmount) > 0;
-    });
-
-    if (validAllocs.length === 0) {
-      notify('Please add at least one valid allocation line (Dealer or Expense)', 'error');
-      return;
-    }
-
-    const totalAllocated = validAllocs.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
-    const remaining = totalAmt - totalAllocated;
-
-    if (Math.abs(remaining) > 0.01) {
-      if (remaining < 0) {
-        notify(`Total allocated (PKR ${totalAllocated.toLocaleString()}) cannot exceed received amount (PKR ${totalAmt.toLocaleString()}). Please balance allocations.`, 'error');
-        return;
-      } else {
-        notify(`Total allocated (PKR ${totalAllocated.toLocaleString()}) must equal Total Received (PKR ${totalAmt.toLocaleString()}). Remaining unallocated: PKR ${remaining.toLocaleString()}.`, 'error');
-        return;
-      }
     }
 
     setIsSubmitting(true);
@@ -586,26 +687,26 @@ const extractArray = (res: any): any[] => {
         receiptDate: prForm.receiptDate,
         issueDate: prForm.issueDate || prForm.receiptDate,
         salesOfficerId: prForm.salesOfficerId,
-        receivedFrom: prForm.receivedFrom || selectedSalesOfficer?.name || 'Field Officer',
-        partyDealerId: selectedDealer?.id || validAllocs.find((a) => a.type === 'DEALER')?.dealerId || undefined,
-        partyCode: selectedDealer?.code || validAllocs.find((a) => a.type === 'DEALER')?.partyCode || undefined,
+        receivedFrom: prForm.receivedFrom || selectedSalesOfficer?.name || selectedDealer?.name || 'Field Officer',
+        partyDealerId: prForm.partyDealerId || selectedDealer?.id,
+        partyCode: selectedDealer?.code || prForm.partyCode,
         totalAmount: totalAmt,
         paymentMethod: prForm.paymentMethod,
         paymentReferenceNumber: prForm.paymentReferenceNumber || undefined,
         bankName: prForm.bankName || undefined,
         branchName: prForm.branchName || undefined,
-        remarks: prForm.remarks || undefined,
+        remarks: prForm.remarks || undefined, // Main PR Description -> Saved in Dealer Ledger
         autoPost: true,
-        allocations: validAllocs.map((a) => ({
-          type: a.type,
-          dealerId: a.type === 'DEALER' ? a.dealerId : undefined,
-          partyCode: a.type === 'DEALER' ? a.partyCode : undefined,
-          expenseProductId: a.type === 'EXPENSE' ? a.expenseProductId : undefined,
-          expenseName: a.type === 'EXPENSE' ? a.expenseName : undefined,
-          expenseHeadId: a.type === 'EXPENSE' ? a.expenseHeadId : undefined,
-          expenseItemId: a.type === 'EXPENSE' ? a.expenseItemId : undefined,
-          allocatedAmount: Number(a.allocatedAmount),
-          remarks: a.description || undefined,
+        allocations: validLines.map((l) => ({
+          type: 'EXPENSE',
+          expenseHeadId: l.expenseHeadId,
+          expenseSubCategoryId: l.subCategoryId || undefined,
+          expenseItemId: l.expenseItemId || undefined,
+          headName: l.headName || undefined,
+          subCategoryName: l.subCategoryName || undefined,
+          itemName: l.itemName || undefined,
+          allocatedAmount: Number(l.amount),
+          remarks: l.description || undefined, // Expense Line Description -> Saved in Expense Ledger
         })),
       });
 
@@ -614,15 +715,28 @@ const extractArray = (res: any): any[] => {
       // RESET FORM FOR NEXT ENTRY — KEEP MODAL OPEN!
       setPrForm((prev) => ({
         ...prev,
-        totalAmount: '',
         remarks: '',
+        partyDealerId: '',
+        partyCode: '',
         paymentReferenceNumber: '',
         bankName: '',
         branchName: '',
         // preserve salesOfficerId and date for rapid batch voucher entry
       }));
-      setUnifiedAllocations([]);
       setSelectedDealer(null);
+      setExpenseLines([
+        {
+          id: `exp-${Date.now()}`,
+          expenseHeadId: '',
+          headName: '',
+          subCategoryId: '',
+          subCategoryName: '',
+          expenseItemId: '',
+          itemName: '',
+          description: '',
+          amount: '',
+        },
+      ]);
 
       // Auto-fetch next sequential PR number
       await loadNextPrNumber(effCompId);
@@ -1048,19 +1162,6 @@ const extractArray = (res: any): any[] => {
                   onChange={(e) => setPrForm({ ...prForm, issueDate: e.target.value })}
                 />
               </div>
-
-              <div>
-                <label className="label">Total Received (PKR) *</label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="e.g. 500000"
-                  value={prForm.totalAmount}
-                  onChange={(e) => setPrForm({ ...prForm, totalAmount: e.target.value })}
-                  style={{ fontWeight: 800, fontSize: '15px', color: '#d97706' }}
-                />
-              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginTop: '14px' }}>
@@ -1081,8 +1182,9 @@ const extractArray = (res: any): any[] => {
               </div>
 
               <div>
-                <label className="label">Primary Dealer / Party</label>
+                <label className="label">Dealer / Party *</label>
                 <SearchableCombobox
+                  required
                   value={prForm.partyDealerId}
                   onChange={(val) => handleDealerChange(val)}
                   disabled={!prForm.salesOfficerId}
@@ -1154,9 +1256,9 @@ const extractArray = (res: any): any[] => {
             )}
 
             <div style={{ marginTop: '14px' }}>
-              <label className="label">Remarks / Description</label>
+              <label className="label">Description / Remarks (Saved in Dealer Ledger) *</label>
               <Input
-                placeholder="Optional PR collection remarks..."
+                placeholder="Description of overall dealer transaction (saved in Dealer Ledger)..."
                 value={prForm.remarks}
                 onChange={(e) => setPrForm({ ...prForm, remarks: e.target.value })}
               />
@@ -1215,28 +1317,23 @@ const extractArray = (res: any): any[] => {
             </div>
           )}
 
-          {/* Unified Allocation Table (Dealer & Expense Lines) */}
+          {/* Expense Breakdown Table */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
               <div>
                 <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0 }}>
-                  Allocation Breakdown (Dealer & Expense Lines)
+                  Expense Breakdown
                 </h3>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Distribute the received collection across assigned dealers and operating expense items.
+                  Enter all expense lines for this Provisional Receipt. Total PR Amount is calculated automatically.
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <Button type="button" variant="secondary" size="sm" onClick={handleAddDealerLine}>
-                  <IconPlus size={13} /> Add Dealer Line
-                </Button>
-                <Button type="button" variant="secondary" size="sm" onClick={handleAddExpenseLine}>
-                  <IconPlus size={13} /> Add Expense Line
-                </Button>
-              </div>
+              <Button type="button" variant="secondary" size="sm" onClick={handleAddExpenseLine}>
+                <IconPlus size={13} /> Add Expense Line
+              </Button>
             </div>
 
-            {unifiedAllocations.length === 0 ? (
+            {expenseLines.length === 0 ? (
               <div
                 style={{
                   padding: '24px',
@@ -1247,10 +1344,10 @@ const extractArray = (res: any): any[] => {
                 }}
               >
                 <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  No allocation lines added yet
+                  No expense lines added yet
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  Click <strong>Add Dealer Line</strong> or <strong>Add Expense Line</strong> above to allocate the received amount.
+                  Click <strong>Add Expense Line</strong> above to enter expenses.
                 </div>
               </div>
             ) : (
@@ -1258,59 +1355,52 @@ const extractArray = (res: any): any[] => {
                 <table className="table" style={{ width: '100%', fontSize: '12px' }}>
                   <thead>
                     <tr style={{ background: 'var(--color-bg-secondary)' }}>
-                      <th style={{ padding: '8px 12px', textAlign: 'center', width: '40px' }}>#</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '110px' }}>Type</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left' }}>Dealer / Expense Target</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'left', width: '220px' }}>Description / Remarks</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right', width: '150px' }}>Amount (PKR)</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'center', width: '50px' }}></th>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', width: '35px' }}>#</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '180px' }}>Expense Head *</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '160px' }}>Sub-Category</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '160px' }}>Expense Item / Target</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '180px' }}>Description / Remarks (Expense Ledger)</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '130px' }}>Amount (PKR) *</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', width: '45px' }}></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {unifiedAllocations.map((alloc, idx) => {
+                    {expenseLines.map((line, idx) => {
+                      const curHead = expenseHeads.find((h) => h.id === line.expenseHeadId);
+                      const subCats = curHead?.subCategories || [];
+                      const curSub = subCats.find((s: any) => s.id === line.subCategoryId);
+                      const items = curSub?.items?.length ? curSub.items : (curHead?.items || []);
+
                       return (
-                        <tr key={alloc.id || idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>
+                        <tr key={line.id || idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600 }}>
                             {idx + 1}
                           </td>
-                          <td style={{ padding: '8px 12px' }}>
-                            <span
-                              style={{
-                                display: 'inline-block',
-                                padding: '3px 8px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                background: alloc.type === 'DEALER' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)',
-                                color: alloc.type === 'DEALER' ? '#10b981' : '#8b5cf6',
-                              }}
-                            >
-                              {alloc.type === 'DEALER' ? 'Dealer' : 'Expense'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '8px 12px' }}>
-                            {alloc.type === 'DEALER' ? (
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                               <select
                                 required
-                                value={alloc.dealerId || ''}
+                                value={line.expenseHeadId}
                                 onChange={(e) => {
-                                  const dId = e.target.value;
-                                  const dlr = officerDealers.find((d) => d.id === dId);
-                                  const copy = [...unifiedAllocations];
+                                  const hId = e.target.value;
+                                  const head = expenseHeads.find((h) => h.id === hId);
+                                  const copy = [...expenseLines];
                                   if (copy[idx]) {
                                     copy[idx] = {
                                       ...copy[idx],
-                                      dealerId: dId,
-                                      partyCode: dlr?.code || '',
-                                      dealerName: dlr?.name || '',
-                                      description: dlr ? `Collection from ${dlr.businessName || dlr.name}` : copy[idx].description,
+                                      expenseHeadId: hId,
+                                      headName: head?.name || '',
+                                      subCategoryId: '',
+                                      subCategoryName: '',
+                                      expenseItemId: '',
+                                      itemName: '',
                                     };
-                                    setUnifiedAllocations(copy);
+                                    setExpenseLines(copy);
                                   }
                                 }}
                                 style={{
                                   width: '100%',
-                                  padding: '7px 10px',
+                                  padding: '6px 8px',
                                   borderRadius: '6px',
                                   border: '1px solid var(--border-default)',
                                   fontSize: '12px',
@@ -1319,90 +1409,173 @@ const extractArray = (res: any): any[] => {
                                   color: 'var(--text-primary)',
                                 }}
                               >
-                                <option value="">-- Select Assigned Dealer --</option>
-                                {officerDealers.map((d) => (
-                                  <option key={d.id} value={d.id}>
-                                    {d.code} - {d.name} ({d.businessName || 'Shop'}) [Bal: PKR {Number(d.currentBalance || 0).toLocaleString()}]
+                                <option value="">-- Select Expense Head * --</option>
+                                {expenseHeads.map((h) => (
+                                  <option key={h.id} value={h.id}>
+                                    [{h.mainDivision}] {h.name}
                                   </option>
                                 ))}
                               </select>
-                            ) : (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                title="Quick Add Head"
+                                onClick={() => {
+                                  setQuickHeadRowIdx(idx);
+                                  setIsQuickHeadOpen(true);
+                                }}
+                                style={{ padding: '4px 8px', fontWeight: 700 }}
+                              >
+                                +
+                              </Button>
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                               <select
-                                required
-                                value={alloc.expenseProductId || ''}
+                                value={line.subCategoryId}
                                 onChange={(e) => {
-                                  const epId = e.target.value;
-                                  const exp = expenseProducts.find((p) => (p.id || p.finishedProductId) === epId);
-                                  const copy = [...unifiedAllocations];
+                                  const scId = e.target.value;
+                                  const sub = subCats.find((s: any) => s.id === scId);
+                                  const copy = [...expenseLines];
                                   if (copy[idx]) {
                                     copy[idx] = {
                                       ...copy[idx],
-                                      expenseProductId: epId,
-                                      expenseName: exp?.productName || 'Operational Expense',
-                                      expenseHeadId: exp?.expenseHeadId,
-                                      expenseItemId: exp?.expenseItemId,
-                                      description: exp?.productName ? `${exp.productName} reimbursement` : copy[idx].description,
+                                      subCategoryId: scId,
+                                      subCategoryName: sub?.name || '',
+                                      expenseItemId: '',
+                                      itemName: '',
                                     };
-                                    setUnifiedAllocations(copy);
+                                    setExpenseLines(copy);
                                   }
                                 }}
+                                disabled={!line.expenseHeadId}
                                 style={{
                                   width: '100%',
-                                  padding: '7px 10px',
+                                  padding: '6px 8px',
                                   borderRadius: '6px',
                                   border: '1px solid var(--border-default)',
                                   fontSize: '12px',
-                                  fontWeight: 600,
+                                  fontWeight: 500,
                                   backgroundColor: 'var(--bg-surface)',
                                   color: 'var(--text-primary)',
                                 }}
                               >
-                                <option value="">-- Select Expense / Product Head --</option>
-                                {expenseProducts.map((p) => {
-                                  const id = p.id || p.finishedProductId;
-                                  return (
-                                    <option key={id} value={id}>
-                                      {p.productName} ({p.category || p.productType || 'EXPENSE'})
-                                    </option>
-                                  );
-                                })}
+                                <option value="">-- Optional Sub-Category --</option>
+                                {subCats.map((s: any) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.name}
+                                  </option>
+                                ))}
                               </select>
-                            )}
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                title="Quick Add Sub-Category"
+                                disabled={!line.expenseHeadId}
+                                onClick={() => {
+                                  setQuickSubCatHeadId(line.expenseHeadId);
+                                  setQuickSubCatRowIdx(idx);
+                                  setIsQuickSubCatOpen(true);
+                                }}
+                                style={{ padding: '4px 8px', fontWeight: 700 }}
+                              >
+                                +
+                              </Button>
+                            </div>
                           </td>
-                          <td style={{ padding: '8px 12px' }}>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                              <select
+                                value={line.expenseItemId}
+                                onChange={(e) => {
+                                  const itId = e.target.value;
+                                  const item = items.find((it: any) => it.id === itId);
+                                  const copy = [...expenseLines];
+                                  if (copy[idx]) {
+                                    copy[idx] = {
+                                      ...copy[idx],
+                                      expenseItemId: itId,
+                                      itemName: item?.name || '',
+                                    };
+                                    setExpenseLines(copy);
+                                  }
+                                }}
+                                disabled={!line.expenseHeadId}
+                                style={{
+                                  width: '100%',
+                                  padding: '6px 8px',
+                                  borderRadius: '6px',
+                                  border: '1px solid var(--border-default)',
+                                  fontSize: '12px',
+                                  fontWeight: 500,
+                                  backgroundColor: 'var(--bg-surface)',
+                                  color: 'var(--text-primary)',
+                                }}
+                              >
+                                <option value="">-- Optional Item / Account --</option>
+                                {items.map((it: any) => (
+                                  <option key={it.id} value={it.id}>
+                                    {it.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                title="Quick Add Item"
+                                disabled={!line.expenseHeadId}
+                                onClick={() => {
+                                  setQuickItemHeadId(line.expenseHeadId);
+                                  setQuickItemSubCatId(line.subCategoryId || '');
+                                  setQuickItemRowIdx(idx);
+                                  setIsQuickItemOpen(true);
+                                }}
+                                style={{ padding: '4px 8px', fontWeight: 700 }}
+                              >
+                                +
+                              </Button>
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
                             <Input
-                              placeholder="Line remarks"
-                              value={alloc.description}
+                              placeholder="e.g. Bilty / Cartage charges"
+                              value={line.description}
                               onChange={(e) => {
-                                const copy = [...unifiedAllocations];
+                                const copy = [...expenseLines];
                                 if (copy[idx]) {
                                   copy[idx].description = e.target.value;
-                                  setUnifiedAllocations(copy);
+                                  setExpenseLines(copy);
                                 }
                               }}
                             />
                           </td>
-                          <td style={{ padding: '8px 12px' }}>
+                          <td style={{ padding: '8px 10px' }}>
                             <Input
                               type="number"
+                              step="0.01"
                               required
-                              value={alloc.allocatedAmount}
+                              placeholder="0.00"
+                              value={line.amount}
                               onChange={(e) => {
-                                const copy = [...unifiedAllocations];
+                                const copy = [...expenseLines];
                                 if (copy[idx]) {
-                                  copy[idx].allocatedAmount = e.target.value === '' ? '' : Number(e.target.value);
-                                  setUnifiedAllocations(copy);
+                                  copy[idx].amount = e.target.value === '' ? '' : Number(e.target.value);
+                                  setExpenseLines(copy);
                                 }
                               }}
                               style={{ textAlign: 'right', fontWeight: 700 }}
                             />
                           </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                             <Button
                               type="button"
                               variant="secondary"
                               size="sm"
-                              onClick={() => handleRemoveUnifiedLine(idx)}
+                              onClick={() => handleRemoveExpenseLine(idx)}
                               style={{ color: '#ef4444', borderColor: 'transparent', padding: '4px' }}
                             >
                               <IconTrash size={14} />
@@ -1416,80 +1589,36 @@ const extractArray = (res: any): any[] => {
               </div>
             )}
 
-            {/* Real-time Reconciliation Bar */}
-            {(() => {
-              const totalRec = Number(prForm.totalAmount) || 0;
-              const totalAlloc = unifiedAllocations.reduce((sum, a) => sum + Number(a.allocatedAmount || 0), 0);
-              const remaining = totalRec - totalAlloc;
-              const isBalanced = Math.abs(remaining) <= 0.01 && totalRec > 0;
-              const isOver = remaining < -0.01;
-
-              return (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px 16px',
-                    background: isBalanced
-                      ? 'rgba(16, 185, 129, 0.08)'
-                      : isOver
-                      ? 'rgba(239, 68, 68, 0.08)'
-                      : 'rgba(245, 158, 11, 0.08)',
-                    border: `1px solid ${
-                      isBalanced ? '#10b981' : isOver ? '#ef4444' : '#f59e0b'
-                    }`,
-                    borderRadius: '8px',
-                    marginTop: '12px',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Received</span>
-                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#d97706' }}>
-                        PKR {totalRec.toLocaleString()}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Total Allocated</span>
-                      <span style={{ fontSize: '16px', fontWeight: 800, color: '#10b981' }}>
-                        PKR {totalAlloc.toLocaleString()}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Remaining Balance</span>
-                      <span
-                        style={{
-                          fontSize: '16px',
-                          fontWeight: 800,
-                          color: isBalanced ? '#10b981' : isOver ? '#ef4444' : '#f59e0b',
-                        }}
-                      >
-                        PKR {remaining.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    {isBalanced ? (
-                      <span style={{ background: '#10b981', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                        ✓ Perfectly Balanced (Ready to Post)
-                      </span>
-                    ) : isOver ? (
-                      <span style={{ background: '#ef4444', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                        ✕ Overallocated by PKR {Math.abs(remaining).toLocaleString()}
-                      </span>
-                    ) : (
-                      <span style={{ background: '#f59e0b', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                        ⚠ Unallocated: PKR {remaining.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
+            {/* Calculated Total Banner */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 18px',
+                background: 'linear-gradient(135deg, rgba(217, 119, 6, 0.08) 0%, rgba(245, 158, 11, 0.12) 100%)',
+                border: '1px solid rgba(217, 119, 6, 0.3)',
+                borderRadius: '8px',
+                marginTop: '14px',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px' }}>
+                  Total PR Amount (Calculated Automatically)
+                </span>
+                <div style={{ fontSize: '22px', fontWeight: 900, color: '#d97706' }}>
+                  PKR {calculatedTotal.toLocaleString()}
                 </div>
-              );
-            })()}
+              </div>
+              <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <div>{expenseLines.filter((l) => Number(l.amount) > 0).length} expense item(s) entered</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                  Credited to Dealer: {selectedDealer ? `${selectedDealer.name} (${selectedDealer.code})` : 'Selected Dealer'}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* GL Double-Entry Notice */}
@@ -1505,7 +1634,7 @@ const extractArray = (res: any): any[] => {
             }}
           >
             <strong style={{ color: '#0284c7' }}>Double-Entry General Ledger Impact: </strong>
-            Debit Cash (101000) / Bank (102000) • Credit Dealer AR (103000) for dealer splits • Credit Operating Expenses (609000) for expense lines • Credit Collection Clearing (103500) for unallocated balance.
+            Credit Dealer AR (103000) for PKR {calculatedTotal.toLocaleString()} (Dealer collection) • Debit Operating Expenses (609000) for individual expense lines in Expense Ledger.
           </div>
 
           {/* Action Buttons */}
@@ -1520,12 +1649,162 @@ const extractArray = (res: any): any[] => {
               <Button
                 type="submit"
                 variant="primary"
-                disabled={isSubmitting || !!prNumberError}
+                disabled={isSubmitting || !!prNumberError || calculatedTotal <= 0}
                 style={{ background: '#d97706', borderColor: '#d97706', color: '#fff' }}
               >
                 <IconCheck size={14} /> {isSubmitting ? 'Posting...' : 'Save & Post PR (Reset Ready)'}
               </Button>
             </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* QUICK MODAL: ADD EXPENSE HEAD */}
+      <Modal
+        isOpen={isQuickHeadOpen}
+        onClose={() => setIsQuickHeadOpen(false)}
+        title="Quick Add Expense Head"
+        size="md"
+      >
+        <form onSubmit={handleSaveQuickHead} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label className="label">Main Division *</label>
+            <Select
+              value={quickHeadDivision}
+              onChange={(valOrEvt) => {
+                const val = valOrEvt?.target?.value ?? valOrEvt;
+                setQuickHeadDivision(val);
+              }}
+              options={[
+                { label: 'Sales Expenses', value: 'SALES' },
+                { label: 'General / Head Office Expenses', value: 'GENERAL' },
+                { label: 'Miscellaneous Expenses', value: 'MISCELLANEOUS' },
+              ]}
+            />
+          </div>
+          <div>
+            <label className="label">Expense Head Name *</label>
+            <Input
+              required
+              placeholder="e.g. Field Operation Expenses"
+              value={quickHeadName}
+              onChange={(e) => setQuickHeadName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <Button type="button" variant="secondary" onClick={() => setIsQuickHeadOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={isSavingQuickHead || !quickHeadName.trim()}>
+              {isSavingQuickHead ? 'Saving...' : 'Create & Select Head'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* QUICK MODAL: ADD SUB-CATEGORY */}
+      <Modal
+        isOpen={isQuickSubCatOpen}
+        onClose={() => setIsQuickSubCatOpen(false)}
+        title="Quick Add Sub-Category"
+        size="md"
+      >
+        <form onSubmit={handleSaveQuickSubCat} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label className="label">Expense Head *</label>
+            <Select
+              value={quickSubCatHeadId}
+              onChange={(valOrEvt) => {
+                const val = valOrEvt?.target?.value ?? valOrEvt;
+                setQuickSubCatHeadId(val);
+              }}
+              options={expenseHeads.map((h) => ({
+                label: `[${h.mainDivision}] ${h.name}`,
+                value: h.id,
+              }))}
+            />
+          </div>
+          <div>
+            <label className="label">Sub-Category Name *</label>
+            <Input
+              required
+              placeholder="e.g. Fuel / Travel Reimbursement"
+              value={quickSubCatName}
+              onChange={(e) => setQuickSubCatName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <Button type="button" variant="secondary" onClick={() => setIsQuickSubCatOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={isSavingQuickSubCat || !quickSubCatName.trim()}>
+              {isSavingQuickSubCat ? 'Saving...' : 'Create & Select Sub-Category'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* QUICK MODAL: ADD EXPENSE ITEM */}
+      <Modal
+        isOpen={isQuickItemOpen}
+        onClose={() => setIsQuickItemOpen(false)}
+        title="Quick Add Expense Item / Account"
+        size="md"
+      >
+        <form onSubmit={handleSaveQuickItem} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label className="label">Expense Head *</label>
+            <Select
+              value={quickItemHeadId}
+              onChange={(valOrEvt) => {
+                const val = valOrEvt?.target?.value ?? valOrEvt;
+                setQuickItemHeadId(val);
+                setQuickItemSubCatId('');
+              }}
+              options={expenseHeads.map((h) => ({
+                label: `[${h.mainDivision}] ${h.name}`,
+                value: h.id,
+              }))}
+            />
+          </div>
+          <div>
+            <label className="label">Sub-Category (Optional)</label>
+            <Select
+              value={quickItemSubCatId}
+              onChange={(valOrEvt) => {
+                const val = valOrEvt?.target?.value ?? valOrEvt;
+                setQuickItemSubCatId(val);
+              }}
+              options={[
+                { label: '-- None (Direct Item) --', value: '' },
+                ...(expenseHeads
+                  .find((h) => h.id === quickItemHeadId)
+                  ?.subCategories?.map((s: any) => ({
+                    label: s.name,
+                    value: s.id,
+                  })) || []),
+              ]}
+            />
+          </div>
+          <div>
+            <label className="label">Expense Item / Account Name *</label>
+            <Input
+              required
+              placeholder="e.g. Vehicle ABC-123 or PTCL Office"
+              value={quickItemName}
+              onChange={(e) => setQuickItemName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <Button type="button" variant="secondary" onClick={() => setIsQuickItemOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={isSavingQuickItem || !quickItemName.trim()}>
+              {isSavingQuickItem ? 'Saving...' : 'Create & Select Item'}
+            </Button>
           </div>
         </form>
       </Modal>

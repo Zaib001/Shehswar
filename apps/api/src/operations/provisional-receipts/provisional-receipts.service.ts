@@ -40,7 +40,11 @@ export interface CreatePrAllocationDto {
   expenseProductId?: string;
   expenseName?: string;
   expenseHeadId?: string;
+  expenseSubCategoryId?: string;
   expenseItemId?: string;
+  headName?: string;
+  subCategoryName?: string;
+  itemName?: string;
   allocatedAmount: number;
   reference?: string;
   remarks?: string;
@@ -188,22 +192,6 @@ export class ProvisionalReceiptsService {
       });
     }
 
-    // Determine final total amount
-    const totalAmount =
-      Number(dto.totalAmount || 0) > 0
-        ? Math.round(Number(dto.totalAmount) * 100) / 100
-        : calculatedProductTotal > 0
-        ? calculatedProductTotal
-        : 0;
-
-    if (totalAmount <= 0) {
-      throw new BadRequestException('Provisional Receipt Total Amount must be greater than zero');
-    }
-
-    const totalAmountInWords = dto.totalAmountInWords || this.numberToWords(totalAmount);
-    const receiptDate = new Date(dto.receiptDate);
-    const issueDate = dto.issueDate ? new Date(dto.issueDate) : receiptDate;
-
     // 4. Validate initial allocations (Dealers and Expenses)
     let totalAllocated = 0;
     const dealerAllocations: Array<{
@@ -224,7 +212,11 @@ export class ProvisionalReceiptsService {
       expenseProductId?: string | null;
       expenseName: string;
       expenseHeadId?: string | null;
+      expenseSubCategoryId?: string | null;
       expenseItemId?: string | null;
+      headName?: string | null;
+      subCategoryName?: string | null;
+      itemName?: string | null;
       allocatedAmount: number;
       reference?: string | null;
       remarks?: string | null;
@@ -236,13 +228,17 @@ export class ProvisionalReceiptsService {
         if (amt <= 0) continue;
         totalAllocated += amt;
 
-        if (a.type === 'EXPENSE' || (!a.dealerId && (a.expenseName || a.expenseProductId))) {
+        if (a.type === 'EXPENSE' || (!a.dealerId && (a.expenseName || a.expenseProductId || a.expenseHeadId))) {
           expenseAllocations.push({
             id: uuidv7(),
             expenseProductId: a.expenseProductId || null,
-            expenseName: a.expenseName || a.remarks || 'Bilty Expense',
+            expenseName: a.itemName || a.expenseName || a.remarks || 'Expense',
             expenseHeadId: a.expenseHeadId || null,
+            expenseSubCategoryId: a.expenseSubCategoryId || null,
             expenseItemId: a.expenseItemId || null,
+            headName: a.headName || null,
+            subCategoryName: a.subCategoryName || null,
+            itemName: a.itemName || null,
             allocatedAmount: amt,
             reference: a.reference || null,
             remarks: a.remarks || null,
@@ -264,19 +260,45 @@ export class ProvisionalReceiptsService {
       }
     }
 
-    if (totalAllocated > totalAmount) {
-      throw new BadRequestException(
-        `Total allocated amount (PKR ${totalAllocated}) cannot exceed received amount (PKR ${totalAmount})`,
-      );
+    // Determine final total amount (from explicit totalAmount, or sum of expense allocations)
+    const totalAmount =
+      Number(dto.totalAmount || 0) > 0
+        ? Math.round(Number(dto.totalAmount) * 100) / 100
+        : totalAllocated > 0
+        ? totalAllocated
+        : calculatedProductTotal > 0
+        ? calculatedProductTotal
+        : 0;
+
+    if (totalAmount <= 0) {
+      throw new BadRequestException('Provisional Receipt Total Amount must be greater than zero');
     }
 
-    const unallocatedAmount = Math.round((totalAmount - totalAllocated) * 100) / 100;
-    const allocationStatus =
-      totalAllocated === 0
-        ? 'UNALLOCATED'
-        : unallocatedAmount === 0
-        ? 'FULLY_ALLOCATED'
-        : 'PARTIALLY_ALLOCATED';
+    // In the single-dealer PR workflow, Dealer is selected only at the top header.
+    // Automatically credit the Dealer Ledger for the full PR amount with the Main PR Description.
+    if (dto.partyDealerId && dealerAllocations.length === 0) {
+      dealerAllocations.push({
+        id: uuidv7(),
+        dealerId: dto.partyDealerId,
+        partyCode: derivedPartyCode || null,
+        dealerName: dto.name || dto.receivedFrom || null,
+        regionId: derivedRegionId || null,
+        territoryId: derivedTerritoryId || null,
+        allocatedAmount: totalAmount,
+        reference: prNumberClean,
+        remarks: dto.remarks || null, // Main PR Description saved in Dealer Ledger!
+        status: 'POSTED',
+      });
+    }
+
+    const totalAmountInWords = dto.totalAmountInWords || this.numberToWords(totalAmount);
+    const receiptDate = new Date(dto.receiptDate);
+    const issueDate = dto.issueDate ? new Date(dto.issueDate) : receiptDate;
+
+    // Both Dealer Credit and Expense Allocation equal the total PR volume
+    const finalAllocated = totalAmount;
+    const unallocatedAmount = 0;
+    const allocationStatus = 'FULLY_ALLOCATED';
 
     const initialStatus = dto.autoPost ? 'POSTED' : 'PENDING_ALLOCATION';
 
@@ -305,7 +327,7 @@ export class ProvisionalReceiptsService {
           bankAccountId: dto.bankAccountId || null,
           totalAmount,
           totalAmountInWords,
-          allocatedAmount: totalAllocated,
+          allocatedAmount: finalAllocated,
           unallocatedAmount,
           allocationStatus,
           status: initialStatus,
@@ -583,7 +605,11 @@ export class ProvisionalReceiptsService {
       expenseProductId?: string | null;
       expenseName: string;
       expenseHeadId?: string | null;
+      expenseSubCategoryId?: string | null;
       expenseItemId?: string | null;
+      headName?: string | null;
+      subCategoryName?: string | null;
+      itemName?: string | null;
       allocatedAmount: number;
       reference?: string | null;
       remarks?: string | null;
@@ -591,16 +617,47 @@ export class ProvisionalReceiptsService {
     userId?: string,
   ) {
     const amount = alloc.allocatedAmount;
-    const expenseName = alloc.expenseName || 'Operational Expense';
+    const expenseName = alloc.itemName || alloc.expenseName || 'Operational Expense';
 
-    // 1. Create product/expense line on PR
+    // 1. Resolve Expense Head, Sub-Category, and Item metadata
+    let mainDivision = 'SALES_EXPENSE';
+    let headTitle = alloc.headName || expenseName;
+    let subCatTitle = alloc.subCategoryName || null;
+    let itemTitle = alloc.itemName || alloc.expenseName || expenseName;
+
+    if (alloc.expenseHeadId) {
+      const head = await tx.expenseHead.findUnique({
+        where: { id: alloc.expenseHeadId },
+        select: { name: true, mainDivision: true, glAccountId: true },
+      });
+      if (head) {
+        mainDivision = head.mainDivision || mainDivision;
+        headTitle = head.name || headTitle;
+      }
+    }
+    if (alloc.expenseSubCategoryId) {
+      const sc = await tx.expenseSubCategory.findUnique({
+        where: { id: alloc.expenseSubCategoryId },
+        select: { name: true },
+      });
+      if (sc) subCatTitle = sc.name;
+    }
+    if (alloc.expenseItemId) {
+      const it = await tx.expenseItem.findUnique({
+        where: { id: alloc.expenseItemId },
+        select: { name: true },
+      });
+      if (it) itemTitle = it.name;
+    }
+
+    // 2. Create product/expense line on PR for audit & physical print
     await tx.provisionalReceiptProduct.create({
       data: {
         id: alloc.id,
         provisionalReceiptId: pr.id,
         srNo: 99,
         finishedProductId: alloc.expenseProductId && !alloc.expenseProductId.startsWith('STD-') ? alloc.expenseProductId : null,
-        productName: expenseName,
+        productName: `${headTitle}${subCatTitle ? ` / ${subCatTitle}` : ''} - ${itemTitle}`,
         packSize: 'EXPENSE',
         quantity: 1,
         policyRate: amount,
@@ -608,7 +665,7 @@ export class ProvisionalReceiptsService {
       },
     });
 
-    // 2. Resolve Contra Expense GL Account (e.g. 609000 Operating / Misc Expense)
+    // 3. Resolve Contra Expense GL Account (e.g. 609000 Operating / Misc Expense)
     let expenseAccount = await tx.account.findFirst({
       where: {
         companyId: pr.companyId,
@@ -630,7 +687,7 @@ export class ProvisionalReceiptsService {
       where: { companyId: pr.companyId, accountCode: '103500' },
     });
 
-    // 3. Post GL Entry: Debit Operating Expense, Credit 103500 Collection Clearing
+    // 4. Post GL Entry: Debit Operating Expense, Credit 103500 Collection Clearing
     const journal = await this.financeService.postJournalEntry(tx, {
       organizationId,
       companyId: pr.companyId,
@@ -638,7 +695,7 @@ export class ProvisionalReceiptsService {
       sourceId: alloc.id,
       referenceType: 'PR_EXPENSE_ALLOCATION',
       referenceNumber: `${pr.prNumber}-EXP`,
-      description: `PR Expense Allocation [${pr.prNumber}] - ${expenseName}: ${alloc.remarks || 'Field Expense'}`,
+      description: `PR Expense [${pr.prNumber}] - ${headTitle} (${itemTitle}): ${alloc.remarks || 'Field Expense'}`,
       entryDate: pr.receiptDate,
       createdById: userId,
       lines: [
@@ -646,7 +703,7 @@ export class ProvisionalReceiptsService {
           accountCode: expenseAccount?.accountCode || '609000',
           debit: amount,
           credit: 0,
-          description: `PR Expense: ${expenseName}`,
+          description: `PR Expense: ${headTitle} - ${itemTitle}`,
         },
         {
           accountCode: '103500',
@@ -657,7 +714,7 @@ export class ProvisionalReceiptsService {
       ],
     });
 
-    // 4. Create FinancialTransaction entry for instant visibility in Expense Ledger & Reports
+    // 5. Create FinancialTransaction entry for instant visibility in Expense Ledger & Reports
     if (expenseAccount && clearingAccount) {
       await tx.financialTransaction.create({
         data: {
@@ -667,20 +724,22 @@ export class ProvisionalReceiptsService {
           voucherNumber: `${pr.prNumber}-EXP`,
           transactionType: 'CASH_PAYMENT',
           transactionDate: pr.receiptDate,
-          partyType: 'EMPLOYEE',
-          partyId: pr.salesOfficerId || null,
+          partyType: 'DEALER',
+          partyId: pr.partyDealerId || pr.salesOfficerId || null,
           partyName: pr.receivedFrom,
-          mainDivision: 'SALES_EXPENSE',
+          mainDivision,
           expenseHeadId: alloc.expenseHeadId || null,
+          expenseSubCategoryId: alloc.expenseSubCategoryId || null,
           expenseItemId: alloc.expenseItemId || null,
-          headName: expenseName,
-          expenseItemName: alloc.remarks || expenseName,
+          headName: headTitle,
+          subCategoryName: subCatTitle,
+          expenseItemName: itemTitle,
           amount,
           paymentMethod: 'CASH',
           accountId: clearingAccount.id,
           contraAccountId: expenseAccount.id,
           referenceNumber: pr.prNumber,
-          remarks: `PR Expense Allocation [${pr.prNumber}] - ${alloc.remarks || expenseName}`,
+          remarks: alloc.remarks || `${headTitle} - ${itemTitle}`, // Expense Line Description!
           status: 'POSTED',
           journalEntryId: journal.id,
           createdById: userId || null,
@@ -689,7 +748,7 @@ export class ProvisionalReceiptsService {
     }
 
     this.logger.log(
-      `PR ${pr.prNumber} allocated expense PKR ${amount} to "${expenseName}". Recorded in Expense Ledger and GL.`,
+      `PR ${pr.prNumber} allocated expense PKR ${amount} to "${headTitle} - ${itemTitle}". Recorded in Expense Ledger and GL.`,
     );
   }
 
@@ -1598,5 +1657,34 @@ export class ProvisionalReceiptsService {
     }
 
     return list;
+  }
+
+  /**
+   * Get real Expense Head -> Sub-Category -> Item hierarchy for PR allocation
+   */
+  async getExpenseHierarchy(companyId?: string) {
+    return this.prisma.expenseHead.findMany({
+      where: {
+        ...(companyId && companyId !== 'ALL' ? { companyId } : {}),
+        isActive: true,
+      },
+      include: {
+        subCategories: {
+          where: { isActive: true },
+          orderBy: { name: 'asc' },
+          include: {
+            items: {
+              where: { isActive: true },
+              orderBy: { name: 'asc' },
+            },
+          },
+        },
+        items: {
+          where: { isActive: true },
+          orderBy: { name: 'asc' },
+        },
+      },
+      orderBy: [{ mainDivision: 'asc' }, { name: 'asc' }],
+    });
   }
 }
