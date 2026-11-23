@@ -1261,7 +1261,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               finishedProductId: it.finishedProductId,
               quantity: Number(it.quantity) || 1,
               paymentTerm: paymentTermToUse,
-              requestedSchemeId: schemeIdToUse || undefined,
+              requestedSchemeId: it.schemeId || schemeIdToUse || undefined,
               requestedRateListId: rateListIdToUse || undefined,
               rateListId: rateListIdToUse || undefined,
             });
@@ -1273,10 +1273,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 unitPrice: r.finalUnitRate,
                 discountPercent: r.discountPercent,
                 discountAmount: r.discountAmount,
-                freeQuantity: r.freeQuantity || 0,
+                freeQuantity: 0,
                 totalPrice: r.finalAmount,
                 commercialCondition: r.commercialCondition || undefined,
-                schemeId: schemeIdToUse,
+                schemeId: it.schemeId || schemeIdToUse,
                 rateListId: rateListIdToUse,
               };
             }
@@ -1290,20 +1290,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     } finally {
       setIsResolvingCustomizePricing(false);
     }
-  };
-
-  const handleCustomizeSchemeChange = (newSchemeId: string) => {
-    setCustomizeSchemeId(newSchemeId);
-    const matchedScheme = schemes.find((s) => s.id === newSchemeId);
-    let linkedRlId = customizeRateListId;
-    if (matchedScheme) {
-      const linked = rateLists.find((rl) => rl.schemeId === newSchemeId || (matchedScheme.shortCode && rl.schemeShortCode === matchedScheme.shortCode));
-      if (linked) {
-        linkedRlId = linked.id;
-        setCustomizeRateListId(linked.id);
-      }
-    }
-    recalculateCustomizePricing(customizeItems, newSchemeId, linkedRlId, customizePaymentTerm);
   };
 
   const handleCustomizeRateListChange = (newRateListId: string) => {
@@ -1342,7 +1328,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             finishedProductId: prodId,
             quantity: qty,
             paymentTerm: customizePaymentTerm,
-            requestedSchemeId: customizeSchemeId || undefined,
+            requestedSchemeId: item.schemeId || customizeSchemeId || undefined,
             requestedRateListId: customizeRateListId || undefined,
             rateListId: customizeRateListId || undefined,
           });
@@ -1352,7 +1338,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             item.unitPrice = r.finalUnitRate;
             item.discountPercent = r.discountPercent;
             item.discountAmount = r.discountAmount;
-            item.freeQuantity = r.freeQuantity || 0;
+            item.freeQuantity = 0;
             item.totalPrice = r.finalAmount;
             item.commercialCondition = r.commercialCondition || undefined;
           }
@@ -1364,6 +1350,49 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         const price = Number(item.unitPrice) || 0;
         item.totalPrice = qty * price;
       }
+    } else if (field === 'schemeId') {
+      item.schemeId = val;
+      const qty = Number(item.quantity) || 1;
+      const prodId = item.finishedProductId;
+      if (prodId && orderToCustomize) {
+        try {
+          const res = await ApiClient.post<any>('/api/v1/pricing/resolve', {
+            companyId: activeCompanyId || undefined,
+            dealerId: orderToCustomize.dealerId,
+            finishedProductId: prodId,
+            quantity: qty,
+            paymentTerm: customizePaymentTerm,
+            requestedSchemeId: val || undefined,
+            requestedRateListId: customizeRateListId || undefined,
+            rateListId: customizeRateListId || undefined,
+          });
+          const r = res.data?.data || res.data;
+          if (r) {
+            item.baseRate = r.baseRate;
+            item.unitPrice = r.finalUnitRate;
+            item.discountPercent = r.discountPercent;
+            item.discountAmount = r.discountAmount;
+            item.freeQuantity = 0;
+            item.totalPrice = r.finalAmount;
+            item.commercialCondition = r.commercialCondition || undefined;
+          }
+        } catch {
+          const base = Number(item.baseRate || 0);
+          item.discountPercent = 0;
+          item.discountAmount = 0;
+          item.unitPrice = base;
+          item.totalPrice = qty * base;
+        }
+      } else {
+        const base = Number(item.baseRate || 0);
+        item.discountPercent = 0;
+        item.discountAmount = 0;
+        item.unitPrice = base;
+        item.totalPrice = qty * base;
+      }
+      updated[index] = item;
+      setCustomizeItems(updated);
+      return;
     } else if (field === 'baseRate') {
       const base = Math.max(0, Number(val) || 0);
       item.baseRate = base;
@@ -1398,7 +1427,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       return;
     } else if (field === 'unitPrice') {
       const qty = Number(item.quantity) || 0;
-      const price = Number(val) || 0;
+      const price = Math.max(0, Number(val) || 0);
+      item.unitPrice = price;
       item.totalPrice = qty * price;
     }
 
@@ -1448,19 +1478,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         (sum, it) => sum + (Number(it.discountAmount || 0) * Number(it.quantity || 1)),
         0,
       );
-      const totalFree = customizeItems.reduce(
-        (sum, it) => sum + Number(it.freeQuantity || 0),
-        0,
-      );
 
       const res = await ApiClient.patch<any>(`/api/v1/sales-orders/${orderToCustomize.id}`, {
         warehouseId: customizeWarehouseId,
         notes: customizeNotes,
-        schemeId: customizeSchemeId || null,
+        schemeId: customizeItems[0]?.schemeId || customizeSchemeId || null,
         rateListId: customizeRateListId || null,
         paymentTerm: customizePaymentTerm,
         discountAmount: totalDiscount,
-        freeQuantityTotal: totalFree,
+        freeQuantityTotal: 0,
         items: customizeItems.map((i) => ({
           finishedProductId: i.finishedProductId,
           productName: i.productName,
@@ -1470,10 +1496,10 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           unitPrice: Number(i.unitPrice),
           discountPercent: Number(i.discountPercent || 0),
           discountAmount: Number(i.discountAmount || 0),
-          freeQuantity: Number(i.freeQuantity || 0),
+          freeQuantity: 0,
           totalPrice: Number(i.totalPrice) || (Number(i.quantity) * Number(i.unitPrice)),
-          schemeId: customizeSchemeId || null,
-          rateListId: customizeRateListId || null,
+          schemeId: i.schemeId || customizeSchemeId || null,
+          rateListId: i.rateListId || customizeRateListId || null,
           commercialCondition: i.commercialCondition || null,
         })),
       });
@@ -2437,10 +2463,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       (sum, it) => sum + (Number(it.discountAmount || 0) * Number(it.quantity || 1)),
       0,
     );
-    const totalFreeBags = customizeItems.reduce(
-      (sum, it) => sum + Number(it.freeQuantity || 0),
-      0,
-    );
 
     return (
       <Modal
@@ -2462,11 +2484,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               {totalDiscounts > 0 && (
                 <span style={{ padding: '3px 8px', borderRadius: '6px', background: '#ecfdf5', color: '#047857', fontWeight: 700, fontSize: '12px' }}>
                   Total Scheme Discount: -PKR {totalDiscounts.toLocaleString()}
-                </span>
-              )}
-              {totalFreeBags > 0 && (
-                <span style={{ padding: '3px 8px', borderRadius: '6px', background: '#faf5ff', color: '#7e22ce', fontWeight: 700, fontSize: '12px' }}>
-                  Free Bags: +{totalFreeBags}
                 </span>
               )}
             </div>
@@ -2515,26 +2532,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 &ldquo;{orderToCustomize.notes}&rdquo;
               </div>
               <div style={{ fontSize: '12px', color: '#92400e', marginTop: '4px' }}>
-                <strong>Dynamic Scheme Action:</strong> Select the requested Commercial Scheme below. The system will inspect every product in the order against the selected rate list and auto-update the unit prices, discounts, and bonus quantities!
+                <strong>Dynamic Scheme & Rate Action:</strong> Select the Commercial Scheme or customize Base Rates directly on each product row below. The system automatically calculates discounts and updates order totals!
               </div>
             </div>
           ) : (
             <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              No specific remarks entered by sales officer. You can select any Commercial Scheme or Rate List below to apply dynamic pricing.
+              No specific remarks entered by sales officer. You can select any Rate List below or choose Schemes directly on product rows.
             </div>
           )}
 
-          {/* Pricing Controls: Scheme, Rate List, Payment Term, Warehouse (Spacious 2x2 grid) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
-            <Select
-              label="Commercial Scheme (Auto-Updates Prices) *"
-              value={customizeSchemeId}
-              onChange={(e) => handleCustomizeSchemeChange(e.target.value)}
-              options={[
-                { label: 'Standard Catalogue (No Scheme)', value: '' },
-                ...schemeOptions,
-              ]}
-            />
+          {/* Pricing Controls: Rate List, Payment Term, Warehouse (Spacious 3-column grid) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
             <Select
               label="Commercial Rate List *"
               value={customizeRateListId}
@@ -2561,7 +2569,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
           <Input
             label="Manager Override / Review Notes"
-            placeholder="e.g. Applied Scheme A per sales officer remarks and confirmed with BM"
+            placeholder="e.g. Applied Scheme per sales officer remarks and confirmed with BM"
             value={customizeNotes}
             onChange={(e) => setCustomizeNotes(e.target.value)}
           />
@@ -2581,7 +2589,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                 fontWeight: 600,
               }}
             >
-              <span>Calculating dynamic scheme rates & bonus bags for all order products...</span>
+              <span>Calculating dynamic scheme rates & discounts for all order products...</span>
             </div>
           )}
 
@@ -2590,11 +2598,11 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 <tr style={{ textAlign: 'left', color: '#475569', fontSize: '12px' }}>
-                  <th style={{ padding: '12px 14px', minWidth: '240px', whiteSpace: 'nowrap' }}>Product / SKU</th>
+                  <th style={{ padding: '12px 14px', minWidth: '220px', whiteSpace: 'nowrap' }}>Product / SKU</th>
+                  <th style={{ padding: '12px 10px', minWidth: '150px', whiteSpace: 'nowrap' }}>Scheme</th>
                   <th style={{ padding: '12px 8px', textAlign: 'center', width: '85px', whiteSpace: 'nowrap' }}>Approved Qty</th>
                   <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '100px', whiteSpace: 'nowrap' }}>Base Rate</th>
                   <th style={{ padding: '12px 10px', textAlign: 'center', minWidth: '130px', whiteSpace: 'nowrap' }}>Scheme Discount</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'center', minWidth: '95px', whiteSpace: 'nowrap' }}>Free Bags</th>
                   <th style={{ padding: '12px 10px', textAlign: 'right', minWidth: '105px', whiteSpace: 'nowrap' }}>Net Unit Rate</th>
                   <th style={{ padding: '12px 14px', textAlign: 'right', minWidth: '120px', whiteSpace: 'nowrap' }}>Line Total</th>
                   <th style={{ padding: '12px 8px', textAlign: 'center', width: '45px', whiteSpace: 'nowrap' }}></th>
@@ -2605,7 +2613,6 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   const origQty = item.originalQuantity ?? item.quantity;
                   const isModified = Number(item.quantity) !== Number(origQty);
                   const hasDiscount = Number(item.discountAmount || 0) > 0;
-                  const hasFreeQty = Number(item.freeQuantity || 0) > 0;
 
                   return (
                     <tr
@@ -2615,6 +2622,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         background: isModified ? '#fffbeb' : hasDiscount ? '#f0fdf4' : 'transparent',
                       }}
                     >
+                      {/* Product Selector */}
                       <td style={{ padding: '8px 12px' }}>
                         <select
                           value={item.finishedProductId || ''}
@@ -2638,6 +2646,33 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           ))}
                         </select>
                       </td>
+
+                      {/* Product-Specific Commercial Scheme */}
+                      <td style={{ padding: '8px 10px', minWidth: '150px' }}>
+                        <select
+                          value={item.schemeId || ''}
+                          onChange={(e) => updateCustomizeItem(idx, 'schemeId', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-default)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#0f172a',
+                            backgroundColor: '#fff',
+                          }}
+                        >
+                          <option value="">-- No Scheme --</option>
+                          {schemes.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.code || s.shortCode ? `${s.code || s.shortCode} - ` : ''}{s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      {/* Approved Quantity */}
                       <td style={{ padding: '8px 8px', textAlign: 'center' }}>
                         <input
                           type="number"
@@ -2655,9 +2690,29 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           }}
                         />
                       </td>
-                      <td style={{ padding: '8px 8px', textAlign: 'right', color: 'var(--text-muted)' }}>
-                        {item.baseRate ? `PKR ${Number(item.baseRate).toLocaleString()}` : '-'}
+
+                      {/* Editable Base Rate / Base Price */}
+                      <td style={{ padding: '8px 8px', textAlign: 'right' }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={item.baseRate !== undefined && item.baseRate !== null ? item.baseRate : ''}
+                          onChange={(e) => updateCustomizeItem(idx, 'baseRate', e.target.value)}
+                          style={{
+                            width: '90px',
+                            padding: '5px 8px',
+                            textAlign: 'right',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-default)',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            color: '#0f172a',
+                          }}
+                        />
                       </td>
+
+                      {/* Scheme Discount Badge */}
                       <td style={{ padding: '8px 8px', textAlign: 'center' }}>
                         {hasDiscount ? (
                           <span
@@ -2677,29 +2732,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Standard</span>
                         )}
                       </td>
-                      <td style={{ padding: '8px 8px', textAlign: 'center' }}>
-                        {hasFreeQty ? (
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: '#f3e8ff',
-                              color: '#7e22ce',
-                              fontWeight: 700,
-                              fontSize: '11px',
-                            }}
-                          >
-                            +{item.freeQuantity} Free
-                          </span>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>-</span>
-                        )}
-                      </td>
+
+                      {/* Net Unit Rate */}
                       <td style={{ padding: '8px 8px', textAlign: 'right' }}>
                         <input
                           type="number"
                           min="0"
+                          step="any"
                           value={item.unitPrice}
                           onChange={(e) => updateCustomizeItem(idx, 'unitPrice', e.target.value)}
                           style={{
@@ -2714,9 +2753,13 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                           }}
                         />
                       </td>
+
+                      {/* Line Total */}
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#047857' }}>
                         PKR {Number(item.totalPrice).toLocaleString()}
                       </td>
+
+                      {/* Remove Line Action */}
                       <td style={{ padding: '8px 8px', textAlign: 'center' }}>
                         <Button
                           variant="ghost"
@@ -2737,7 +2780,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Button variant="secondary" size="sm" onClick={addCustomizeItemRow}>
-              <IconPlus size={15} /> + Add Another Product Line
+              <IconPlus size={15} /> Add Another Product Line
             </Button>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
               Net Items: <strong>{customizeItems.length}</strong> | Total Units: <strong>{customizeItems.reduce((s, i) => s + (Number(i.quantity) || 0), 0)}</strong>
@@ -2923,8 +2966,17 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
             >
               Skip
             </Button>
-            <Button variant="primary" onClick={handlePrintSelected} style={{ background: '#0f172a' }}>
-              🖨 Print Selected Documents
+            <Button
+              variant="primary"
+              onClick={handlePrintSelected}
+              style={{
+                background: '#0f172a',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <IconPrinter size={15} /> Print Selected Documents
             </Button>
           </div>
         </div>
