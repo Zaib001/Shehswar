@@ -1419,7 +1419,8 @@ export function convertNumberToWordsPKR(amount: number): string {
 
 export const exportSalesInvoiceToPdf = (
   invoice: SalesInvoiceExportData,
-  formatOverride?: 'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string
+  formatOverride?: 'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string,
+  options?: { directPrint?: boolean }
 ) => {
   const format = formatOverride || invoice.documentFormat || (invoice.isDeliveryChallan ? 'BASIC_DELIVERY' : 'COMMERCIAL_FULL');
   const isBasicDelivery = format === 'BASIC_DELIVERY';
@@ -2206,6 +2207,39 @@ export const exportSalesInvoiceToPdf = (
 </body>
 </html>`;
 
+  if (options?.directPrint) {
+    if (typeof document !== 'undefined') {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-10000px';
+      iframe.style.left = '-10000px';
+      iframe.style.width = '0px';
+      iframe.style.height = '0px';
+      iframe.style.border = 'none';
+      iframe.style.visibility = 'hidden';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document || iframe.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+      }
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (_) {}
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe);
+          } catch (_) {}
+        }, 60000);
+      }, 350);
+    }
+    return;
+  }
+
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     printWindow.document.open();
@@ -2217,15 +2251,16 @@ export const exportSalesInvoiceToPdf = (
 export const exportMultiFormatSalesInvoicesToPdf = (
   invoice: SalesInvoiceExportData,
   formats: Array<'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string>,
-  options?: { copies?: number }
+  options?: { copies?: number; directPrint?: boolean }
 ) => {
   const copies = Math.max(1, Number(options?.copies || 1));
   const validFormats = formats.length > 0 ? formats : ['COMMERCIAL_FULL'];
+  const directPrint = options?.directPrint !== false; // Default to direct background printing!
 
   validFormats.forEach((fmt, idx) => {
     for (let c = 0; c < copies; c++) {
       setTimeout(() => {
-        exportSalesInvoiceToPdf(invoice, fmt);
+        exportSalesInvoiceToPdf(invoice, fmt, { directPrint });
       }, (idx * copies + c) * 600);
     }
   });

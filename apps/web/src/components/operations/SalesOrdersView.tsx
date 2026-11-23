@@ -959,13 +959,12 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         exportMultiFormatSalesInvoicesToPdf(invoiceToPrint, [autoPrintFormat], { copies: autoPrintCopies });
         showToast({
           title: 'Direct Print Triggered',
-          message: `Sending ${autoPrintCopies} copy(ies) of ${
-            autoPrintFormat === 'COMMERCIAL_FULL'
-              ? 'Invoice 1 (Commercial Tax Invoice)'
-              : autoPrintFormat === 'STANDARD_SALES'
+          message: `Sending ${autoPrintCopies} copy(ies) of ${autoPrintFormat === 'COMMERCIAL_FULL'
+            ? 'Invoice 1 (Commercial Tax Invoice)'
+            : autoPrintFormat === 'STANDARD_SALES'
               ? 'Invoice 2 (Commercial Delivery Invoice)'
               : 'Invoice 3 (Delivery Challan / Gate Pass)'
-          } directly to printer...`,
+            } directly to printer...`,
           type: 'success',
         });
       } else if (autoPrintFormat === undefined) {
@@ -3275,7 +3274,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               }}
               title="Preview real-time sales invoice PDF before saving"
             >
-              <IconEye size={14} /> 👁 Preview
+              <IconEye size={14} /> Preview
             </Button>
 
             {/* Print Copies Control */}
