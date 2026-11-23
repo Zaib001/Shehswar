@@ -148,6 +148,7 @@ export const ProvisionalReceiptsView: React.FC = () => {
     paymentReferenceNumber: '',
     bankName: '',
     branchName: '',
+    totalAmount: '' as number | string,
     remarks: '',
     autoPost: true,
   });
@@ -554,6 +555,7 @@ const extractArray = (res: any): any[] => {
       paymentReferenceNumber: '',
       bankName: '',
       branchName: '',
+      totalAmount: '',
       remarks: '',
       autoPost: true,
     });
@@ -666,17 +668,54 @@ const extractArray = (res: any): any[] => {
       return;
     }
 
-    // Filter valid expense lines
-    const validLines = expenseLines.filter((l) => l.expenseHeadId && Number(l.amount) > 0);
-    if (validLines.length === 0) {
-      notify('Please add at least one valid expense line with an amount greater than 0', 'error');
-      return;
-    }
+    let totalAmt = 0;
+    let payloadAllocations: any[] = [];
 
-    const totalAmt = validLines.reduce((sum, l) => sum + Number(l.amount || 0), 0);
-    if (totalAmt <= 0) {
-      notify('Total calculated PR amount must be greater than 0', 'error');
-      return;
+    if (prForm.paymentMethod === 'OTHER') {
+      // Expense Breakdown mode
+      const validLines = expenseLines.filter((l) => l.expenseHeadId && Number(l.amount) > 0);
+      if (validLines.length === 0) {
+        notify('Please add at least one valid expense line with an amount greater than 0', 'error');
+        return;
+      }
+
+      totalAmt = validLines.reduce((sum, l) => sum + Number(l.amount || 0), 0);
+      if (totalAmt <= 0) {
+        notify('Total calculated PR expense amount must be greater than 0', 'error');
+        return;
+      }
+
+      payloadAllocations = validLines.map((l) => ({
+        type: 'EXPENSE',
+        expenseHeadId: l.expenseHeadId,
+        expenseSubCategoryId: l.subCategoryId || undefined,
+        expenseItemId: l.expenseItemId || undefined,
+        headName: l.headName || undefined,
+        subCategoryName: l.subCategoryName || undefined,
+        itemName: l.itemName || undefined,
+        allocatedAmount: Number(l.amount),
+        remarks: l.description || undefined, // Expense Line Description -> Saved in Expense Ledger
+      }));
+    } else {
+      // Cash or Bank Mode (No Expense Breakdown)
+      totalAmt = Number(prForm.totalAmount || 0);
+      if (totalAmt <= 0) {
+        notify(
+          prForm.paymentMethod === 'CASH'
+            ? 'Please enter a valid Total Cash amount greater than 0'
+            : 'Please enter a valid Total Received amount greater than 0',
+          'error'
+        );
+        return;
+      }
+
+      if (['ONLINE', 'CHEQUE', 'PAY_ORDER', 'DD', 'BANK'].includes(prForm.paymentMethod)) {
+        if (!prForm.paymentReferenceNumber.trim()) {
+          notify('Please enter Cheque / Reference Number', 'error');
+          return;
+        }
+      }
+      payloadAllocations = [];
     }
 
     setIsSubmitting(true);
@@ -697,17 +736,7 @@ const extractArray = (res: any): any[] => {
         branchName: prForm.branchName || undefined,
         remarks: prForm.remarks || undefined, // Main PR Description -> Saved in Dealer Ledger
         autoPost: true,
-        allocations: validLines.map((l) => ({
-          type: 'EXPENSE',
-          expenseHeadId: l.expenseHeadId,
-          expenseSubCategoryId: l.subCategoryId || undefined,
-          expenseItemId: l.expenseItemId || undefined,
-          headName: l.headName || undefined,
-          subCategoryName: l.subCategoryName || undefined,
-          itemName: l.itemName || undefined,
-          allocatedAmount: Number(l.amount),
-          remarks: l.description || undefined, // Expense Line Description -> Saved in Expense Ledger
-        })),
+        allocations: payloadAllocations,
       });
 
       notify(`✓ Provisional Receipt ${prForm.prNumber.toUpperCase()} (PKR ${totalAmt.toLocaleString()}) saved and posted successfully!`, 'success');
@@ -715,6 +744,7 @@ const extractArray = (res: any): any[] => {
       // RESET FORM FOR NEXT ENTRY — KEEP MODAL OPEN!
       setPrForm((prev) => ({
         ...prev,
+        totalAmount: '',
         remarks: '',
         partyDealerId: '',
         partyCode: '',
@@ -1217,13 +1247,32 @@ const extractArray = (res: any): any[] => {
                     { label: 'Online / Bank Deposit', value: 'ONLINE' },
                     { label: 'Bank Cheque', value: 'CHEQUE' },
                     { label: 'Pay Order / Demand Draft', value: 'PAY_ORDER' },
+                    { label: 'Other (Expense Breakdown / Settlement)', value: 'OTHER' },
                   ]}
                 />
               </div>
             </div>
 
-            {/* Bank details only when payment method is not Cash */}
-            {prForm.paymentMethod !== 'CASH' && (
+            {/* Total Cash Field — Only when payment method is Cash */}
+            {prForm.paymentMethod === 'CASH' && (
+              <div style={{ marginTop: '14px' }}>
+                <label className="label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Total Cash (PKR) *
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Enter total cash received from dealer (e.g. 50,000)"
+                  value={prForm.totalAmount}
+                  onChange={(e) => setPrForm({ ...prForm, totalAmount: e.target.value })}
+                  style={{ fontWeight: 800, fontSize: '15px' }}
+                />
+              </div>
+            )}
+
+            {/* Bank details + Total Bank Amount — Only when payment method is Bank-based */}
+            {['ONLINE', 'CHEQUE', 'PAY_ORDER', 'DD', 'BANK'].includes(prForm.paymentMethod) && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginTop: '14px' }}>
                 <div>
                   <label className="label">Cheque / Ref Number *</label>
@@ -1250,6 +1299,21 @@ const extractArray = (res: any): any[] => {
                     placeholder="e.g. Main Boulevard Branch"
                     value={prForm.branchName}
                     onChange={(e) => setPrForm({ ...prForm, branchName: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="label" style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Total Amount (PKR) *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="Enter total amount received via bank (e.g. 50,000)"
+                    value={prForm.totalAmount}
+                    onChange={(e) => setPrForm({ ...prForm, totalAmount: e.target.value })}
+                    style={{ fontWeight: 800, fontSize: '15px' }}
                   />
                 </div>
               </div>
@@ -1317,7 +1381,8 @@ const extractArray = (res: any): any[] => {
             </div>
           )}
 
-          {/* Expense Breakdown Table */}
+          {/* Expense Breakdown Table — ONLY visible when Payment Method is 'OTHER' */}
+          {prForm.paymentMethod === 'OTHER' ? (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
               <div>
@@ -1620,6 +1685,42 @@ const extractArray = (res: any): any[] => {
               </div>
             </div>
           </div>
+          ) : (
+            /* Direct Total Banner for Cash / Bank */
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 18px',
+                background: prForm.paymentMethod === 'CASH'
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.12) 100%)'
+                  : 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(3, 105, 161, 0.12) 100%)',
+                border: prForm.paymentMethod === 'CASH'
+                  ? '1px solid rgba(16, 185, 129, 0.3)'
+                  : '1px solid rgba(2, 132, 199, 0.3)',
+                borderRadius: '8px',
+                marginTop: '14px',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.5px' }}>
+                  {prForm.paymentMethod === 'CASH' ? 'Total Cash PR Amount' : `Total Bank PR Amount (${prForm.paymentMethod})`}
+                </span>
+                <div style={{ fontSize: '22px', fontWeight: 900, color: prForm.paymentMethod === 'CASH' ? '#059669' : '#0284c7' }}>
+                  PKR {Number(prForm.totalAmount || 0).toLocaleString()}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                <div>{prForm.paymentMethod === 'CASH' ? 'Direct Cash Collection Voucher' : `Bank Deposit / ${prForm.paymentMethod}`}</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                  Credited to Dealer: {selectedDealer ? `${selectedDealer.name} (${selectedDealer.code})` : 'Selected Dealer'}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* GL Double-Entry Notice */}
           <div
@@ -1634,7 +1735,13 @@ const extractArray = (res: any): any[] => {
             }}
           >
             <strong style={{ color: '#0284c7' }}>Double-Entry General Ledger Impact: </strong>
-            Credit Dealer AR (103000) for PKR {calculatedTotal.toLocaleString()} (Dealer collection) • Debit Operating Expenses (609000) for individual expense lines in Expense Ledger.
+            {prForm.paymentMethod === 'OTHER' ? (
+              <>Credit Dealer AR (103000) for PKR {calculatedTotal.toLocaleString()} (Dealer collection) &bull; Debit Operating Expenses (609000) for individual expense lines in Expense Ledger.</>
+            ) : prForm.paymentMethod === 'CASH' ? (
+              <>Debit Cash in Hand (101000) for PKR {Number(prForm.totalAmount || 0).toLocaleString()} &bull; Credit Dealer AR (103000) (reducing dealer outstanding balance).</>
+            ) : (
+              <>Debit Bank Account (102000) for PKR {Number(prForm.totalAmount || 0).toLocaleString()} &bull; Credit Dealer AR (103000) (reducing dealer outstanding balance).</>
+            )}
           </div>
 
           {/* Action Buttons */}

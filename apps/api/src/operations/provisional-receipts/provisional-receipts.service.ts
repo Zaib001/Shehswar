@@ -346,21 +346,25 @@ export class ProvisionalReceiptsService {
         },
       });
 
-      // Post initial Collection Clearing GL journal entry if autoPost is true
-      if (dto.autoPost) {
+      // Post initial Collection Clearing GL journal entry if autoPost is true and paymentMethod is NOT 'OTHER'
+      if (dto.autoPost && dto.paymentMethod !== 'OTHER') {
         await this.postInitialReceiptAccounting(tx, organizationId, pr, userId);
       }
 
       // If initial dealer allocations were provided and autoPost is true, post them to Dealer Ledger
+      let firstDealerJournalId: string | null = null;
       if (dto.autoPost && dealerAllocations.length > 0) {
         for (const alloc of dealerAllocations) {
-          await this.executeDealerAllocation(
+          const allocRecord = await this.executeDealerAllocation(
             tx,
             organizationId,
             pr,
             alloc,
             userId,
           );
+          if (allocRecord?.journalEntryId && !firstDealerJournalId) {
+            firstDealerJournalId = allocRecord.journalEntryId;
+          }
         }
       }
 
@@ -375,6 +379,15 @@ export class ProvisionalReceiptsService {
             userId,
           );
         }
+      }
+
+      if (dto.autoPost && dto.paymentMethod === 'OTHER' && firstDealerJournalId) {
+        await tx.provisionalReceipt.update({
+          where: { id: pr.id },
+          data: {
+            journalEntryId: firstDealerJournalId,
+          },
+        });
       }
 
       return this.getProvisionalReceiptById(pr.id, tx);
