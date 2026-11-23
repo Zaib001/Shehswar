@@ -189,6 +189,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     basicDelivery: false,
   });
   const [printCopiesCount, setPrintCopiesCount] = useState(1);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
 
   // Comprehensive Combinable Filters (Requirement #12)
   const [acknowledgementFilter, setAcknowledgementFilter] = useState<'ALL' | 'ACKNOWLEDGED' | 'PENDING'>('ALL');
@@ -755,7 +756,11 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
     setFormItems(formItems.filter((_, i) => i !== index));
   };
 
-  const handleCreateOrder = async (immediateInvoice: boolean = generateInvoiceImmediately) => {
+  const handleCreateOrder = async (
+    immediateInvoice: boolean = generateInvoiceImmediately,
+    autoPrintFormat?: 'COMMERCIAL_FULL' | 'STANDARD_SALES' | 'BASIC_DELIVERY' | null,
+    autoPrintCopies: number = printCopiesCount,
+  ) => {
     if (!formData.dealerId) {
       showToast({ title: 'Validation Error', message: 'Please select a Dealer', type: 'error' });
       return;
@@ -832,6 +837,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       immediateInvoice = false;
     }
 
+    setIsCreatingOrder(true);
     try {
       const payload = {
         dealerId: formData.dealerId,
@@ -948,10 +954,26 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         };
       }
 
-      setSavedPrintInvoice(invoiceToPrint);
-      setPrintCopiesCount(1);
-      setPrintSelectionFormats({ commercialFull: true, standardSales: false, basicDelivery: false });
-      setIsPrintSelectionModalOpen(true);
+      if (autoPrintFormat && invoiceToPrint) {
+        // Immediately print the chosen format without opening any modal screen!
+        exportMultiFormatSalesInvoicesToPdf(invoiceToPrint, [autoPrintFormat], { copies: autoPrintCopies });
+        showToast({
+          title: 'Direct Print Triggered',
+          message: `Sending ${autoPrintCopies} copy(ies) of ${
+            autoPrintFormat === 'COMMERCIAL_FULL'
+              ? 'Invoice 1 (Commercial Tax Invoice)'
+              : autoPrintFormat === 'STANDARD_SALES'
+              ? 'Invoice 2 (Commercial Delivery Invoice)'
+              : 'Invoice 3 (Delivery Challan / Gate Pass)'
+          } directly to printer...`,
+          type: 'success',
+        });
+      } else if (autoPrintFormat === undefined) {
+        setSavedPrintInvoice(invoiceToPrint);
+        setPrintCopiesCount(1);
+        setPrintSelectionFormats({ commercialFull: true, standardSales: false, basicDelivery: false });
+        setIsPrintSelectionModalOpen(true);
+      }
 
       // DO NOT close modal: keep mode === 'create'
       // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
@@ -996,6 +1018,8 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         message: err?.response?.data?.message || err?.message || 'Failed to create sales order',
         type: 'error',
       });
+    } finally {
+      setIsCreatingOrder(false);
     }
   };
 
@@ -3223,28 +3247,173 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
         title="Create Direct Sale / Sales Order"
         subtitle="Book order and generate commercial sales invoice immediately or save as pending order for field review."
         breadcrumbs={[{ label: 'Sales Orders', onClick: () => setMode('list') }, { label: 'New Sale' }]}
-        onCancel={() => setMode('list')}
-        onSubmit={() => handleCreateOrder(!isCreditExceeded && generateInvoiceImmediately)}
-        submitLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Create & Generate Sales Invoice' : 'Book Sales Order'}
-        draftLabel={!isCreditExceeded && generateInvoiceImmediately ? 'Save as Pending Order' : undefined}
-        onSaveDraft={!isCreditExceeded && generateInvoiceImmediately ? () => handleCreateOrder(false) : undefined}
-        extraActions={
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleLivePdfPreview}
-            style={{
-              backgroundColor: '#f0fdf4',
-              borderColor: '#86efac',
-              color: '#15803d',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <IconEye size={16} /> 👁 Real-Time PDF / Invoice Preview
-          </Button>
+        customFooterActions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMode('list')}
+              disabled={isCreatingOrder}
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleLivePdfPreview}
+              style={{
+                backgroundColor: '#f0fdf4',
+                borderColor: '#86efac',
+                color: '#15803d',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+              title="Preview real-time sales invoice PDF before saving"
+            >
+              <IconEye size={14} /> 👁 Preview
+            </Button>
+
+            {/* Print Copies Control */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '8px',
+                padding: '3px 8px',
+                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+              }}
+              title="Number of copies to print upon saving"
+            >
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#475569',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                Copies:
+              </span>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={printCopiesCount}
+                onChange={(e) => setPrintCopiesCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                style={{
+                  width: '42px',
+                  height: '26px',
+                  textAlign: 'center',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #94a3b8',
+                  borderRadius: '5px',
+                  outline: 'none',
+                }}
+              />
+            </div>
+
+            {/* 3 Small Buttons to Save & Print Format */}
+            {/* Button 1: Invoice 1 (Full Commercial Tax Invoice) */}
+            <Button
+              type="button"
+              size="sm"
+              disabled={isCreatingOrder}
+              isLoading={isCreatingOrder}
+              onClick={() => handleCreateOrder(!isCreditExceeded, 'COMMERCIAL_FULL', printCopiesCount)}
+              style={{
+                backgroundColor: '#047857',
+                color: '#ffffff',
+                borderColor: '#047857',
+                fontWeight: 700,
+                fontSize: '12px',
+                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 4px rgba(4, 120, 87, 0.25)',
+              }}
+              title="Save order and immediately print Invoice 1 (Full Commercial Tax Invoice)"
+            >
+              <IconPrinter size={14} /> 🖨 Inv 1: Tax Invoice
+            </Button>
+
+            {/* Button 2: Invoice 2 (Commercial Delivery Invoice) */}
+            <Button
+              type="button"
+              size="sm"
+              disabled={isCreatingOrder}
+              isLoading={isCreatingOrder}
+              onClick={() => handleCreateOrder(!isCreditExceeded, 'STANDARD_SALES', printCopiesCount)}
+              style={{
+                backgroundColor: '#0284c7',
+                color: '#ffffff',
+                borderColor: '#0284c7',
+                fontWeight: 700,
+                fontSize: '12px',
+                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 4px rgba(2, 132, 199, 0.25)',
+              }}
+              title="Save order and immediately print Invoice 2 (Commercial Delivery Slip)"
+            >
+              <IconPrinter size={14} /> 🖨 Inv 2: Commercial Invoice
+            </Button>
+
+            {/* Button 3: Invoice 3 (Basic Delivery Challan & Gate Pass) */}
+            <Button
+              type="button"
+              size="sm"
+              disabled={isCreatingOrder}
+              isLoading={isCreatingOrder}
+              onClick={() => handleCreateOrder(!isCreditExceeded, 'BASIC_DELIVERY', printCopiesCount)}
+              style={{
+                backgroundColor: '#334155',
+                color: '#ffffff',
+                borderColor: '#334155',
+                fontWeight: 700,
+                fontSize: '12px',
+                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 4px rgba(51, 65, 85, 0.25)',
+              }}
+              title="Save order and immediately print Invoice 3 (Basic Delivery Challan & Gate Pass)"
+            >
+              <IconPrinter size={14} /> 🖨 Inv 3: Gate Pass / Challan
+            </Button>
+
+            {/* Optional Save Without Printing Button */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isCreatingOrder}
+              onClick={() => handleCreateOrder(!isCreditExceeded, null)}
+              style={{
+                color: '#64748b',
+                fontSize: '11px',
+                padding: '6px 8px',
+              }}
+              title="Save sales order without printing"
+            >
+              Save Only
+            </Button>
+          </div>
         }
       >
         {/* Active Company Context Banner */}

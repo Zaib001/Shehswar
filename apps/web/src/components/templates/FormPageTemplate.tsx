@@ -36,6 +36,8 @@ export interface FormPageTemplateProps {
   draftLabel?: string;
   stickyFooter?: boolean;
   extraActions?: React.ReactNode;
+  hideSubmitButton?: boolean;
+  customFooterActions?: React.ReactNode;
 }
 
 export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
@@ -54,6 +56,8 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
   draftLabel = 'Save as Draft',
   stickyFooter = true,
   extraActions,
+  hideSubmitButton = false,
+  customFooterActions,
 }) => {
   const activeSubmitting = isSubmitting || isSaving;
 
@@ -231,41 +235,49 @@ export const FormPageTemplate: React.FC<FormPageTemplateProps> = ({
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-          {extraActions}
-          {onCancel && (
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={onCancel}
-              disabled={activeSubmitting}
-            >
-              Cancel
-            </Button>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
+          {customFooterActions ? (
+            customFooterActions
+          ) : (
+            <>
+              {extraActions}
+              {onCancel && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  onClick={onCancel}
+                  disabled={activeSubmitting}
+                >
+                  Cancel
+                </Button>
+              )}
 
-          {onSaveDraft && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={onSaveDraft}
-              disabled={activeSubmitting}
-            >
-              {draftLabel}
-            </Button>
-          )}
+              {onSaveDraft && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  onClick={onSaveDraft}
+                  disabled={activeSubmitting}
+                >
+                  {draftLabel}
+                </Button>
+              )}
 
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            isLoading={activeSubmitting}
-            icon={<IconCheck size={16} />}
-          >
-            {submitLabel}
-          </Button>
+              {!hideSubmitButton && (
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="md"
+                  isLoading={activeSubmitting}
+                  icon={<IconCheck size={16} />}
+                >
+                  {submitLabel}
+                </Button>
+              )}
+            </>
+          )}
         </div>
       </div>
     </form>
