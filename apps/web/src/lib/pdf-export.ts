@@ -1420,7 +1420,7 @@ export function convertNumberToWordsPKR(amount: number): string {
 export const exportSalesInvoiceToPdf = (
   invoice: SalesInvoiceExportData,
   formatOverride?: 'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL' | string,
-  options?: { directPrint?: boolean }
+  options?: { directPrint?: boolean; copies?: number }
 ) => {
   const format = formatOverride || invoice.documentFormat || (invoice.isDeliveryChallan ? 'BASIC_DELIVERY' : 'COMMERCIAL_FULL');
   const isBasicDelivery = format === 'BASIC_DELIVERY';
@@ -1635,11 +1635,14 @@ export const exportSalesInvoiceToPdf = (
         flex-direction: column !important;
         justify-content: space-between !important;
         page-break-inside: avoid !important;
-        page-break-after: avoid !important;
+        page-break-after: always !important;
         page-break-before: avoid !important;
         overflow: hidden !important;
         box-shadow: none !important;
         border: none !important;
+      }
+      .page-container:last-child {
+        page-break-after: avoid !important;
       }
       .bottom-section {
         margin-top: auto !important;
@@ -1920,6 +1923,7 @@ export const exportSalesInvoiceToPdf = (
     <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
   </div>
 
+  ${Array.from({ length: Math.max(1, Number(options?.copies || 1)) }, () => `
   <div class="page-container">
     <div class="content-body">
 
@@ -2195,15 +2199,16 @@ export const exportSalesInvoiceToPdf = (
       </div>
     </div><!-- End bottom-section -->
 
-  </div><!-- End page-container -->
+  </div><!-- End page-container -->`).join('\n')}
 
+  ${options?.directPrint ? '' : `
   <script>
     window.onload = function() {
       setTimeout(function() {
         window.print();
       }, 400);
     };
-  </script>
+  </script>`}
 </body>
 </html>`;
 
@@ -2258,11 +2263,9 @@ export const exportMultiFormatSalesInvoicesToPdf = (
   const directPrint = options?.directPrint !== false; // Default to direct background printing!
 
   validFormats.forEach((fmt, idx) => {
-    for (let c = 0; c < copies; c++) {
-      setTimeout(() => {
-        exportSalesInvoiceToPdf(invoice, fmt, { directPrint });
-      }, (idx * copies + c) * 600);
-    }
+    setTimeout(() => {
+      exportSalesInvoiceToPdf(invoice, fmt, { directPrint, copies });
+    }, idx * 1000);
   });
 };
 
@@ -2692,11 +2695,14 @@ export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData):
         flex-direction: column !important;
         justify-content: space-between !important;
         page-break-inside: avoid !important;
-        page-break-after: avoid !important;
+        page-break-after: always !important;
         page-break-before: avoid !important;
         overflow: hidden !important;
         box-shadow: none !important;
         border: none !important;
+      }
+      .page-container:last-child {
+        page-break-after: avoid !important;
       }
       .bottom-section {
         margin-top: auto !important;

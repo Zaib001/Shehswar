@@ -190,6 +190,9 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
   });
   const [printCopiesCount, setPrintCopiesCount] = useState(1);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [activePrintingFormat, setActivePrintingFormat] = useState<
+    'COMMERCIAL_FULL' | 'STANDARD_SALES' | 'BASIC_DELIVERY' | 'SAVE_ONLY' | null
+  >(null);
 
   // Comprehensive Combinable Filters (Requirement #12)
   const [acknowledgementFilter, setAcknowledgementFilter] = useState<'ALL' | 'ACKNOWLEDGED' | 'PENDING'>('ALL');
@@ -837,6 +840,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       immediateInvoice = false;
     }
 
+    setActivePrintingFormat(autoPrintFormat || 'SAVE_ONLY');
     setIsCreatingOrder(true);
     try {
       const payload = {
@@ -976,13 +980,15 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
 
       // DO NOT close modal: keep mode === 'create'
       // Reset transaction-specific fields: clear dealer, notes, product lines, quantities, rates
-      setFormData((prev) => ({
-        ...prev,
+      setFormData({
         dealerId: '',
-        notes: '',
-        schemeId: '',
+        orderDate: new Date().toISOString().split('T')[0],
+        warehouseId: warehouseIdToUse || companyWarehouses[0]?.id || '',
+        paymentTerm: 'CASH',
         rateListId: '',
-      }));
+        schemeId: '',
+        notes: '',
+      });
       setDealerHierarchy(null);
       setFormItems([
         {
@@ -1019,6 +1025,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
       });
     } finally {
       setIsCreatingOrder(false);
+      setActivePrintingFormat(null);
     }
   };
 
@@ -3329,7 +3336,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               type="button"
               size="sm"
               disabled={isCreatingOrder}
-              isLoading={isCreatingOrder}
+              isLoading={activePrintingFormat === 'COMMERCIAL_FULL'}
               onClick={() => handleCreateOrder(!isCreditExceeded, 'COMMERCIAL_FULL', printCopiesCount)}
               style={{
                 backgroundColor: '#047857',
@@ -3345,7 +3352,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               }}
               title="Save order and immediately print Invoice 1 (Full Commercial Tax Invoice)"
             >
-              <IconPrinter size={14} /> 🖨 Inv 1: Tax Invoice
+              <IconPrinter size={14} /> Inv 1: Tax Invoice
             </Button>
 
             {/* Button 2: Invoice 2 (Commercial Delivery Invoice) */}
@@ -3353,7 +3360,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               type="button"
               size="sm"
               disabled={isCreatingOrder}
-              isLoading={isCreatingOrder}
+              isLoading={activePrintingFormat === 'STANDARD_SALES'}
               onClick={() => handleCreateOrder(!isCreditExceeded, 'STANDARD_SALES', printCopiesCount)}
               style={{
                 backgroundColor: '#0284c7',
@@ -3369,7 +3376,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               }}
               title="Save order and immediately print Invoice 2 (Commercial Delivery Slip)"
             >
-              <IconPrinter size={14} /> 🖨 Inv 2: Commercial Invoice
+              <IconPrinter size={14} /> Inv 2: Commercial Invoice
             </Button>
 
             {/* Button 3: Invoice 3 (Basic Delivery Challan & Gate Pass) */}
@@ -3377,7 +3384,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               type="button"
               size="sm"
               disabled={isCreatingOrder}
-              isLoading={isCreatingOrder}
+              isLoading={activePrintingFormat === 'BASIC_DELIVERY'}
               onClick={() => handleCreateOrder(!isCreditExceeded, 'BASIC_DELIVERY', printCopiesCount)}
               style={{
                 backgroundColor: '#334155',
@@ -3393,7 +3400,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               }}
               title="Save order and immediately print Invoice 3 (Basic Delivery Challan & Gate Pass)"
             >
-              <IconPrinter size={14} /> 🖨 Inv 3: Gate Pass / Challan
+              <IconPrinter size={14} /> Inv 3: Gate Pass / Challan
             </Button>
 
             {/* Optional Save Without Printing Button */}
@@ -3402,6 +3409,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
               variant="ghost"
               size="sm"
               disabled={isCreatingOrder}
+              isLoading={activePrintingFormat === 'SAVE_ONLY'}
               onClick={() => handleCreateOrder(!isCreditExceeded, null)}
               style={{
                 color: '#64748b',
@@ -4639,7 +4647,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
           >
             <div>
               <div style={{ fontSize: '16px', fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>⏳ Pending Sales Orders Report</span>
+                <span>Pending Sales Orders Report</span>
                 <span style={{ fontSize: '12px', background: '#fef3c7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #f59e0b' }}>
                   {pendingOrdersList.length} Pending Order{pendingOrdersList.length !== 1 ? 's' : ''}
                 </span>
@@ -4665,7 +4673,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                   gap: '6px',
                 }}
               >
-                <IconPrinter size={16} /> 🖨 Print Pending Orders Report
+                <IconPrinter size={16} /> Print Pending Orders Report
               </Button>
             </div>
           </div>
@@ -4691,7 +4699,7 @@ export const SalesOrdersView: React.FC<SalesOrdersViewProps> = ({
                         </span>
                       </div>
                       <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#047857' }}>
-                        Subtotal: PKR {grp.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        &nbsp;Subtotal: PKR {grp.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     </div>
                   </CardHeader>
