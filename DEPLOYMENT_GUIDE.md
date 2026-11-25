@@ -1,182 +1,193 @@
-# Shehswar ONE360 — Client PC / On-Premise Server Deployment Guide
+# Shehswar ONE360 — Complete On-Premise Host & Global Access Guide
 
-This guide explains step-by-step how to host and run **Shehswar ONE360** directly on a Windows PC/Server at the client's office and make it accessible **from anywhere (home, mobile devices, remote branches, field officers)** 24/7.
-
----
-
-## 🏗 System Architecture Overview
-
-- **Frontend (Web ERP)**: Next.js (Port `3000`)
-- **Backend (API)**: NestJS Core Engine (Port `4000`)
-- **Database**: PostgreSQL (Hosted on cloud Render / local instance)
-- **Process Manager**: PM2 (Auto-restarts if crashed, keeps running in background)
-- **Public Internet Access**: Cloudflare Tunnel (100% Free, Secure HTTPS, No Router Port-Forwarding, Bypasses ISP CGNAT)
+This guide provides the complete, professional enterprise solution to host **everything locally on the client's PC / Windows Server** (Database, Backend API, Frontend ERP Web, and Backups) while allowing staff and field officers to securely access the system **from everywhere in the world (smartphones, laptops, remote branches, and home)**.
 
 ---
 
-## 📋 Step 1: Client PC Prerequisites
+## 🏛️ System Architecture
 
-Ensure the following are installed on the client machine:
-1. **Node.js 20+ LTS**: Download from [nodejs.org](https://nodejs.org) (tick "Automatically install necessary tools").
-2. **Git for Windows**: Download from [git-scm.com](https://git-scm.com).
-
-Verify in PowerShell or Command Prompt:
-```cmd
-node -v
-npm -v
-git --version
+```text
+[ Mobile / Laptop / Remote Branch ]
+               │
+               ▼ (Secure HTTPS via Cloudflare Tunnel)
+     ┌────────────────────────────────────────────────────────┐
+     │ CLIENT PC / ON-PREMISE SERVER                          │
+     │                                                        │
+     │  Cloudflare Tunnel (cloudflared Windows Service)       │
+     │         │                                              │
+     │         ▼                                              │
+     │  Next.js Frontend ERP (:3000)                          │
+     │         │ (Internal Proxy)                             │
+     │         ▼                                              │
+     │  NestJS Backend API (:4000)                            │
+     │         │                                              │
+     │         ▼                                              │
+     │  PostgreSQL 16 Database Engine (:5432)                 │
+     │         │                                              │
+     │         ▼                                              │
+     │  Daily Automated Local Backups (.sql dumps)            │
+     └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ⚙️ Step 2: Project Setup & Environment Configuration
+## 🚀 Choose Your Deployment Method
 
-1. Place or clone the project on the client PC (e.g., `C:\Shehswar360` or `D:\Shehswar360`).
-2. In the project root, ensure your `.env` file exists with the production database URL:
+| Feature | Option A: Docker All-in-One (Recommended) | Option B: Native Windows (Lightweight) |
+|---|---|---|
+| **PostgreSQL Database** | Containerized (Postgres 16 Alpine) | Native Windows Service (PostgreSQL 16) |
+| **Backend & Frontend** | Containerized (`shehswar_api`, `shehswar_web`) | PM2 Windows Process Manager |
+| **RAM Footprint** | ~1.5 GB | ~800 MB |
+| **Setup Complexity** | 1 command (`docker compose up -d`) | Run installers & `.bat` scripts |
+| **Best For** | Modern PCs with 8GB+ RAM & Virtualization | Standard office PCs with 4GB - 8GB RAM |
+
+---
+
+# 📦 METHOD A: Docker All-in-One (Recommended)
+
+### Step 1: Install Docker Desktop on Client PC
+1. Download **Docker Desktop for Windows** from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop).
+2. Install it with WSL2 backend (recommended).
+3. In Docker Desktop Settings -> **General**, enable **"Start Docker Desktop when you log in"**.
+
+### Step 2: Configure Environment
+In the project root, verify your `.env` contains:
 ```env
-NODE_ENV=production
-APP_NAME=shehswar-one360
-PORT=4000
-CORS_ORIGIN=*
-
-# PostgreSQL Database Connection
-DATABASE_URL="postgresql://shehswar_user:PHHDD5jvPcZsDCX2LH7mKrcO5GBtobti@dpg-dbc8moafngtc739dhgkg-a.oregon-postgres.render.com/shehswar_one360"
-
-# JWT Authentication Keys
-JWT_ACCESS_SECRET="shehswar_enterprise_jwt_access_super_secret_key_2026_prod"
-JWT_ACCESS_EXPIRATION="30d"
-JWT_REFRESH_SECRET="shehswar_enterprise_jwt_refresh_super_secret_key_2026_prod"
-JWT_REFRESH_EXPIRATION="30d"
-
-# Internal proxy URL for Web app
-NEXT_PUBLIC_API_URL=http://localhost:4000
-BACKEND_API_URL=http://localhost:4000
+DB_USER=shehswar_user
+DB_PASSWORD=ShehswarSecure2026!
+DB_NAME=shehswar_one360
+JWT_ACCESS_SECRET=shehswar_enterprise_jwt_access_super_secret_key_2026_prod
+JWT_REFRESH_SECRET=shehswar_enterprise_jwt_refresh_super_secret_key_2026_prod
 ```
 
----
-
-## 🔨 Step 3: Build & Start the Application
-
-### Option 1: One-Click (Recommended)
-1. Double-click **`build-production.bat`** in the project folder.
-   - It installs dependencies, generates Prisma client, and builds the production bundles.
-2. Double-click **`start-production.bat`**.
-   - It installs PM2 (if missing) and starts both API and Web services in the background.
-
-### Option 2: Via Terminal
+### Step 3: Launch Everything
+Open PowerShell or Command Prompt in the project folder:
 ```cmd
-# 1. Install & build
-npm install
-npm run db:generate
-npm run build
+docker compose -f docker-compose.production.yml up -d --build
+```
+This automatically boots:
+- ✅ **PostgreSQL 16 Database** (Data stored permanently on PC disk in `./postgres_data`)
+- ✅ **Redis 7 Cache**
+- ✅ **NestJS API Backend** on port `4000`
+- ✅ **Next.js Web ERP** on port `3000`
 
-# 2. Install PM2 process manager
-npm install -g pm2
+---
 
-# 3. Launch both apps via ecosystem config
-pm2 start ecosystem.config.js
-pm2 save
+# 💻 METHOD B: Native Windows (Without Docker)
+
+### Step 1: Install Prerequisites
+1. **Node.js 20+ LTS**: Download from [nodejs.org](https://nodejs.org).
+2. **PostgreSQL 16 for Windows**:
+   - Download the official installer from [enterprisedb.com/downloads/postgres-postgresql-downloads](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads).
+   - Set password (e.g. `postgrespassword`), port `5432`.
+   - It runs automatically as a native background Windows Service (`postgresql-x64-16`).
+
+### Step 2: Configure Local Database in `.env`
+Open `.env` and set:
+```env
+DATABASE_URL="postgresql://postgres:postgrespassword@localhost:5432/shehswar_one360?schema=public"
 ```
 
-Test locally in any browser on the host PC:
-- **ERP Web**: [http://localhost:3000](http://localhost:3000)
-- **API Health**: [http://localhost:4000/api/docs](http://localhost:4000/api/docs)
+### Step 3: Push Schema & Build
+Double-click:
+1. `scripts\build-production.bat` (installs dependencies, builds API and Next.js).
+2. `npm run db:push` (creates all tables in the local PostgreSQL database).
+
+### Step 4: Start Services via PM2
+Double-click:
+`start-production.bat`
+This launches both backend and frontend in the background with auto-restart.
 
 ---
 
-## 🌐 Step 4: Making It Accessible from Everywhere (Global Internet Access)
+## 🔄 Step 3: Migrate Existing Data from Cloud (Render) to Local PC
 
-### Why Cloudflare Tunnel is the Best Solution:
-- **No Static IP needed**: Works on any home/office internet (PTCL, StormFiber, Nayatel, Jazz, etc.).
-- **Bypasses CGNAT & Firewalls**: Zero router port-forwarding required.
-- **Free Automatic SSL/HTTPS**: Generates trusted SSL certificates (`https://...`).
-- **Free & Secure**: Powered by Cloudflare’s global edge network.
-
----
-
-### Method A: Instant Free Quick Tunnel (No Domain Needed, 2 Minutes)
-
-1. Download `cloudflared` for Windows:
-   - Direct download: [cloudflared-windows-amd64.msi](https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.msi)
-2. Run the installer.
-3. Open Command Prompt and run:
+If you have existing data on Render that the client wants on his local machine:
+Run the provided script:
 ```cmd
-cloudflared tunnel --url http://localhost:3000
+scripts\migrate-from-cloud.bat
 ```
-4. Cloudflare will print a secure public link, for example:
-   ```
-   https://random-assigned-name.trycloudflare.com
-   ```
-5. Anyone from anywhere in the world on a phone, laptop, or desktop can now open that URL and access Shehswar ONE360!
+This automatically:
+1. Connects to the cloud PostgreSQL database.
+2. Creates an encrypted snapshot dump (`cloud_migration.dump`).
+3. Restores all tables, records, dealers, products, and ledgers cleanly into the local PostgreSQL engine!
 
 ---
 
-### Method B: Permanent Custom Domain (e.g. `https://erp.shehswar.com` or `clientcompany.com`)
+## 🌐 Step 4: Enable Global Access from Everywhere (Cloudflare Tunnel)
 
-If the client owns a domain (registered on Cloudflare, Namecheap, GoDaddy, etc.):
+> [!IMPORTANT]
+> **Why Cloudflare Tunnel?**
+> In Pakistan and most countries, office/home ISPs (PTCL, StormFiber, Nayatel, Jazz) use **CGNAT**. You do NOT have a public IP, and port-forwarding on the router is impossible without an expensive static IP package.
+> Cloudflare Tunnel creates a direct, outbound, encrypted tunnel to Cloudflare's global edge network:
+> - **Zero router configuration**
+> - **No static IP needed**
+> - **Free automatic HTTPS/SSL certificate**
+> - **Fast & DDoS protected**
 
-1. Go to [dash.cloudflare.com](https://dash.cloudflare.com) -> **Zero Trust** -> **Networks** -> **Tunnels**.
-2. Click **Add a Tunnel** -> choose **Cloudflared**.
-3. Name it (e.g., `shehswar-server`).
-4. Select **Windows** operating system:
-   - Cloudflare will provide a one-line command to install the tunnel as a permanent Windows background service, e.g.:
-     ```cmd
-     cloudflared.exe service install <YOUR_TOKEN_HERE>
-     ```
-5. In the **Public Hostname** tab:
-   - Subdomain: `erp`
-   - Domain: `yourdomain.com` (e.g., `erp.yourdomain.com`)
-   - Service Type: `HTTP`
-   - URL: `localhost:3000`
-6. Click **Save**.
-7. Now **`https://erp.yourdomain.com`** is live 24/7 with enterprise-grade SSL and DDoS protection!
-
----
-
-## 🔄 Step 5: Configure 24/7 Auto-Start on Windows Boot
-
-To make sure Shehswar ONE360 and the tunnel automatically start when the PC turns on or reboots after a power failure:
-
-### 1. Auto-Start PM2 with Windows:
-Open Command Prompt as Administrator:
-```cmd
-npm install -g pm2-windows-startup
-pm2-startup install
-pm2 save
-```
-
-### 2. Auto-Start Cloudflare Tunnel:
-If using Method B (Cloudflare Zero Trust token), running:
-```cmd
-cloudflared service install <TOKEN>
-```
-automatically registers it as a native Windows Service (`services.msc`) that starts before any user even logs in!
-
----
-
-## 🛡️ Step 6: Local Office Access (LAN / Wi-Fi)
-
-To also access the system from other PCs/laptops on the same office Wi-Fi network without using the internet:
-1. Find the server PC's Local IP address:
+### Option 1: Quick Free Tunnel (Ready in 2 Minutes, No Domain Required)
+1. Download [cloudflared-windows-amd64.msi](https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.msi) and install it.
+2. In Command Prompt, run:
    ```cmd
-   ipconfig
+   cloudflared tunnel --url http://localhost:3000
    ```
-   *(e.g., `192.168.1.50`)*
-2. Allow Port `3000` through Windows Defender Firewall (Run PowerShell as Admin):
-   ```powershell
-   New-NetFirewallRule -DisplayName "Shehswar ERP Web" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow
+3. Cloudflare will print a secure URL, for example:
+   ```text
+   https://shehswar-agro.trycloudflare.com
    ```
-3. Any device connected to the office Wi-Fi can now open:
-   `http://192.168.1.50:3000`
+4. Share this URL with your client, staff, and sales officers. They can access the ERP immediately from any mobile browser or PC in the world.
+
+### Option 2: Permanent Company Domain (e.g. `https://erp.clientcompany.com`)
+1. Log into [dash.cloudflare.com](https://dash.cloudflare.com) -> **Zero Trust** -> **Networks** -> **Tunnels**.
+2. Click **Add a Tunnel** -> choose **Cloudflared** -> Name it (e.g. `shehswar-local-server`).
+3. Choose **Windows** -> Copy the install command:
+   ```cmd
+   cloudflared.exe service install <YOUR_TOKEN>
+   ```
+   *(Running this command installs the tunnel as a native Windows Service that boots automatically with the PC!)*
+4. Under **Public Hostname**:
+   - Subdomain: `erp`
+   - Domain: `yourdomain.com`
+   - Type: `HTTP`
+   - URL: `localhost:3000`
+5. Click **Save**. The application is now live at `https://erp.yourdomain.com` 24/7!
 
 ---
 
-## 📊 Useful Maintenance Commands
+## 💾 Step 5: Automated Daily Local Database Backups
 
-| Action | Command |
-|---|---|
-| View Running Status | `pm2 status` |
-| View Live Logs | `pm2 logs` |
-| Restart All Services | `pm2 restart all` |
-| Stop Services | `pm2 stop all` |
-| Pull Latest Updates | `git pull origin main` && `build-production.bat` && `pm2 restart all` |
+To ensure the client never loses financial data even if Windows crashes:
+1. We have provided `scripts\backup-db.bat`.
+2. When executed, it creates a timestamped SQL backup in the `backups\` folder:
+   `backups\shehswar_backup_2026-11-25_15-30.sql`
+3. **Automate Daily at 11:00 PM via Windows Task Scheduler**:
+   - Open **Task Scheduler** in Windows -> Click **Create Basic Task**.
+   - Name: `Shehswar Daily Backup`.
+   - Trigger: **Daily** at `23:00` (11:00 PM).
+   - Action: **Start a program** -> Browse to `D:\Shehswar360\scripts\backup-db.bat`.
+   - Finish.
+
+---
+
+## ⚡ Step 6: Critical Windows Server Settings
+
+On the client PC:
+1. **Disable Sleep / Hibernate**:
+   - Go to Windows Settings -> **Power & sleep** -> Set **Sleep** to **"Never"**.
+2. **Configure Windows to Auto-Login or Run as Service**:
+   - If using Docker or PM2 with `pm2-startup install`, services run automatically in the background on system startup.
+3. **BIOS AC Power Recovery (Recommended)**:
+   - In the PC's BIOS settings, enable **"Restore on AC Power Loss"** (Power On).
+   - If electricity goes out and generator/UPS kicks in, the PC automatically turns itself back on without anyone having to press the power button!
+
+---
+
+## 📋 Summary Checklist for Client Handover
+
+- [x] Local PostgreSQL database running on port `5432` with persistent storage.
+- [x] Backend API running on port `4000`.
+- [x] Frontend Web running on port `3000`.
+- [x] Cloud database snapshot migrated to local PC (`scripts\migrate-from-cloud.bat`).
+- [x] Cloudflare Tunnel running as a Windows Service for global HTTPS access.
+- [x] Daily automated backup task configured (`scripts\backup-db.bat`).
+- [x] Windows Sleep set to "Never".
