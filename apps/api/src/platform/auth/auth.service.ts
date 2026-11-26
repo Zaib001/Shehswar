@@ -508,7 +508,7 @@ export class AuthService {
     if (isUserFromParent || permissionsSet.has('company:cross_company_view')) {
       authorizedCompanies = await this.prisma.company.findMany({
         where: { organizationId: user.organizationId, status: 'ACTIVE' },
-        select: { id: true, code: true, name: true, isParent: true, companyType: true },
+        select: { id: true, code: true, name: true, legalName: true, logoUrl: true, taxId: true, strnId: true, address: true, phone: true, email: true, isParent: true, companyType: true },
         orderBy: [{ isParent: 'desc' }, { name: 'asc' }],
       });
     } else {
@@ -522,7 +522,7 @@ export class AuthService {
           code: { not: 'COMP-SHEHSWAR' }, // Exclude parent company
           status: 'ACTIVE',
         },
-        select: { id: true, code: true, name: true, isParent: true, companyType: true },
+        select: { id: true, code: true, name: true, legalName: true, logoUrl: true, taxId: true, strnId: true, address: true, phone: true, email: true, isParent: true, companyType: true },
         orderBy: [{ name: 'asc' }],
       });
     }
@@ -548,6 +548,13 @@ export class AuthService {
         id: user.company.id,
         code: user.company.code,
         name: user.company.name,
+        legalName: (user.company as any).legalName,
+        logoUrl: (user.company as any).logoUrl,
+        taxId: (user.company as any).taxId,
+        strnId: (user.company as any).strnId,
+        address: (user.company as any).address,
+        phone: (user.company as any).phone,
+        email: (user.company as any).email,
         isParent: user.company.isParent,
       },
       department: user.employee?.department ? {
@@ -583,6 +590,13 @@ export class AuthService {
         id: c.id,
         code: c.code,
         name: c.name,
+        legalName: c.legalName,
+        logoUrl: c.logoUrl,
+        taxId: c.taxId,
+        strnId: c.strnId,
+        address: c.address,
+        phone: c.phone,
+        email: c.email,
         isParent: c.isParent,
       })),
       authorizedCompanyIds: authorizedCompanies.map((c) => c.id),

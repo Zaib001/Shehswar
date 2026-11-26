@@ -160,6 +160,11 @@ export class CreateCompanyDto {
   @IsOptional()
   taxId?: string;
 
+  @ValidateIf((_, val) => val !== null && val !== undefined)
+  @IsString()
+  @IsOptional()
+  logoUrl?: string | null;
+
   @IsString()
   @IsOptional()
   currencyCode?: string;
@@ -216,6 +221,11 @@ export class UpdateCompanyDto {
   @IsString()
   @IsOptional()
   taxId?: string;
+
+  @ValidateIf((_, val) => val !== null && val !== undefined)
+  @IsString()
+  @IsOptional()
+  logoUrl?: string | null;
 
   @IsString()
   @IsOptional()

@@ -13,11 +13,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { ApiClient } from '../lib/api-client';
 import { useAuth } from './auth-context';
+import {
+  setActiveCompanyBranding,
+  setAuthorizedCompaniesBranding,
+} from '../lib/company-branding';
 
 export interface CompanyRecord {
   id: string;
   code: string;
   name: string;
+  legalName?: string | null;
+  logoUrl?: string | null;
+  taxId?: string | null;
+  strnId?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
   isParent?: boolean;
   companyType?: string;
   currencyCode?: string;
@@ -33,6 +44,7 @@ export interface CompanyContextType {
   isSwitchingCompany: boolean;
   switchingCompanyName: string;
   switchCompany: (companyOrId: CompanyRecord | string) => Promise<void>;
+  refreshCompanies: () => Promise<void>;
 }
 
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
@@ -86,6 +98,7 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       setAuthorizedCompanies(authorized);
+      setAuthorizedCompaniesBranding(authorized);
 
       // Determine initial active company from localStorage or default
       const savedId = typeof window !== 'undefined' ? localStorage.getItem('shehswar_active_company') : null;
@@ -115,6 +128,7 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setActiveCompany(targetComp);
         setActiveCompanyId(targetComp.id);
         setActiveCompanyName(targetComp.name);
+        setActiveCompanyBranding(targetComp);
         if (typeof window !== 'undefined') {
           localStorage.setItem('shehswar_active_company', targetComp.id);
           localStorage.setItem('shehswar_active_company_name', targetComp.name);
@@ -168,6 +182,7 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setActiveCompany(target);
       setActiveCompanyId(target.id);
       setActiveCompanyName(target.name);
+      setActiveCompanyBranding(target);
 
       if (typeof window !== 'undefined') {
         localStorage.setItem('shehswar_active_company', target.id);
@@ -212,6 +227,7 @@ export const CompanyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isSwitchingCompany,
         switchingCompanyName,
         switchCompany,
+        refreshCompanies: initCompanyContext,
       }}
     >
       {/* Visual Company Switching Transition Overlay */}

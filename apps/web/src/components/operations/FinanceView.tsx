@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ApiClient } from '../../lib/api-client';
 import { useAuth } from '../../context/auth-context';
+import { useCompany } from '../../context/company-context';
 import { useToast } from '../../context/toast-context';
 import {
   Card,
@@ -40,12 +41,19 @@ import {
 
 export const FinanceView: React.FC = () => {
   const { user } = useAuth();
+  const { activeCompany, activeCompanyId, activeCompanyName } = useCompany();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'balance-sheet' | 'profit-loss' | 'general-ledger' | 'accounts' | 'expenses'>('balance-sheet');
   const [loading, setLoading] = useState(false);
-  const [companyId, setCompanyId] = useState<string>('ALL');
+  const [companyId, setCompanyId] = useState<string>(activeCompanyId || 'ALL');
   const [companies, setCompanies] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeCompanyId) {
+      setCompanyId(activeCompanyId);
+    }
+  }, [activeCompanyId]);
 
   // Filter States
   const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -155,9 +163,15 @@ export const FinanceView: React.FC = () => {
     return `PKR ${num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const selectedFinanceCompany = companyId === 'ALL'
+    ? activeCompany
+    : (companies.find((c) => c.id === companyId) || activeCompany);
+
   const currentCompanyName = companyId === 'ALL'
-    ? 'Shehswar Chemicals Group (Consolidated)'
-    : (companies.find((c) => c.id === companyId)?.name || 'Shehswar Chemicals');
+    ? (activeCompanyName ? `${activeCompanyName} (Consolidated)` : 'Shehswar Group (Consolidated)')
+    : (selectedFinanceCompany?.name || activeCompanyName || 'Shehswar Chemicals');
+
+  const currentCompanyLogo = selectedFinanceCompany?.logoUrl || activeCompany?.logoUrl || null;
 
   const glEntries: any[] = Array.isArray(generalLedger)
     ? generalLedger
@@ -167,6 +181,7 @@ export const FinanceView: React.FC = () => {
     if (!balanceSheet) return;
     exportBalanceSheetToPdf({
       companyName: currentCompanyName,
+      companyLogo: currentCompanyLogo,
       asOfDate,
       data: balanceSheet,
     });
@@ -176,6 +191,7 @@ export const FinanceView: React.FC = () => {
     if (!profitAndLoss) return;
     exportProfitLossToPdf({
       companyName: currentCompanyName,
+      companyLogo: currentCompanyLogo,
       period: `${startDate} to ${endDate}`,
       startDate,
       endDate,
@@ -187,6 +203,7 @@ export const FinanceView: React.FC = () => {
     if (!glEntries || glEntries.length === 0) return;
     exportGeneralLedgerToPdf({
       companyName: currentCompanyName,
+      companyLogo: currentCompanyLogo,
       startDate,
       endDate,
       entries: glEntries,

@@ -35,9 +35,66 @@ import {
   IconTrash,
 } from '../icons';
 import { useToast } from '../../context/toast-context';
+import { useCompany } from '../../context/company-context';
+
+const processCompanyLogoFile = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('Please select a valid image file (PNG, JPG, WebP, or SVG).'));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error('Image size must be less than 5MB.'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read the selected image file.'));
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Keep crisp SVGs or already-small logos as-is
+      if (file.type === 'image/svg+xml' || dataUrl.length < 100_000) {
+        resolve(dataUrl);
+        return;
+      }
+
+      const img = new Image();
+      img.onerror = () => resolve(dataUrl);
+      img.onload = () => {
+        const maxWidth = 420;
+        const maxHeight = 180;
+        let { width, height } = img;
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.max(1, Math.round(width * ratio));
+          height = Math.max(1, Math.round(height * ratio));
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const pngUrl = canvas.toDataURL('image/png');
+        if (pngUrl.length <= 280_000) {
+          resolve(pngUrl);
+        } else {
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+};
 
 export const CompaniesView: React.FC = () => {
   const { showToast } = useToast();
+  const { refreshCompanies } = useCompany();
   const [companies, setCompanies] = useState<CompanyDto[]>([]);
   const [plants, setPlants] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
@@ -98,6 +155,7 @@ export const CompaniesView: React.FC = () => {
     isParent: true,
     parentCompanyId: '',
     taxId: '',
+    logoUrl: '',
     currencyCode: 'PKR',
     email: '',
     phone: '',
@@ -224,10 +282,44 @@ export const CompaniesView: React.FC = () => {
       header: 'Company Name',
       accessorKey: 'name',
       cell: ({ row }) => (
-        <div>
-          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{row.original.name}</div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            {row.original.legalName || row.original.name}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {row.original.logoUrl ? (
+            <img
+              src={row.original.logoUrl}
+              alt={row.original.name}
+              style={{
+                width: '34px',
+                height: '34px',
+                objectFit: 'contain',
+                borderRadius: '6px',
+                border: '1px solid var(--border-subtle)',
+                background: '#ffffff',
+                padding: '2px',
+                flexShrink: 0,
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: '34px',
+                height: '34px',
+                borderRadius: '6px',
+                background: 'var(--bg-card-subtle, #f1f5f9)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                flexShrink: 0,
+              }}
+            >
+              <IconBuildings size={16} />
+            </div>
+          )}
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{row.original.name}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              {row.original.legalName || row.original.name}
+            </div>
           </div>
         </div>
       ),
@@ -316,6 +408,7 @@ export const CompaniesView: React.FC = () => {
                 isParent: row.original.isParent ?? false,
                 parentCompanyId: row.original.parentCompanyId || '',
                 taxId: row.original.taxId || '',
+                logoUrl: row.original.logoUrl || '',
                 currencyCode: row.original.currencyCode || 'PKR',
                 email: row.original.email || '',
                 phone: row.original.phone || '',
@@ -366,6 +459,7 @@ export const CompaniesView: React.FC = () => {
         };
         if (formData.legalName?.trim()) payload.legalName = formData.legalName.trim();
         if (formData.taxId?.trim()) payload.taxId = formData.taxId.trim();
+        if (formData.logoUrl?.trim()) payload.logoUrl = formData.logoUrl.trim();
         if (formData.currencyCode?.trim()) payload.currencyCode = formData.currencyCode.trim();
         if (formData.email?.trim()) payload.email = formData.email.trim();
         if (formData.phone?.trim()) payload.phone = formData.phone.trim();
@@ -385,12 +479,14 @@ export const CompaniesView: React.FC = () => {
         }
         showToast({ title: 'Success', message: `Company ${formData.name} registered with Company Admin Director`, type: 'success' });
         await fetchCompanies();
+        await refreshCompanies();
       } else if (mode === 'edit' && selectedCompany) {
         const payload: Record<string, any> = {
           name: formData.name.trim(),
           companyType: formData.companyType,
           isParent: formData.isParent,
           isActive: formData.isActive,
+          logoUrl: formData.logoUrl?.trim() ? formData.logoUrl.trim() : null,
         };
         if (formData.legalName?.trim()) payload.legalName = formData.legalName.trim();
         if (formData.taxId?.trim()) payload.taxId = formData.taxId.trim();
@@ -409,6 +505,7 @@ export const CompaniesView: React.FC = () => {
         await ApiClient.patch(`/api/v1/master-data/companies/${selectedCompany.id}`, payload);
         showToast({ title: 'Updated', message: 'Company record updated', type: 'success' });
         await fetchCompanies();
+        await refreshCompanies();
       }
       setMode('list');
     } catch (err: any) {
@@ -460,6 +557,112 @@ export const CompaniesView: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, legalName: e.target.value })}
                 placeholder="e.g. Shehswar Chemical Industries Pakistan Ltd"
               />
+
+              {/* Company Official Logo Upload */}
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  Company Logo (Used on Invoices, Ledgers & PDFs)
+                </label>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    padding: '0.875rem',
+                    border: '1.5px dashed var(--border-default, #cbd5e1)',
+                    borderRadius: 'var(--radius-md, 8px)',
+                    background: 'var(--bg-card-subtle, #f8fafc)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '72px',
+                      height: '56px',
+                      borderRadius: '6px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid var(--border-subtle, #e2e8f0)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                      padding: '4px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {formData.logoUrl ? (
+                      <img
+                        src={formData.logoUrl}
+                        alt="Company Logo Preview"
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      />
+                    ) : (
+                      <IconBuildings size={22} style={{ color: 'var(--text-muted)' }} />
+                    )}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: 'var(--color-primary, #0d9488)',
+                          color: '#ffffff',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <span>{formData.logoUrl ? 'Change Logo' : 'Upload Logo'}</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          style={{ display: 'none' }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const compressedUrl = await processCompanyLogoFile(file);
+                              setFormData((prev) => ({ ...prev, logoUrl: compressedUrl }));
+                              showToast({ title: 'Logo Ready', message: `${file.name} loaded cleanly. Save changes to apply across all PDFs & invoices.`, type: 'success' });
+                            } catch (err: any) {
+                              showToast({ title: 'Invalid Image', message: err?.message || 'Could not process logo image', type: 'error' });
+                            } finally {
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </label>
+
+                      {formData.logoUrl && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          style={{ color: '#ef4444' }}
+                          onClick={() => setFormData((prev) => ({ ...prev, logoUrl: '' }))}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '5px' }}>
+                      Recommended: PNG with transparent background or JPG/SVG (max 5MB). Automatically optimized for crisp PDF headers.
+                    </div>
+                  </div>
+                </div>
+              </div>
               <Select
                 label="Company Operational Type *"
                 value={formData.companyType}
@@ -786,6 +989,7 @@ export const CompaniesView: React.FC = () => {
                   isParent: selectedCompany.isParent ?? false,
                   parentCompanyId: selectedCompany.parentCompanyId || '',
                   taxId: selectedCompany.taxId || '',
+                  logoUrl: selectedCompany.logoUrl || '',
                   currencyCode: selectedCompany.currencyCode || 'PKR',
                   email: selectedCompany.email || '',
                   phone: selectedCompany.phone || '',
@@ -820,6 +1024,16 @@ export const CompaniesView: React.FC = () => {
                       <CardTitle>Statutory & Fiscal Parameters</CardTitle>
                     </CardHeader>
                     <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {selectedCompany.logoUrl && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Official Brand Logo:</span>
+                          <img
+                            src={selectedCompany.logoUrl}
+                            alt={selectedCompany.name}
+                            style={{ maxHeight: '46px', maxWidth: '140px', objectFit: 'contain', background: '#ffffff', padding: '4px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}
+                          />
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-muted)' }}>Corporate Entity Code:</span>
                         <span style={{ fontWeight: 600 }}>{selectedCompany.code}</span>
@@ -1006,6 +1220,7 @@ export const CompaniesView: React.FC = () => {
             isParent: isInitialParent,
             parentCompanyId: isInitialParent ? '' : parentCo?.id || '',
             taxId: '',
+            logoUrl: '',
             currencyCode: 'PKR',
             email: '',
             phone: '',

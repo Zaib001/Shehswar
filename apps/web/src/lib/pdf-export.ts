@@ -1,4 +1,4 @@
-import { SHEHSWAR_LOGO_BASE64 } from './shehswar-logo-base64';
+import { resolveCompanyBranding } from './company-branding';
 
 export interface BomExportData {
   formulaCode: string;
@@ -127,6 +127,9 @@ export const exportBomToPdf = (
   const unitCost = batchPacks > 0 ? totalBatchCost / batchPacks : 0;
   const unitRawCost = batchPacks > 0 ? rawTotal / batchPacks : 0;
   const unitPackCost = batchPacks > 0 ? packTotal / batchPacks : 0;
+  const branding = resolveCompanyBranding({
+    defaultDivision: 'Manufacturing & Chemical Formulations Technical Division',
+  });
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -503,9 +506,9 @@ export const exportBomToPdf = (
     </div>
   </div>
 
-  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <!-- Watermark of Company Logo in Background -->
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   <div class="page-container">
@@ -515,12 +518,12 @@ export const exportBomToPdf = (
       <table class="header-table">
         <tr>
           <td style="width: 50px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 10px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Manufacturing & Chemical Formulations Technical Division • NTN: 4128934-7
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -683,12 +686,12 @@ export const exportBomToPdf = (
         <div class="sig-box">
           <div class="sig-line"></div>
           <div class="sig-title">Managing Director</div>
-          <div class="sig-sub">Shehswar Executive Board</div>
+          <div class="sig-sub">${branding.name} Executive Board</div>
         </div>
       </div>
 
       <div class="doc-footer">
-        <div>CONFIDENTIAL — SHEHSWAR ONE360 ERP • MASTER FORMULA SPECIFICATION</div>
+        <div>CONFIDENTIAL — ${branding.name} • MASTER FORMULA SPECIFICATION</div>
         <div>Official Document • Page 1 of 1</div>
       </div>
     </div><!-- End bottom-section -->
@@ -719,6 +722,9 @@ export const exportIntercompanyPricingToPdf = (
   finishedProducts: any[] = [],
   boms: any[] = []
 ) => {
+  const branding = resolveCompanyBranding({
+    defaultDivision: 'Corporate Treasury & Transfer Pricing Governance Division',
+  });
   const targetProdId = rule.finishedProductId || rule.finishedProduct?.id;
   const targetProdCode = rule.finishedProduct?.productCode || rule.productCode;
   const targetProdName = rule.finishedProduct?.productName || rule.productName;
@@ -1142,9 +1148,9 @@ export const exportIntercompanyPricingToPdf = (
     </div>
   </div>
 
-  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <!-- Watermark of Company Logo in Background -->
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   <div class="page-container">
@@ -1154,12 +1160,12 @@ export const exportIntercompanyPricingToPdf = (
       <table class="header-table">
         <tr>
           <td style="width: 50px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 10px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Corporate Treasury & Transfer Pricing Governance Division • NTN: 4128934-7
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -1269,7 +1275,7 @@ export const exportIntercompanyPricingToPdf = (
       </div>
 
       <div class="doc-footer">
-        <div>CONFIDENTIAL & BINDING INTERCOMPANY AGREEMENT — SHEHSWAR GROUP OF COMPANIES</div>
+        <div>CONFIDENTIAL & BINDING INTERCOMPANY AGREEMENT — ${branding.name}</div>
         <div>Official Document • Page 1 of 1</div>
       </div>
     </div><!-- End bottom-section -->
@@ -1510,6 +1516,11 @@ export const exportSalesInvoiceToPdf = (
     : isStandardSales
       ? 'Commercial Customer Sales Slip'
       : 'Comprehensive Commercial Tax Invoice & STRN Filing Copy';
+
+  const branding = resolveCompanyBranding({
+    company: (invoice as any).company,
+    defaultDivision: 'Commercial Distribution Division',
+  });
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1918,9 +1929,9 @@ export const exportSalesInvoiceToPdf = (
     </div>
   </div>
 
-  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <!-- Watermark of Company Logo in Background -->
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   ${Array.from({ length: Math.max(1, Number(options?.copies || 1)) }, () => `
@@ -1931,13 +1942,13 @@ export const exportSalesInvoiceToPdf = (
       <table class="header-table">
         <tr>
           <td style="width: 55px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 12px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Manufacturing & Pesticide Formulations • Commercial Distribution Division<br>
-              Head Office & Plant: Multan Road / Faisalabad • NTN: 4128934-7 • STRN: 3277876123456
+              ${branding.legalName && branding.legalName !== branding.name ? `${branding.legalName} • ` : ''}Commercial Distribution Division<br>
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -2161,7 +2172,7 @@ export const exportSalesInvoiceToPdf = (
         <div>1. <strong>Stock Transfer Receipt:</strong> This delivery challan serves solely as a movement record from plant storage to destination. Physical counts must be tallied at vehicle un-boarding.</div>
         <div>2. <strong>Shortages / Leakage:</strong> Any transit breakage or seal tampering must be recorded on the driver gate pass slip before signing receipt.</div>
         ` : `
-        <div>1. <strong>Payment Compliance:</strong> Remittance strictly via Crossed Cheque or Direct Bank Transfer in favor of <strong>SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</strong>. Cash payment to field reps without official computerized receipt is strictly unacknowledged.</div>
+        <div>1. <strong>Payment Compliance:</strong> Remittance strictly via Crossed Cheque or Direct Bank Transfer in favor of <strong>${branding.name}</strong>. Cash payment to field reps without official computerized receipt is strictly unacknowledged.</div>
         <div>2. <strong>Warranty:</strong> Agrochemical formulations strictly conform to registered chemical assay standards. Claims for transit breakage or leakage must be notified within 48 hours of dispatch.</div>
         `}
       </div>
@@ -2194,7 +2205,7 @@ export const exportSalesInvoiceToPdf = (
       </div>
 
       <div class="doc-footer">
-        <div>${docTitleBadge} • SHEHSWAR ONE360 ERP SYSTEM • VERIFIED DIGITAL DOCUMENT</div>
+        <div>${docTitleBadge} • ${branding.name} • VERIFIED DIGITAL DOCUMENT</div>
         <div>Page 1 of 1</div>
       </div>
     </div><!-- End bottom-section -->
@@ -2295,6 +2306,10 @@ export const exportPendingOrdersReportToPdf = (data: {
 
   const totalOrdersCount = orders.length;
   const totalOrdersValue = orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+  const branding = resolveCompanyBranding({
+    companyName,
+    defaultDivision: 'Commercial Division • Consolidated Pending Sales Orders Report',
+  });
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2327,17 +2342,17 @@ export const exportPendingOrdersReportToPdf = (data: {
 </head>
 <body>
   <div class="screen-toolbar">
-    <div><strong>PENDING SALES ORDERS REPORT</strong> • ${companyName || 'SHEHSWAR ONE360'}</div>
+    <div><strong>PENDING SALES ORDERS REPORT</strong> • ${branding.name}</div>
     <div><button onclick="window.print()">Print / Save PDF</button></div>
   </div>
 
   <div style="padding: 14px;">
     <table class="header-table">
       <tr>
-        <td style="width: 50px; vertical-align: middle;"><img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar"></td>
+        <td style="width: 50px; vertical-align: middle;"><img class="logo-img" src="${branding.logo}" alt="${branding.name}"></td>
         <td style="padding-left: 10px; vertical-align: middle;">
-          <div style="font-size: 12pt; font-weight: 800; text-transform: uppercase;">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
-          <div style="font-size: 7.5pt; color: #475569;">Commercial Division • Consolidated Pending Sales Orders Report • 4-Tier Market Hierarchy</div>
+          <div style="font-size: 12pt; font-weight: 800; text-transform: uppercase;">${branding.name}</div>
+          <div style="font-size: 7.5pt; color: #475569;">${branding.metaLine}</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
           <div style="display: inline-block; background: #0f172a; color: #fff; padding: 3px 10px; border-radius: 3px; font-weight: 700; font-size: 8pt;">PENDING ORDERS</div>
@@ -2361,7 +2376,7 @@ export const exportPendingOrdersReportToPdf = (data: {
       </div>
       <div class="sum-card">
         <div class="lbl">Company Scope</div>
-        <div class="val">${companyName || 'Active Company'}</div>
+        <div class="val">${branding.name}</div>
       </div>
     </div>
 
@@ -2572,6 +2587,10 @@ export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData):
 
   const docTitleBadge = 'COMMERCIAL PURCHASE INVOICE';
   const docSubtitle = 'Official Procurement Goods Receipt & Commercial Inward Voucher';
+  const branding = resolveCompanyBranding({
+    company: (invoice as any).company,
+    defaultDivision: 'Commercial Procurement & Inward Logistics',
+  });
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2971,9 +2990,9 @@ export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData):
     </div>
   </div>
 
-  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <!-- Watermark of Company Logo in Background -->
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   <div class="page-container">
@@ -2983,13 +3002,13 @@ export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData):
       <table class="header-table">
         <tr>
           <td style="width: 55px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 12px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Manufacturing & Pesticide Formulations • Commercial Procurement & Inward Logistics<br>
-              Head Office & Plant: Multan Road / Faisalabad • NTN: 4128934-7 • STRN: 3277876123456
+              ${branding.legalName && branding.legalName !== branding.name ? `${branding.legalName} • ` : ''}Commercial Procurement & Inward Logistics<br>
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -3161,7 +3180,7 @@ export const generatePurchaseInvoiceHtml = (invoice: PurchaseInvoiceExportData):
       </div>
 
       <div class="doc-footer">
-        <div>${docTitleBadge} • SHEHSWAR ONE360 ERP SYSTEM • VERIFIED DIGITAL DOCUMENT</div>
+        <div>${docTitleBadge} • ${branding.name} • VERIFIED DIGITAL DOCUMENT</div>
         <div>Page 1 of 1</div>
       </div>
     </div><!-- End bottom-section -->
@@ -3282,6 +3301,12 @@ function formatSmallPdfVoucher(voucher?: string | null): string {
 
 export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
   const { dealer, startDate, endDate, entries } = data;
+  const branding = resolveCompanyBranding({
+    company: (data as any).company,
+    companyName: (data as any).companyName,
+    companyLogo: (data as any).companyLogo,
+    defaultDivision: 'Commercial Credit & Ledger Statements Division',
+  });
 
   const totalDebits = entries.reduce((sum, e) => sum + Number(e.debit || 0), 0);
   const totalCredits = entries.reduce((sum, e) => sum + Number(e.credit || 0), 0);
@@ -3627,7 +3652,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
       <span>Official Dealer Ledger Statement — ${dealer.code} (${dealer.name})</span>
-      <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(Shehswar Corporate Accounting Ledger)</span>
+      <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${branding.name} Accounting Ledger)</span>
     </div>
     <div>
       <button onclick="window.print()">Print / Save PDF</button>
@@ -3635,9 +3660,9 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
     </div>
   </div>
 
-  <!-- Watermark of SHEHSWAR Logo in Background -->
+  <!-- Watermark of Company Logo in Background -->
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   <div class="page-container">
@@ -3647,13 +3672,13 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
       <table class="header-table">
         <tr>
           <td style="width: 55px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 12px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Commercial Credit & Ledger Statements Division<br>
-              Head Office: Multan Road / Faisalabad • NTN: 4128934-7 • STRN: 3277876123456
+              ${branding.legalName && branding.legalName !== branding.name ? `${branding.legalName} • ` : ''}Commercial Credit & Ledger Statements Division<br>
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -3845,7 +3870,7 @@ export const exportDealerLedgerToPdf = (data: DealerLedgerExportData) => {
       </div>
 
       <div class="doc-footer">
-        <div>OFFICIAL STATEMENT OF ACCOUNT • SHEHSWAR ONE360 ERP SYSTEM • COMPUTER GENERATED</div>
+        <div>OFFICIAL STATEMENT OF ACCOUNT • ${branding.name} • COMPUTER GENERATED</div>
         <div>Total Transactions: ${entries.length}</div>
       </div>
     </div><!-- End bottom-section -->
@@ -3909,6 +3934,11 @@ export interface VendorLedgerExportData {
 
 export const generateVendorLedgerHtml = (data: VendorLedgerExportData): string => {
   const { vendor, startDate, endDate, entries } = data;
+  const branding = resolveCompanyBranding({
+    company: (data as any).company,
+    companyName: (data as any).companyName,
+    defaultDivision: 'Accounts Payable & Procurement Sub-Ledger Division',
+  });
 
   // Chronological ascending sorting: earliest entry on top row (e.g. 11/12/2026), latest at bottom
   const sortedEntries = [...entries].sort((a, b) => {
@@ -4274,7 +4304,7 @@ export const generateVendorLedgerHtml = (data: VendorLedgerExportData): string =
   </div>
 
   <div class="watermark-container">
-    <img src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR WATERMARK">
+    <img src="${branding.logo}" alt="${branding.name} Watermark">
   </div>
 
   <div class="page-container">
@@ -4284,13 +4314,13 @@ export const generateVendorLedgerHtml = (data: VendorLedgerExportData): string =
       <table class="header-table">
         <tr>
           <td style="width: 55px; vertical-align: middle;">
-            <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+            <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
           </td>
           <td style="padding-left: 12px; vertical-align: middle;">
-            <div class="company-title">SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</div>
+            <div class="company-title">${branding.name}</div>
             <div class="company-sub">
-              Accounts Payable & Procurement Sub-Ledger Division<br>
-              Head Office: Multan Road, Industrial Estate, Lahore • NTN: 3124567-9 • STRN: 17-00-3124-567-99
+              ${branding.legalName && branding.legalName !== branding.name ? `${branding.legalName} • ` : ''}Accounts Payable & Procurement Sub-Ledger Division<br>
+              ${branding.metaLine}
             </div>
           </td>
           <td style="text-align: right; vertical-align: middle;">
@@ -4441,7 +4471,7 @@ export const generateVendorLedgerHtml = (data: VendorLedgerExportData): string =
       </div>
 
       <div class="doc-footer">
-        <div>OFFICIAL STATEMENT OF ACCOUNT • SHEHSWAR ONE360 ERP SYSTEM • COMPUTER GENERATED</div>
+        <div>OFFICIAL STATEMENT OF ACCOUNT • ${branding.name} • COMPUTER GENERATED</div>
         <div>Total Ledger Entries: ${entries.length}</div>
       </div>
     </div><!-- End bottom-section -->
@@ -4501,6 +4531,9 @@ export interface MarketPerformancePdfData {
 }
 
 export const generateMarketPerformanceHtml = (data: MarketPerformancePdfData): string => {
+  const branding = resolveCompanyBranding({
+    defaultDivision: 'Commercial Market Performance Division',
+  });
   const generatedAt = new Date().toLocaleString('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -4755,10 +4788,10 @@ export const generateMarketPerformanceHtml = (data: MarketPerformancePdfData): s
   <div class="page-container">
     <div class="header">
       <div class="logo-block">
-        <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar Chemicals" />
+        <img class="logo-img" src="${branding.logo}" alt="${branding.name}" />
         <div>
-          <div class="brand-title">SHEHSWAR ONE360</div>
-          <div class="brand-subtitle">Commercial Agrochemicals & Crop Sciences • Market Performance Division</div>
+          <div class="brand-title">${branding.name}</div>
+          <div class="brand-subtitle">${branding.metaLine}</div>
         </div>
       </div>
       <div class="doc-meta">
@@ -4883,13 +4916,13 @@ export const generateMarketPerformanceHtml = (data: MarketPerformancePdfData): s
       <div>
         <div class="sig-line"></div>
         <div class="sig-label">APPROVED BY</div>
-        <div class="sig-sub">Commercial Director • Shehswar Chemicals Group</div>
+        <div class="sig-sub">Commercial Director • ${branding.name}</div>
       </div>
     </div>
 
     <!-- Footer -->
     <div class="footer">
-      <div>OFFICIAL SHEHSWAR ONE360 ERP • COMMERCIAL AGROCHEMICAL DIVISION • COMPUTER GENERATED</div>
+      <div>OFFICIAL ${branding.name} • COMMERCIAL DIVISION • COMPUTER GENERATED</div>
       <div>CONFIDENTIAL • FOR AUTHORIZED MANAGEMENT REVIEW ONLY</div>
     </div>
   </div>
@@ -4920,6 +4953,7 @@ export const exportMarketPerformancePdf = (data: MarketPerformancePdfData) => {
 
 export interface BalanceSheetPdfData {
   companyName: string;
+  companyLogo?: string | null;
   asOfDate: string;
   data: {
     currentAssets?: {
@@ -4954,7 +4988,12 @@ export interface BalanceSheetPdfData {
 }
 
 export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
-  const { companyName, asOfDate, data } = report;
+  const { companyName, companyLogo, asOfDate, data } = report;
+  const branding = resolveCompanyBranding({
+    companyName,
+    companyLogo,
+    defaultDivision: 'Financial Control & General Ledger Division • Enterprise Accounting Records',
+  });
   const ca = data.currentAssets || {};
   const nca = data.nonCurrentAssets || {};
   const cl = data.currentLiabilities || {};
@@ -5058,7 +5097,7 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>Authoritative Balance Sheet — ${companyName}</span>
+      <span>Authoritative Balance Sheet — ${branding.name}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(As of ${asOfDate})</span>
     </div>
     <div>
@@ -5071,17 +5110,17 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
     <table class="header-table">
       <tr>
         <td style="width: 50px; vertical-align: middle;">
-          <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+          <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
         </td>
         <td style="padding-left: 12px; vertical-align: middle;">
-          <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
-          <div class="company-sub">Financial Control & General Ledger Division • Enterprise Accounting Records</div>
+          <div class="company-title">${branding.name}</div>
+          <div class="company-sub">${branding.metaLine}</div>
           <div class="report-title">STATEMENT OF FINANCIAL POSITION (BALANCE SHEET)</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
           <div class="balance-status">${isBalanced ? 'ACCOUNTING EQUATION BALANCED' : 'EQUATION IMBALANCE'}</div>
           <div style="font-size: 7pt; color: #64748b; margin-top: 4px; font-family: monospace;">
-            ENTITY: ${companyName}<br>
+            ENTITY: ${branding.name}<br>
             AS OF: ${asOfDate}
           </div>
         </td>
@@ -5091,7 +5130,7 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
     <div class="meta-box">
       <div class="meta-item">
         <span class="meta-label">Reporting Entity</span>
-        <span class="meta-val">${companyName}</span>
+        <span class="meta-val">${branding.name}</span>
       </div>
       <div class="meta-item">
         <span class="meta-label">Financial Position As Of</span>
@@ -5264,12 +5303,12 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
       <div class="sig-box">
         <div class="sig-line"></div>
         <div class="sig-label">APPROVED BY</div>
-        <div class="sig-sub">Chief Financial Officer • Shehswar Chemicals</div>
+        <div class="sig-sub">Chief Financial Officer • ${branding.name}</div>
       </div>
     </div>
 
     <div class="footer">
-      <div>OFFICIAL SHEHSWAR ONE360 ERP • CORPORATE FINANCIAL CONTROL • GENERAL LEDGER DERIVED</div>
+      <div>OFFICIAL ${branding.name} • CORPORATE FINANCIAL CONTROL • GENERAL LEDGER DERIVED</div>
       <div>CONFIDENTIAL • FOR BOARD & STATUTORY MANAGEMENT USE ONLY</div>
     </div>
   </div>
@@ -5293,6 +5332,7 @@ export const exportBalanceSheetToPdf = (report: BalanceSheetPdfData) => {
 
 export interface ProfitLossPdfData {
   companyName: string;
+  companyLogo?: string | null;
   period: string;
   startDate?: string;
   endDate?: string;
@@ -5321,7 +5361,12 @@ export interface ProfitLossPdfData {
 }
 
 export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
-  const { companyName, period, data } = report;
+  const { companyName, companyLogo, period, data } = report;
+  const branding = resolveCompanyBranding({
+    companyName,
+    companyLogo,
+    defaultDivision: 'Financial Control & Commercial Accounting • General Ledger Derived',
+  });
   const rev = data.revenue || {};
   const cogs = data.costOfGoodsSold || {};
   const exp = data.operatingExpenses || {};
@@ -5427,7 +5472,7 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>Statement of Profit & Loss — ${companyName}</span>
+      <span>Statement of Profit & Loss — ${branding.name}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${period})</span>
     </div>
     <div>
@@ -5440,11 +5485,11 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
     <table class="header-table">
       <tr>
         <td style="width: 50px; vertical-align: middle;">
-          <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+          <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
         </td>
         <td style="padding-left: 12px; vertical-align: middle;">
-          <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
-          <div class="company-sub">Financial Control & Commercial Accounting • General Ledger Derived</div>
+          <div class="company-title">${branding.name}</div>
+          <div class="company-sub">${branding.metaLine}</div>
           <div class="report-title">STATEMENT OF PROFIT & LOSS (INCOME STATEMENT)</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
@@ -5452,7 +5497,7 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
             OFFICIAL FINANCIAL AUDIT
           </div>
           <div style="font-size: 7pt; color: #64748b; margin-top: 4px; font-family: monospace;">
-            ENTITY: ${companyName}<br>
+            ENTITY: ${branding.name}<br>
             PERIOD: ${period}
           </div>
         </td>
@@ -5589,7 +5634,7 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
       <div class="sig-box">
         <div class="sig-line"></div>
         <div class="sig-label">REVIEWED & AUDITED BY</div>
-        <div class="sig-sub">Financial Controller • Shehswar Chemicals</div>
+        <div class="sig-sub">Financial Controller • ${branding.name}</div>
       </div>
       <div class="sig-box">
         <div class="sig-line"></div>
@@ -5599,7 +5644,7 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
     </div>
 
     <div class="footer">
-      <div>OFFICIAL SHEHSWAR ONE360 ERP • COMMERCIAL AGROCHEMICAL DIVISION • COMPUTER GENERATED</div>
+      <div>OFFICIAL ${branding.name} • COMMERCIAL DIVISION • COMPUTER GENERATED</div>
       <div>CONFIDENTIAL • FOR AUTHORIZED MANAGEMENT & AUDIT REVIEW ONLY</div>
     </div>
   </div>
@@ -5623,6 +5668,7 @@ export const exportProfitLossToPdf = (report: ProfitLossPdfData) => {
 
 export interface GeneralLedgerPdfData {
   companyName: string;
+  companyLogo?: string | null;
   startDate?: string;
   endDate?: string;
   entries: Array<{
@@ -5646,7 +5692,12 @@ export interface GeneralLedgerPdfData {
 }
 
 export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
-  const { companyName, startDate, endDate, entries } = report;
+  const { companyName, companyLogo, startDate, endDate, entries } = report;
+  const branding = resolveCompanyBranding({
+    companyName,
+    companyLogo,
+    defaultDivision: 'Financial Control & Audit Division • General Ledger Double-Entry Register',
+  });
 
   const totalDebits = entries.reduce((sum, e) => sum + Number(e.totalDebit || 0), 0);
   const totalCredits = entries.reduce((sum, e) => sum + Number(e.totalCredit || 0), 0);
@@ -5739,7 +5790,7 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
 <body>
   <div class="screen-toolbar">
     <div style="font-weight: 600;">
-      <span>Authoritative General Ledger — ${companyName}</span>
+      <span>Authoritative General Ledger — ${branding.name}</span>
       <span style="font-size: 11px; color: #94a3b8; margin-left: 12px;">(${entries.length} Balanced Journal Entries)</span>
     </div>
     <div>
@@ -5752,11 +5803,11 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
     <table class="header-table">
       <tr>
         <td style="width: 50px; vertical-align: middle;">
-          <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+          <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
         </td>
         <td style="padding-left: 12px; vertical-align: middle;">
-          <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
-          <div class="company-sub">Financial Control & Audit Division • General Ledger Double-Entry Register</div>
+          <div class="company-title">${branding.name}</div>
+          <div class="company-sub">${branding.metaLine}</div>
           <div class="report-title">AUTHORITATIVE GENERAL LEDGER JOURNAL ENTRIES</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
@@ -5764,7 +5815,7 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
             BALANCED AUDIT REGISTER
           </div>
           <div style="font-size: 7pt; color: #64748b; margin-top: 4px; font-family: monospace;">
-            ENTITY: ${companyName}<br>
+            ENTITY: ${branding.name}<br>
             PERIOD: ${periodLabel}
           </div>
         </td>
@@ -5845,12 +5896,12 @@ export const exportGeneralLedgerToPdf = (report: GeneralLedgerPdfData) => {
       <div class="sig-box">
         <div class="sig-line"></div>
         <div class="sig-label">MANAGING DIRECTOR</div>
-        <div class="sig-sub">Executive Board • Shehswar Chemicals</div>
+        <div class="sig-sub">Executive Board • ${branding.name}</div>
       </div>
     </div>
 
     <div class="footer">
-      <div>OFFICIAL SHEHSWAR ONE360 ERP • COMMERCIAL AGROCHEMICAL DIVISION • COMPUTER GENERATED</div>
+      <div>OFFICIAL ${branding.name} • AUTHORITATIVE GENERAL LEDGER • COMPUTER GENERATED</div>
       <div>CONFIDENTIAL • FOR AUTHORIZED MANAGEMENT & AUDIT REVIEW ONLY</div>
     </div>
   </div>
@@ -5889,6 +5940,9 @@ export interface DealersListPdfData {
 
 export const exportDealersListPdf = (report: DealersListPdfData) => {
   const { dealers } = report;
+  const branding = resolveCompanyBranding({
+    defaultDivision: 'Commercial Division • Market Hierarchy & Territory Attribution',
+  });
   const totalReceivables = dealers.reduce((sum, d) => sum + Number(d.currentBalance || 0), 0);
   const totalCreditLimit = dealers.reduce((sum, d) => sum + Number(d.creditLimit || 0), 0);
   const activeCount = dealers.filter((d) => d.status === 'ACTIVE').length;
@@ -5988,11 +6042,11 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
     <table class="header-table">
       <tr>
         <td style="width: 50px; vertical-align: middle;">
-          <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="SHEHSWAR">
+          <img class="logo-img" src="${branding.logo}" alt="${branding.name}">
         </td>
         <td style="padding-left: 12px; vertical-align: middle;">
-          <div class="company-title">SHEHSWAR GROUP OF COMPANIES</div>
-          <div class="company-sub">Commercial Agrochemical Division • Market Hierarchy & Territory Attribution</div>
+          <div class="company-title">${branding.name}</div>
+          <div class="company-sub">${branding.metaLine}</div>
           <div class="report-title">AUTHORIZED DEALERS & RUNNING BALANCE DIRECTORY</div>
         </td>
         <td style="text-align: right; vertical-align: middle;">
@@ -6101,12 +6155,12 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
       <div class="sig-box">
         <div class="sig-line"></div>
         <div class="sig-label">COMMERCIAL DIRECTOR</div>
-        <div class="sig-sub">Executive Board • Shehswar Chemicals</div>
+        <div class="sig-sub">Executive Board • ${branding.name}</div>
       </div>
     </div>
 
     <div class="footer">
-      <div>OFFICIAL SHEHSWAR ONE360 ERP • COMMERCIAL AGROCHEMICAL DIVISION • COMPUTER GENERATED</div>
+      <div>OFFICIAL ${branding.name} • AUTHORIZED DEALER DIRECTORY • COMPUTER GENERATED</div>
       <div>CONFIDENTIAL • FOR AUTHORIZED MANAGEMENT & AUDIT REVIEW ONLY</div>
     </div>
   </div>
@@ -6133,7 +6187,11 @@ export const exportDealersListPdf = (report: DealersListPdfData) => {
  * Matching official physical receipt layout with Products table & Dealer Allocations
  */
 export const exportProvisionalReceiptToPdf = (pr: any) => {
-  const companyName = pr.company?.name || 'SHEHSWAR CHEMICALS (PVT) LTD';
+  const branding = resolveCompanyBranding({
+    company: pr.company,
+    defaultDivision: 'Commercial Collection & Clearing Division',
+  });
+  const companyName = branding.name;
   const prNumber = pr.prNumber || 'PR-000000';
   const receiptDate = pr.receiptDate ? new Date(pr.receiptDate).toLocaleDateString('en-GB') : '-';
   const issueDate = pr.issueDate ? new Date(pr.issueDate).toLocaleDateString('en-GB') : receiptDate;
@@ -6243,10 +6301,13 @@ export const exportProvisionalReceiptToPdf = (pr: any) => {
   <div class="doc-container">
     <table class="header-table">
       <tr>
-        <td style="vertical-align: top;">
+        <td style="width: 58px; vertical-align: middle;">
+          <img src="${branding.logo}" alt="${companyName}" style="height: 46px; width: auto; max-width: 130px; object-fit: contain;" />
+        </td>
+        <td style="padding-left: 10px; vertical-align: middle;">
           <div class="company-name">${companyName}</div>
-          <div class="company-sub">Agrochemicals & Crop Nutrients Commercial Division</div>
-          <div class="company-sub">Head Office • Pakistan</div>
+          <div class="company-sub">${branding.legalName && branding.legalName !== companyName ? `${branding.legalName} • ` : ''}Commercial Collection & Clearing Division</div>
+          <div class="company-sub">${branding.metaLine}</div>
         </td>
         <td style="text-align: right; vertical-align: top;">
           <div class="doc-badge">PROVISIONAL RECEIPT</div>
@@ -6377,7 +6438,7 @@ export const exportProvisionalReceiptToPdf = (pr: any) => {
     </div>
 
     <div class="footer">
-      OFFICIAL SHEHSWAR ONE360 ERP • PROVISIONAL RECEIPT SYSTEM • COMPUTER GENERATED AUTHORITATIVE DOCUMENT
+      OFFICIAL ${companyName} • PROVISIONAL RECEIPT SYSTEM • COMPUTER GENERATED AUTHORITATIVE DOCUMENT
     </div>
   </div>
 
@@ -6402,6 +6463,10 @@ export const exportProvisionalReceiptToPdf = (pr: any) => {
 
 
 export const exportRateListToPdf = (rateList: any) => {
+  const branding = resolveCompanyBranding({
+    company: rateList.company,
+    defaultDivision: 'Commercial Pricing Directorate • Official Scheme Rate List',
+  });
   const schemeName = rateList.schemeName || rateList.scheme?.name || rateList.name || 'Official Rate List';
   const schemeCode = rateList.schemeShortCode || rateList.scheme?.shortCode || rateList.code || 'RL';
   const schemeType = rateList.scheme?.schemeTypeRef?.name || rateList.scheme?.schemeTypeCode || rateList.schemeTypeCode || 'General Rate List';
@@ -6641,11 +6706,14 @@ export const exportRateListToPdf = (rateList: any) => {
 <body>
   <div class="page-container">
     <div class="header">
-      <div>
-        <div class="brand-title">SHEHSWAR AGRO CHEMICALS</div>
-        <div class="brand-sub">Commercial Pricing Directorate • Official Scheme Rate List</div>
-        <div style="font-size: 11pt; font-weight: 800; color: #0f172a; margin-top: 4px;">
-          ${schemeName}
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <img src="${branding.logo}" alt="${branding.name}" style="height: 46px; width: auto; max-width: 130px; object-fit: contain;" />
+        <div>
+          <div class="brand-title">${branding.name}</div>
+          <div class="brand-sub">${branding.metaLine}</div>
+          <div style="font-size: 11pt; font-weight: 800; color: #0f172a; margin-top: 4px;">
+            ${schemeName}
+          </div>
         </div>
       </div>
       <div class="scheme-badge">
@@ -6707,7 +6775,7 @@ export const exportRateListToPdf = (rateList: any) => {
     </div>
 
     <div class="footer">
-      OFFICIAL SHEHSWAR ONE360 ERP • COMPUTER GENERATED OFFICIAL SCHEME RATE LIST • STRICTLY CONFIDENTIAL
+      OFFICIAL ${branding.name} • COMPUTER GENERATED OFFICIAL SCHEME RATE LIST • STRICTLY CONFIDENTIAL
     </div>
   </div>
 
@@ -6767,6 +6835,10 @@ export interface SourceDocumentExportData {
 }
 
 export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
+  const branding = resolveCompanyBranding({
+    company: doc.company,
+    defaultDivision: 'Authoritative Integrated ERP System',
+  });
   const formattedDate = new Date(doc.documentDate).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -6908,7 +6980,7 @@ export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
 </head>
 <body>
   <div class="screen-toolbar">
-    <div><strong>SHEHSWAR ONE360 ERP</strong> • Official Source Document Voucher (${doc.sourceNumber})</div>
+    <div><strong>${branding.name}</strong> • Official Source Document Voucher (${doc.sourceNumber})</div>
     <div>
       <button onclick="window.print()">Print Document</button>
       <button onclick="window.close()" style="margin-left: 8px;">Close Window</button>
@@ -6918,9 +6990,9 @@ export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
   <div class="page-container">
     <div class="header">
       <div class="logo-block">
-        <img src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar Chemicals" />
-        <div class="company-title">${doc.company?.name || 'Shehswar Chemicals (Pvt) Ltd'}</div>
-        <div class="company-subtitle">One360 Authoritative Integrated ERP System</div>
+        <img src="${branding.logo}" alt="${branding.name}" />
+        <div class="company-title">${branding.name}</div>
+        <div class="company-subtitle">${branding.metaLine}</div>
       </div>
       <div class="doc-badge-block">
         <div class="doc-type-pill">${documentTitle}</div>
@@ -6998,7 +7070,7 @@ export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
     </div>
 
     <div class="footer">
-      OFFICIAL SHEHSWAR ONE360 ERP • COMPUTER GENERATED AUDITABLE TRANSACTION VOUCHER • FULL TRACEABILITY
+      OFFICIAL ${branding.name} • COMPUTER GENERATED AUDITABLE TRANSACTION VOUCHER • FULL TRACEABILITY
     </div>
   </div>
 
@@ -7025,6 +7097,7 @@ export const exportSourceDocumentToPdf = (doc: SourceDocumentExportData) => {
 
 export interface ExpenseLedgerExportData {
   companyName: string;
+  companyLogo?: string | null;
   companyAddress?: string;
   companyPhone?: string;
   ledgerTitle: string;
@@ -7076,8 +7149,9 @@ export interface ExpenseLedgerExportData {
 export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
   const {
     companyName,
-    companyAddress = 'Plot # 12-B, Industrial Estate, Multan Road, Pakistan',
-    companyPhone = '+92 42 111-743-479',
+    companyLogo,
+    companyAddress,
+    companyPhone,
     ledgerTitle = 'Expense & Liability Ledger (Running Balances)',
     ledgerSubtitle = 'Official Financial Running Balance Statement',
     startDate,
@@ -7087,6 +7161,14 @@ export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
     itemBreakdown = [],
     entries = [],
   } = data;
+
+  const branding = resolveCompanyBranding({
+    companyName,
+    companyLogo,
+    companyAddress,
+    companyPhone,
+    defaultDivision: 'Financial Control & Expense Ledger Division',
+  });
 
   const formatPKR = (v: number | undefined | null) =>
     Number(v || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -7430,7 +7512,7 @@ export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
 <body>
   <div class="screen-toolbar">
     <div>
-      <strong>SHEHSWAR ONE360 ERP</strong> &nbsp;|&nbsp;
+      <strong>${branding.name}</strong> &nbsp;|&nbsp;
       <span>Expense & Liability Running Balances Ledger Statement</span>
     </div>
     <div>
@@ -7443,13 +7525,18 @@ export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
   </div>
 
   <div class="page-container">
-    <div class="watermark">SHEHSWAR</div>
+    <div class="watermark">${branding.name}</div>
 
     <table class="header-table">
       <tr>
         <td style="width: 60%; vertical-align: top;">
-          <div class="company-title">${companyName || 'SHEHSWAR AGRO CHEMICALS'}</div>
-          <div class="company-sub">${companyAddress} • Ph: ${companyPhone}</div>
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
+            <img src="${branding.logo}" alt="${branding.name}" style="height: 44px; width: auto; max-width: 120px; object-fit: contain;" />
+            <div>
+              <div class="company-title">${branding.name}</div>
+              <div class="company-sub">${branding.metaLine}</div>
+            </div>
+          </div>
           <div class="report-title">${ledgerTitle}</div>
           <div class="report-subtitle">${ledgerSubtitle}</div>
         </td>
@@ -7614,7 +7701,7 @@ export const exportExpenseLedgerToPdf = (data: ExpenseLedgerExportData) => {
     </div>
 
     <div class="footer">
-      <span>SHEHSWAR ONE360 ERP &bull; System-Generated Auditable Ledger Statement &bull; Strict Integrity & Traceability</span>
+      <span>${branding.name} &bull; System-Generated Auditable Ledger Statement &bull; Strict Integrity & Traceability</span>
       <span>Page 1 of 1</span>
     </div>
   </div>

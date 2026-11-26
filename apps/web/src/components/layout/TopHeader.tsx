@@ -206,14 +206,29 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleSidebar, onOpenCom
                 width: '32px',
                 height: '32px',
                 borderRadius: '8px',
-                backgroundColor: activeCompany?.isParent ? 'rgba(13, 148, 136, 0.12)' : 'rgba(59, 130, 246, 0.12)',
+                backgroundColor: activeCompany?.logoUrl
+                  ? '#ffffff'
+                  : activeCompany?.isParent
+                    ? 'rgba(13, 148, 136, 0.12)'
+                    : 'rgba(59, 130, 246, 0.12)',
+                border: activeCompany?.logoUrl ? '1px solid var(--border-subtle)' : 'none',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                overflow: 'hidden',
+                padding: activeCompany?.logoUrl ? '2px' : 0,
                 color: activeCompany?.isParent ? 'var(--color-primary, #0d9488)' : '#2563eb',
               }}
             >
-              <IconBuilding size={17} />
+              {activeCompany?.logoUrl ? (
+                <img
+                  src={activeCompany.logoUrl}
+                  alt={activeCompany.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              ) : (
+                <IconBuilding size={17} />
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left' }}>
@@ -388,12 +403,29 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ onToggleSidebar, onOpenCom
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <IconBuilding
-                            size={16}
-                            style={{
-                              color: c.isParent ? 'var(--color-primary, #0d9488)' : '#2563eb',
-                            }}
-                          />
+                          {c.logoUrl ? (
+                            <img
+                              src={c.logoUrl}
+                              alt={c.name}
+                              style={{
+                                width: '24px',
+                                height: '24px',
+                                objectFit: 'contain',
+                                borderRadius: '4px',
+                                backgroundColor: '#ffffff',
+                                border: '1px solid var(--border-subtle, #e2e8f0)',
+                                padding: '2px',
+                                flexShrink: 0,
+                              }}
+                            />
+                          ) : (
+                            <IconBuilding
+                              size={16}
+                              style={{
+                                color: c.isParent ? 'var(--color-primary, #0d9488)' : '#2563eb',
+                              }}
+                            />
+                          )}
                           <div>
                             <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <span>{c.name}</span>

@@ -35,6 +35,7 @@ export interface CompanyDto {
   isParent: boolean;
   taxId?: string | null;
   strnId?: string | null;
+  logoUrl?: string | null;
   currencyCode: string;
   financialYear?: string | null;
   email?: string | null;

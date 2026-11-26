@@ -5,7 +5,8 @@ import { Modal, Button, Input, TableSkeleton } from '../ui';
 import { IconRefresh, IconDownload } from '../icons';
 import { useToast } from '../../context/toast-context';
 import { ApiClient } from '../../lib/api-client';
-import { SHEHSWAR_LOGO_BASE64 } from '../../lib/shehswar-logo-base64';
+import { useCompany } from '../../context/company-context';
+import { resolveCompanyBranding } from '../../lib/company-branding';
 import { exportDealerLedgerToPdf } from '../../lib/pdf-export';
 import { SourceDocumentDrillDownModal } from './SourceDocumentDrillDownModal';
 
@@ -276,6 +277,12 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
     [filteredEntries],
   );
 
+  const { activeCompany } = useCompany();
+  const branding = resolveCompanyBranding({
+    company: activeCompany,
+    defaultDivision: 'Dealer Sub-Ledger & Statement of Account • Authoritative Accounting Records',
+  });
+
   const handlePrintPdf = () => {
     if (!dealer) return;
     const creditLimit = Number(dealerCreditLimit || dealer.creditLimit || 0);
@@ -348,13 +355,13 @@ export const DealerLedgerModal: React.FC<DealerLedgerModalProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <img
-                src={SHEHSWAR_LOGO_BASE64}
-                alt="Shehswar Emblem"
-                style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
+                src={branding.logo}
+                alt={branding.name}
+                style={{ height: '38px', width: 'auto', maxWidth: '120px', objectFit: 'contain' }}
               />
               <div>
-                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', letterSpacing: '0.01em' }}>
-                  SHEHSWAR CHEMICALS (PVT) LTD
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a', letterSpacing: '0.01em', textTransform: 'uppercase' }}>
+                  {branding.name}
                 </div>
                 <div style={{ fontSize: '11px', color: '#64748b' }}>
                   Dealer Sub-Ledger & Statement of Account • Authoritative Accounting Records

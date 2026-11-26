@@ -126,6 +126,7 @@ model Company {
   isParent        Boolean   @default(false)
   taxId           String?   @db.VarChar(50) // NTN / STRN — only if confirmed
   strnId          String?   @db.VarChar(50) // STRN — only if confirmed
+  logoUrl         String?   @db.Text // Base64 Data URL or hosted logo URL
   currencyCode    String    @default("PKR") @db.VarChar(10)
   financialYear   String?   @db.VarChar(10) // e.g. "2026"
   email           String?   @db.VarChar(255)

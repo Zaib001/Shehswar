@@ -395,6 +395,7 @@ export class MasterDataService {
         companyType: dto.companyType || 'PARENT_MANUFACTURING',
         isParent: dto.isParent ?? false,
         taxId: dto.taxId,
+        logoUrl: dto.logoUrl || null,
         currencyCode: dto.currencyCode || 'PKR',
         email: dto.email,
         phone: dto.phone,

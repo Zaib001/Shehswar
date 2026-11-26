@@ -11,8 +11,9 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
-import { IconFileText } from '../icons';
-import { SHEHSWAR_LOGO_BASE64 } from '../../lib/shehswar-logo-base64';
+import { IconFileText, IconPrinter } from '../icons';
+import { useCompany } from '../../context/company-context';
+import { resolveCompanyBranding } from '../../lib/company-branding';
 import { exportSalesInvoiceToPdf, exportMultiFormatSalesInvoicesToPdf, SalesInvoiceExportData, convertNumberToWordsPKR } from '../../lib/pdf-export';
 
 interface SalesInvoiceModalProps {
@@ -26,6 +27,7 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
   onClose,
   invoice,
 }) => {
+  const { activeCompany } = useCompany();
   const [selectedFormat, setSelectedFormat] = useState<'BASIC_DELIVERY' | 'STANDARD_SALES' | 'COMMERCIAL_FULL'>('COMMERCIAL_FULL');
 
   useEffect(() => {
@@ -36,6 +38,11 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
   }, [invoice]);
 
   if (!invoice) return null;
+
+  const branding = resolveCompanyBranding({
+    company: (invoice as any).company || activeCompany,
+    defaultDivision: 'Commercial Distribution Division',
+  });
 
   const isBasicDelivery = selectedFormat === 'BASIC_DELIVERY';
   const isStandardSales = selectedFormat === 'STANDARD_SALES';
@@ -211,7 +218,7 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
               gap: '6px',
             }}
           >
-            🖨 Print All 3 Formats
+            <IconPrinter size={15} /> Print All 3 Formats
           </Button>
           <Button variant="secondary" onClick={onClose}>
             Close
@@ -248,8 +255,8 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
           }}
         >
           <img
-            src={SHEHSWAR_LOGO_BASE64}
-            alt="SHEHSWAR WATERMARK"
+            src={branding.logo}
+            alt={`${branding.name} Watermark`}
             style={{ width: '100%', height: 'auto', filter: 'grayscale(100%)' }}
           />
         </div>
@@ -270,9 +277,9 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <img
-                src={SHEHSWAR_LOGO_BASE64}
-                alt="Shehswar Logo"
-                style={{ height: '52px', width: 'auto', objectFit: 'contain' }}
+                src={branding.logo}
+                alt={branding.name}
+                style={{ height: '52px', width: 'auto', maxWidth: '150px', objectFit: 'contain' }}
               />
               <div>
                 <h2
@@ -285,11 +292,12 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
                     textTransform: 'uppercase',
                   }}
                 >
-                  SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD
+                  {branding.name}
                 </h2>
                 <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px', lineHeight: 1.35 }}>
-                  Manufacturing & Pesticide Formulations • Commercial Distribution Division<br />
-                  Head Office & Plant: Multan Road / Faisalabad • NTN: 4128934-7 • STRN: 3277876123456
+                  {branding.legalName && branding.legalName !== branding.name ? `${branding.legalName} • ` : ''}
+                  Commercial Distribution Division<br />
+                  {branding.metaLine}
                 </div>
               </div>
             </div>
@@ -769,7 +777,7 @@ export const SalesInvoiceModal: React.FC<SalesInvoiceModalProps> = ({
               </div>
             ) : (
               <div>
-                1. <strong>Payment Terms:</strong> Remittance strictly via Crossed Cheque or Direct Bank Transfer in favor of <strong>SHEHSWAR CHEMICALS & AGRO-FERTILIZERS (PVT) LTD</strong>. Cash payment to field reps without official computerized receipt is strictly unacknowledged.<br />
+                1. <strong>Payment Terms:</strong> Remittance strictly via Crossed Cheque or Direct Bank Transfer in favor of <strong>{branding.name}</strong>. Cash payment to field reps without official computerized receipt is strictly unacknowledged.<br />
                 2. <strong>Warranty:</strong> Agrochemical formulations strictly conform to registered chemical assay standards. Claims for transit breakage or leakage must be notified within 48 hours of dispatch.
               </div>
             )}

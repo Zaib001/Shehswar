@@ -2,6 +2,7 @@
  * SHEHSWAR ONE360 - Backend API Entry Point
  */
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
@@ -11,9 +12,13 @@ import { logger } from '@shehswar/logger';
 async function bootstrap() {
   const config = getConfig();
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
+
+  // Increase JSON / URL-encoded body limit to allow company logo uploads (base64 data URLs)
+  app.useBodyParser('json', { limit: '5mb' });
+  app.useBodyParser('urlencoded', { limit: '5mb', extended: true });
 
   // Enable graceful shutdown hooks
   app.enableShutdownHooks();

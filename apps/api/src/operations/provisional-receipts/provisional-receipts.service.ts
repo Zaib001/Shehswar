@@ -1006,7 +1006,7 @@ export class ProvisionalReceiptsService {
     const pr = await client.provisionalReceipt.findUnique({
       where: { id },
       include: {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, legalName: true, logoUrl: true, taxId: true, strnId: true, address: true, phone: true } },
         dealer: {
           select: {
             id: true,
@@ -1151,7 +1151,7 @@ export class ProvisionalReceiptsService {
     return this.prisma.provisionalReceipt.findMany({
       where,
       include: {
-        company: { select: { id: true, code: true, name: true } },
+        company: { select: { id: true, code: true, name: true, legalName: true, logoUrl: true, taxId: true, strnId: true, address: true, phone: true } },
         dealer: { select: { id: true, code: true, name: true } },
         region: { select: { id: true, code: true, name: true } },
         territory: { select: { id: true, code: true, name: true } },

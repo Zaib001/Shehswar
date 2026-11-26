@@ -9,7 +9,7 @@
  * 5. Order Control & Traceability Audit Report
  * 6. Group & Multi-Company Consolidated Drill-Down Report
  */
-import { SHEHSWAR_LOGO_BASE64 } from './shehswar-logo-base64';
+import { resolveCompanyBranding } from './company-branding';
 
 // Helper: Download CSV in browser
 export function downloadCsv(filename: string, headers: string[], rows: (string | number | boolean | null | undefined)[][]) {
@@ -36,12 +36,23 @@ export function downloadCsv(filename: string, headers: string[], rows: (string |
 }
 
 // Helper: Open printable letterhead window
-function openPrintWindow(title: string, bodyContent: string, isLandscape = true) {
+function openPrintWindow(
+  title: string,
+  bodyContent: string,
+  isLandscape = true,
+  brandingOverride?: { companyName?: string | null; companyLogo?: string | null },
+) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
     alert('Please allow popups to view and download the official PDF report.');
     return;
   }
+
+  const branding = resolveCompanyBranding({
+    companyName: brandingOverride?.companyName,
+    companyLogo: brandingOverride?.companyLogo,
+    defaultDivision: 'Enterprise ERP & Accounting Source of Truth',
+  });
 
   const generatedAt = new Date().toLocaleString('en-US', {
     dateStyle: 'medium',
@@ -233,16 +244,16 @@ function openPrintWindow(title: string, bodyContent: string, isLandscape = true)
   <div class="page-container">
     <div class="header">
       <div class="logo-block">
-        <img class="logo-img" src="${SHEHSWAR_LOGO_BASE64}" alt="Shehswar Logo" />
+        <img class="logo-img" src="${branding.logo}" alt="${branding.name}" />
         <div>
-          <div class="brand-title">SHEHSWAR GROUP</div>
-          <div class="brand-subtitle">Enterprise ERP & Accounting Source of Truth</div>
+          <div class="brand-title">${branding.name}</div>
+          <div class="brand-subtitle">${branding.metaLine}</div>
         </div>
       </div>
       <div class="meta-block">
         <div class="report-name">${title}</div>
         <div class="meta-line">Generated: <strong>${generatedAt}</strong></div>
-        <div class="meta-line">System: <strong>Shehswar ONE360 Core</strong></div>
+        <div class="meta-line">Entity: <strong>${branding.name}</strong></div>
       </div>
     </div>
 
@@ -255,7 +266,7 @@ function openPrintWindow(title: string, bodyContent: string, isLandscape = true)
     </div>
 
     <div class="footer">
-      <div>Official Authoritative Ledger Output • Shehswar ONE360 ERP</div>
+      <div>Official Authoritative Ledger Output • ${branding.name}</div>
       <div>Confidential • For Internal Management Use Only</div>
     </div>
   </div>
@@ -334,9 +345,10 @@ export function exportEmployeeCostReportPdf(data: {
     })
     .join('');
 
+  const branding = resolveCompanyBranding({ companyName: data.companyName });
   const body = `
     <div class="notice">
-      <strong>Company:</strong> ${data.companyName || 'Shehswar Agrochemicals'} &nbsp;|&nbsp;
+      <strong>Company:</strong> ${branding.name} &nbsp;|&nbsp;
       <strong>Reporting Period:</strong> ${data.period || 'All Time / Year-to-Date'} &nbsp;|&nbsp;
       <strong>Cost Policy:</strong> Maximum allowable cost ceiling = 13.00% &nbsp;|&nbsp;
       <strong>Asset Rule:</strong> Vehicle bearings & asset maintenance strictly isolated from employee cost.
@@ -366,7 +378,7 @@ export function exportEmployeeCostReportPdf(data: {
     </table>
   `;
 
-  openPrintWindow('Employee Cost vs Sales Performance Report', body, true);
+  openPrintWindow('Employee Cost vs Sales Performance Report', body, true, { companyName: branding.name });
 }
 
 export function exportEmployeeCostReportCsv(employees: any[], filename = 'Employee_Cost_vs_Sales_Report') {
@@ -999,9 +1011,10 @@ export function exportConsolidatedDrillDownReportPdf(data: {
 
   const breadcrumbsTrail = (data.breadcrumbs || []).map((b) => b.name).join(' → ');
 
+  const branding = resolveCompanyBranding();
   const body = `
     <div class="notice">
-      <strong>Hierarchy Scope:</strong> ${data.scopeTitle || 'Shehswar Group Consolidated'} &nbsp;|&nbsp;
+      <strong>Hierarchy Scope:</strong> ${data.scopeTitle || `${branding.name} Consolidated`} &nbsp;|&nbsp;
       <strong>Period:</strong> ${data.period || 'Current Fiscal Period'} &nbsp;|&nbsp;
       <strong>Path:</strong> ${breadcrumbsTrail || 'Consolidated Group Root'}
     </div>
